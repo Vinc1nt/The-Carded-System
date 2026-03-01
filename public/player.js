@@ -13,11 +13,14 @@ const els = {
   stats: document.getElementById('playerStats'),
   cardList: document.getElementById('playerCardList'),
   logList: document.getElementById('playerLogList'),
-  turnInfo: document.getElementById('playerTurnInfo')
+  turnInfo: document.getElementById('playerTurnInfo'),
+  cardForm: document.getElementById('playerCardForm'),
+  cardDrawer: document.getElementById('playerCardDrawer')
 };
 
 document.addEventListener('DOMContentLoaded', () => {
   wireSelect();
+  wirePlayerCardForm();
   subscribe();
   fetchState();
 });
@@ -27,6 +30,26 @@ function wireSelect() {
     focusId = els.select.value || null;
     updateUrl();
     render();
+  });
+}
+
+function wirePlayerCardForm() {
+  const form = els.cardForm;
+  if (!form) return;
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const participant = getFocusedParticipant();
+    if (!participant) {
+      notify('Select a combatant first.');
+      return;
+    }
+    const formData = new FormData(form);
+    const newCard = buildPlayerCardFromForm(formData);
+    const latest = getParticipantSnapshot(participant.id) || participant;
+    const updatedCards = [...(latest.cards || []), newCard];
+    await patchParticipant(participant.id, { cards: updatedCards });
+    form.reset();
+    fetchState();
   });
 }
 
@@ -503,8 +526,13 @@ function wirePlayerSheetEvents(participant) {
   });
 }
 
+function getParticipantSnapshot(participantId) {
+  if (!participantId) return null;
+  return state.encounter.participants?.find((participant) => participant.id === participantId) || null;
+}
+
 function getFocusedParticipant() {
-  return state.encounter.participants?.find((participant) => participant.id === focusId) || null;
+  return getParticipantSnapshot(focusId);
 }
 
 function getCurrentParticipant() {
@@ -529,6 +557,81 @@ async function patchParticipant(participantId, payload) {
   } catch (err) {
     notify(err.message);
   }
+}
+
+function buildPlayerCardFromForm(formData) {
+  const card = {
+    name: formData.get('name'),
+    set: formData.get('set') || '',
+    type: formData.get('type') || 'Attack',
+    tier: formData.get('tier') || 'Common',
+    apCost: formData.get('apCost'),
+    range: formData.get('range'),
+    tags: formData.get('tags') || '',
+    effect: formData.get('effect') || '',
+    healthBonus: formData.get('healthBonus'),
+    modifiers: {
+      maxHp: formData.get('modMaxHp'),
+      maxShield: formData.get('modMaxShield'),
+      apMax: formData.get('modApMax'),
+      guardRestore: formData.get('modGuard'),
+      damageBonus: formData.get('modDamage')
+    }
+  };
+  return normalizeCardPayload(card);
+}
+
+function normalizeCardPayload(raw = {}) {
+  return {
+    id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+    name: (raw.name || 'Imported Card').trim(),
+    set: raw.set || '',
+    type: raw.type || 'Attack',
+    tier: raw.tier || 'Common',
+    apCost: toNumber(raw.apCost ?? raw.ap ?? 0),
+    range: toNumber(raw.range ?? 0),
+    healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
+    tags: normalizeTagList(raw.tags),
+    effect: raw.effect || '',
+    mastery: normalizeMasteryInput(raw.mastery),
+    fusion: raw.fusion || '',
+    modifiers: {
+      maxHp: toNumber(raw.modifiers?.maxHp ?? raw.modMaxHp ?? 0),
+      maxShield: toNumber(raw.modifiers?.maxShield ?? raw.modMaxShield ?? 0),
+      apMax: toNumber(raw.modifiers?.apMax ?? raw.modApMax ?? 0),
+      guardRestore: toNumber(raw.modifiers?.guardRestore ?? raw.modGuard ?? 0),
+      damageBonus: toNumber(raw.modifiers?.damageBonus ?? raw.modDamage ?? 0)
+    }
+  };
+}
+
+function normalizeTagList(tags) {
+  if (!tags) return [];
+  if (Array.isArray(tags)) {
+    return tags
+      .map((tag) => String(tag).trim())
+      .filter(Boolean);
+  }
+  return String(tags)
+    .split(/,|\n/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function normalizeMasteryInput(input) {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return input.map((line) => String(line).trim()).filter(Boolean);
+  }
+  return String(input)
+    .split(/\n|,/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function toNumber(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
 }
 
 async function api(path, method = 'GET', body) {

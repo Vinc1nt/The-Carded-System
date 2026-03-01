@@ -33,6 +33,56 @@
           <h2>Cards & Loadout</h2>
           <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
           <div class="player-section">
+            <details id="playerCardDrawer">
+              <summary>Add Card</summary>
+              <form id="playerCardForm" class="stacked-form">
+                <div class="form-row">
+                  <label>Name
+                    <input type="text" name="name" required />
+                  </label>
+                  <label>Set
+                    <input type="text" name="set" placeholder="Machine" />
+                  </label>
+                  <label>Type
+                    <input type="text" name="type" placeholder="Attack" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>AP Cost
+                    <input type="number" name="apCost" value="2" />
+                  </label>
+                  <label>Range
+                    <input type="number" name="range" value="5" />
+                  </label>
+                  <label>Max HP Bonus
+                    <input type="number" name="modMaxHp" value="0" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Max Shield Bonus
+                    <input type="number" name="modMaxShield" value="0" />
+                  </label>
+                  <label>AP Max Bonus
+                    <input type="number" name="modApMax" value="0" />
+                  </label>
+                  <label>Guard Bonus
+                    <input type="number" name="modGuard" value="0" />
+                  </label>
+                </div>
+                <label>Damage Bonus
+                  <input type="number" name="modDamage" value="0" />
+                </label>
+                <label>Tags
+                  <input type="text" name="tags" placeholder="Melee, Shield" />
+                </label>
+                <label>Effect
+                  <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
+                </label>
+                <button type="submit">Add Card</button>
+              </form>
+            </details>
+          </div>
+          <div class="player-section">
             <h3>Relics & Artifacts</h3>
             <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
             <form id="playerRelicForm" class="stacked-form">
@@ -56,54 +106,6 @@
                 </label>
               </div>
               <button type="submit">Add Relic</button>
-            </form>
-          </div>
-          <div class="player-section">
-            <h3>Add Card</h3>
-            <form id="playerCardForm" class="stacked-form">
-              <div class="form-row">
-                <label>Name
-                  <input type="text" name="name" required />
-                </label>
-                <label>Set
-                  <input type="text" name="set" placeholder="Machine" />
-                </label>
-                <label>Type
-                  <input type="text" name="type" placeholder="Attack" />
-                </label>
-              </div>
-              <div class="form-row">
-                <label>AP Cost
-                  <input type="number" name="apCost" value="2" />
-                </label>
-                <label>Range
-                  <input type="number" name="range" value="5" />
-                </label>
-                <label>Max HP Bonus
-                  <input type="number" name="modMaxHp" value="0" />
-                </label>
-              </div>
-              <div class="form-row">
-                <label>Max Shield Bonus
-                  <input type="number" name="modMaxShield" value="0" />
-                </label>
-                <label>AP Max Bonus
-                  <input type="number" name="modApMax" value="0" />
-                </label>
-                <label>Guard Bonus
-                  <input type="number" name="modGuard" value="0" />
-                </label>
-              </div>
-              <label>Damage Bonus
-                <input type="number" name="modDamage" value="0" />
-              </label>
-              <label>Tags
-                <input type="text" name="tags" placeholder="Melee, Shield" />
-              </label>
-              <label>Effect
-                <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
-              </label>
-              <button type="submit">Add Card</button>
             </form>
           </div>
         </section>

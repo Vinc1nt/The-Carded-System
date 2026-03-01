@@ -579,18 +579,20 @@ function wireDetailEvents(participant) {
     cardForm?.classList.toggle('hidden');
   });
   panel.querySelector('[data-card-import]')?.addEventListener('change', (event) => {
-    importCardsFromFile(event.currentTarget, participant);
+    importCardsFromFile(event.currentTarget, participant.id);
   });
   cardForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
     const newCard = buildCardFromForm(formData);
     try {
+      const latest = getParticipantSnapshot(participant.id) || participant;
       await api(`/api/participants/${participant.id}`, 'PATCH', {
-        cards: [...(participant.cards || []), newCard]
+        cards: [...(latest.cards || []), newCard]
       });
       event.target.reset();
       cardForm.classList.add('hidden');
+      fetchState();
     } catch (err) {
       notify(err.message);
     }
@@ -599,7 +601,8 @@ function wireDetailEvents(participant) {
   panel.querySelectorAll('[data-remove-card]').forEach((button, index) => {
     button.addEventListener('click', async () => {
       const cardId = button.dataset.removeCard;
-      const updated = (participant.cards || []).filter((card, idx) => {
+      const latest = getParticipantSnapshot(participant.id) || participant;
+      const updated = (latest.cards || []).filter((card, idx) => {
         if (card.id) {
           return card.id !== cardId;
         }
@@ -607,6 +610,7 @@ function wireDetailEvents(participant) {
       });
       try {
         await api(`/api/participants/${participant.id}`, 'PATCH', { cards: updated });
+        fetchState();
       } catch (err) {
         notify(err.message);
       }
@@ -746,8 +750,13 @@ function renderLog() {
     .join('');
 }
 
+function getParticipantSnapshot(participantId) {
+  if (!participantId) return null;
+  return state.encounter.participants?.find((entry) => entry.id === participantId) || null;
+}
+
 function getSelectedParticipant() {
-  return state.encounter.participants?.find((entry) => entry.id === selectedParticipantId) || null;
+  return getParticipantSnapshot(selectedParticipantId);
 }
 
 async function handleStandardAction(actionId) {
@@ -794,7 +803,7 @@ function buildCardFromForm(formData) {
   return normalizeCardPayload(card);
 }
 
-async function importCardsFromFile(input, participant) {
+async function importCardsFromFile(input, participantId) {
   const file = input.files?.[0];
   if (!file) return;
   try {
@@ -805,10 +814,13 @@ async function importCardsFromFile(input, participant) {
       notify('No cards found in file.');
       return;
     }
-    await api(`/api/participants/${participant.id}`, 'PATCH', {
-      cards: [...(participant.cards || []), ...imported]
+    const latest = getParticipantSnapshot(participantId);
+    const existingCards = latest?.cards || [];
+    await api(`/api/participants/${participantId}`, 'PATCH', {
+      cards: [...existingCards, ...imported]
     });
     notify(`Imported ${imported.length} card${imported.length === 1 ? '' : 's'}.`);
+    fetchState();
   } catch (err) {
     notify(`Card import failed: ${err.message}`);
   } finally {
