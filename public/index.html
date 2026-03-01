@@ -32,10 +32,10 @@
               <h2>Turn Order</h2>
               <button type="button" id="refreshState">Refresh</button>
             </div>
-            <div id="turnList" class="turn-list empty-state">No combatants yet.</div>
-            <div id="addDrawer" class="drawer">
-              <form id="addParticipantForm" class="stacked-form">
-                <h3>Add Combatant</h3>
+          <div id="turnList" class="turn-list empty-state">No combatants yet.</div>
+          <div id="addDrawer" class="drawer">
+            <form id="addParticipantForm" class="stacked-form">
+              <h3>Add Combatant</h3>
                 <div class="form-row">
                   <label>Name
                     <input name="name" type="text" placeholder="Bladewalker" required />
@@ -61,9 +61,16 @@
                   </label>
                 </div>
                 <button type="submit" class="primary">Add Combatant</button>
-              </form>
+            </form>
+            <div class="import-export">
+              <button type="button" id="downloadEncounter">Download Encounter</button>
+              <label class="file-upload">
+                Import Encounter
+                <input type="file" id="uploadEncounter" accept="application/json" />
+              </label>
             </div>
-          </section>
+          </div>
+        </section>
         </aside>
         <section class="detail-column">
           <div id="detailPanel" class="panel detail-panel empty-state">

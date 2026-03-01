@@ -16,6 +16,13 @@
         <label class="player-select">Watching
           <select id="playerSelect"></select>
         </label>
+        <div class="player-tools">
+          <button type="button" id="downloadCharacter">Download Character</button>
+          <label class="file-upload">
+            Import Character
+            <input type="file" id="uploadCharacter" accept="application/json" />
+          </label>
+        </div>
         <div class="player-turn" id="playerTurnInfo">Waiting for data…</div>
       </header>
       <main class="layout-grid player-grid">
@@ -49,6 +56,54 @@
                 </label>
               </div>
               <button type="submit">Add Relic</button>
+            </form>
+          </div>
+          <div class="player-section">
+            <h3>Add Card</h3>
+            <form id="playerCardForm" class="stacked-form">
+              <div class="form-row">
+                <label>Name
+                  <input type="text" name="name" required />
+                </label>
+                <label>Set
+                  <input type="text" name="set" placeholder="Machine" />
+                </label>
+                <label>Type
+                  <input type="text" name="type" placeholder="Attack" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>AP Cost
+                  <input type="number" name="apCost" value="2" />
+                </label>
+                <label>Range
+                  <input type="number" name="range" value="5" />
+                </label>
+                <label>Max HP Bonus
+                  <input type="number" name="modMaxHp" value="0" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Max Shield Bonus
+                  <input type="number" name="modMaxShield" value="0" />
+                </label>
+                <label>AP Max Bonus
+                  <input type="number" name="modApMax" value="0" />
+                </label>
+                <label>Guard Bonus
+                  <input type="number" name="modGuard" value="0" />
+                </label>
+              </div>
+              <label>Damage Bonus
+                <input type="number" name="modDamage" value="0" />
+              </label>
+              <label>Tags
+                <input type="text" name="tags" placeholder="Melee, Shield" />
+              </label>
+              <label>Effect
+                <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
+              </label>
+              <button type="submit">Add Card</button>
             </form>
           </div>
         </section>

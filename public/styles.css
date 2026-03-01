@@ -215,6 +215,28 @@ button.danger {
   display: none !important;
 }
 
+.import-export {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.file-upload {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.file-upload input {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+}
+
 .collapsible-block {
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 14px;
@@ -454,10 +476,6 @@ textarea {
   font-weight: 600;
 }
 
-.player-table input[type='checkbox'] {
-  pointer-events: none;
-}
-
 .set-block {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 10px;
@@ -580,6 +598,13 @@ textarea {
   font-size: 1rem;
   font-weight: 600;
   color: var(--accent);
+}
+
+.player-tools {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .reference-list {

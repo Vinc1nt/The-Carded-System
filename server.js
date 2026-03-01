@@ -181,6 +181,21 @@ async function handleApi(req, res, pathname, method) {
       return sendJson(res, { state: trackerState });
     }
 
+    if (method === 'GET' && pathname === '/api/export/encounter') {
+      return sendJson(res, { encounter: trackerState.encounter });
+    }
+
+    if (method === 'POST' && pathname === '/api/import/encounter') {
+      const body = await readBody(req);
+      if (!body?.encounter) {
+        return sendJson(res, { error: 'Encounter payload required' }, 400);
+      }
+      importEncounter(body.encounter);
+      touchState();
+      broadcastState('encounter_imported');
+      return sendJson(res, { encounter: trackerState.encounter });
+    }
+
     if (method === 'POST' && pathname === '/api/participants') {
       const body = await readBody(req);
       const participant = createParticipant(body);
@@ -200,6 +215,10 @@ async function handleApi(req, res, pathname, method) {
       if (!participant) {
         return sendJson(res, { error: 'Participant not found' }, 404);
       }
+
+       if (method === 'GET' && subresource === 'export') {
+         return sendJson(res, { participant });
+       }
 
       if (method === 'PATCH' && !subresource) {
         const body = await readBody(req);
@@ -230,6 +249,20 @@ async function handleApi(req, res, pathname, method) {
         broadcastState('participant_adjusted');
         return sendJson(res, { participant });
       }
+    }
+
+    if (method === 'POST' && pathname === '/api/import/participant') {
+      const body = await readBody(req);
+      if (!body?.participant) {
+        return sendJson(res, { error: 'Participant payload required' }, 400);
+      }
+      const participant = createParticipant(body.participant);
+      trackerState.encounter.participants.push(participant);
+      sortParticipants();
+      ensureCurrentIndex();
+      touchState();
+      broadcastState('participant_imported');
+      return sendJson(res, { participant });
     }
 
     if (method === 'POST' && pathname === '/api/turn/next') {
@@ -440,7 +473,7 @@ function sanitizeParticipantUpdate(body, current) {
     };
   }
   if (Array.isArray(body.relics)) {
-    update.relics = body.relics;
+    update.relics = normalizeRelics(body.relics);
   }
   return update;
 }
@@ -485,7 +518,7 @@ function createParticipant(body = {}) {
     proficiencyBonus: typeof body.proficiencyBonus === 'number' ? body.proficiencyBonus : 2,
     savingThrows: normalizeSavingThrows(body.savingThrows),
     skills: normalizeSkills(body.skills),
-    relics: Array.isArray(body.relics) ? body.relics : [],
+    relics: normalizeRelics(body.relics),
     guardUsedThisTurn: false,
     guardRestore: baseStats.guardRestore,
     damageBonus: baseStats.damageBonus,
@@ -733,6 +766,61 @@ function normalizeSkills(value) {
   return normalized;
 }
 
+function normalizeRelics(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((relic, index) => ({
+    id: relic.id || randomUUID(),
+    name: relic.name?.trim() || `Relic ${index + 1}`,
+    ability: relic.ability || '',
+    description: relic.description || '',
+    modifiers: normalizeModifiers(relic.modifiers || {}),
+    hp: typeof relic.hp === 'number' ? relic.hp : 0,
+    ap: typeof relic.ap === 'number' ? relic.ap : 0
+  }));
+}
+
+function defaultSavingThrows() {
+  const defaults = {};
+  for (const key of ABILITY_KEYS) {
+    defaults[key] = false;
+  }
+  return defaults;
+}
+
+function normalizeSavingThrows(value) {
+  const normalized = defaultSavingThrows();
+  if (!value || typeof value !== 'object') return normalized;
+  for (const key of ABILITY_KEYS) {
+    if (typeof value[key] === 'boolean') {
+      normalized[key] = value[key];
+    }
+  }
+  return normalized;
+}
+
+function defaultSkills() {
+  const defaults = {};
+  for (const key of SKILL_KEYS) {
+    defaults[key] = { proficient: false, expert: false };
+  }
+  return defaults;
+}
+
+function normalizeSkills(value) {
+  const normalized = defaultSkills();
+  if (!value || typeof value !== 'object') return normalized;
+  for (const key of SKILL_KEYS) {
+    const entry = value[key];
+    if (entry && typeof entry === 'object') {
+      normalized[key] = {
+        proficient: Boolean(entry.proficient),
+        expert: Boolean(entry.expert)
+      };
+    }
+  }
+  return normalized;
+}
+
 function ensureBaseStats(participant) {
   if (!participant.baseStats) {
     participant.baseStats = {
@@ -798,6 +886,7 @@ function recalculateParticipant(participant) {
   const base = ensureBaseStats(participant);
   const totals = createZeroModifier();
   const cardModifiers = [];
+  participant.relics = normalizeRelics(participant.relics);
   for (const card of participant.cards || []) {
     const modifiers = normalizeModifiers(card.modifiers);
     if (hasModifierValue(modifiers)) {
@@ -806,6 +895,16 @@ function recalculateParticipant(participant) {
         name: card.name,
         modifiers
       });
+    }
+    addModifierTotals(totals, modifiers);
+  }
+  for (const relic of participant.relics || []) {
+    const modifiers = normalizeModifiers(relic.modifiers);
+    if (typeof relic.hp === 'number') {
+      modifiers.maxHp += relic.hp;
+    }
+    if (typeof relic.ap === 'number') {
+      modifiers.apMax += relic.ap;
     }
     addModifierTotals(totals, modifiers);
   }
@@ -838,4 +937,24 @@ function recalculateParticipant(participant) {
     setBonuses: appliedBonuses
   };
   clampParticipant(participant);
+}
+
+function importEncounter(encounter = {}) {
+  trackerState.encounter = {
+    name: encounter.name || 'Imported Encounter',
+    round: Number(encounter.round) || 1,
+    started: Boolean(encounter.started),
+    participants: [],
+    currentIndex: -1,
+    log: Array.isArray(encounter.log) ? encounter.log.slice(-200) : []
+  };
+  const participants = Array.isArray(encounter.participants)
+    ? encounter.participants.map((raw) => createParticipant(raw))
+    : [];
+  trackerState.encounter.participants = participants;
+  const importedIndex = typeof encounter.currentIndex === 'number' ? encounter.currentIndex : -1;
+  trackerState.encounter.currentIndex =
+    participants.length === 0 ? -1 : Math.min(Math.max(importedIndex, 0), participants.length - 1);
+  sortParticipants();
+  ensureCurrentIndex();
 }
