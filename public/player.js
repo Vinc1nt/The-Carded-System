@@ -119,6 +119,12 @@ function renderStats() {
       <label>AP
         <div class="stat-callout">${participant.apCurrent} / ${participant.apMax}</div>
       </label>
+      <label>Guard Restore
+        <div class="stat-callout">${participant.guardRestore || 3}</div>
+      </label>
+      <label>Damage Bonus
+        <div class="stat-callout">${participant.damageBonus || 0}</div>
+      </label>
     </div>
     <div class="stats-grid">
       ${renderAbility(statEntry('STR', stats.strength))}
@@ -179,6 +185,7 @@ function renderCards() {
           ${card.mastery?.length ? `<p>Mastery: ${card.mastery.join(' / ')}</p>` : ''}
           ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
           ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
+          <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
         </article>`
     )
     .join('');
@@ -238,6 +245,25 @@ function renderActionReference() {
   return actions
     .map((action) => `<li><strong>${action.label}</strong>: ${action.summary}</li>`)
     .join('');
+}
+
+function summarizeModifiers(modifiers = {}) {
+  const labels = {
+    maxHp: 'HP',
+    maxShield: 'Shield',
+    apMax: 'AP',
+    guardRestore: 'Guard',
+    damageBonus: 'Damage'
+  };
+  const summary = Object.entries(labels)
+    .map(([key, label]) => {
+      const value = modifiers[key] || 0;
+      if (!value) return null;
+      return `${label} ${value > 0 ? '+' : ''}${value}`;
+    })
+    .filter(Boolean)
+    .join(', ');
+  return summary || '—';
 }
 
 function getFocusedParticipant() {

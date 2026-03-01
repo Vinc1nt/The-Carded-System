@@ -60,9 +60,8 @@ const STANDARD_ACTIONS = {
   guard: {
     id: 'guard',
     label: 'Guard',
-    summary: '2 AP → Restore 3 Shield (once/turn).',
+    summary: '2 AP → Restore Shield (once/turn).',
     apCost: 2,
-    shieldRestore: 3,
     logText: 'guards and restores shield.'
   },
   manual_swap: {
@@ -74,6 +73,49 @@ const STANDARD_ACTIONS = {
   }
 };
 
+const DEFAULT_GUARD_RESTORE = 3;
+const SET_LIBRARY = {
+  Machine: [
+    {
+      pieces: 3,
+      effect:
+        'Hardened Plating — +1 Max Shield. Guard restores +1 additional Shield (still capped).',
+      modifiers: { maxShield: 1, guardRestore: 1 }
+    },
+    {
+      pieces: 5,
+      effect:
+        'Servo Stride — Once per turn, your first 10 ft of movement costs 0 AP (first 5 ft in Difficult Terrain).',
+      modifiers: {}
+    },
+    {
+      pieces: 7,
+      effect:
+        'Auto-Loader — After you play a Machine card, your next Machine Attack this turn costs 1 less AP (min 1).',
+      modifiers: {}
+    },
+    {
+      pieces: 10,
+      effect:
+        'Overclock Protocol (1/combat) — Gain +2 AP and +1 damage to Machine Attacks this turn; end of turn become Weakened 1.',
+      modifiers: { apMax: 0 }
+    }
+  ],
+  Elemental: [],
+  Goblinoid: [],
+  Human: []
+};
+
+function buildReferenceData() {
+  return {
+    standardActions: Object.values(STANDARD_ACTIONS),
+    sets: Object.entries(SET_LIBRARY).map(([name, bonuses]) => ({
+      name,
+      bonuses
+    }))
+  };
+}
+
 const trackerState = {
   encounter: {
     name: 'Untitled Encounter',
@@ -83,9 +125,7 @@ const trackerState = {
     currentIndex: -1,
     log: []
   },
-  reference: {
-    standardActions: Object.values(STANDARD_ACTIONS)
-  },
+  reference: buildReferenceData(),
   updatedAt: new Date().toISOString()
 };
 
@@ -142,7 +182,7 @@ async function handleApi(req, res, pathname, method) {
       if (method === 'PATCH' && !subresource) {
         const body = await readBody(req);
         Object.assign(participant, sanitizeParticipantUpdate(body, participant));
-        clampParticipant(participant);
+        recalculateParticipant(participant);
         sortParticipants();
         touchState();
         broadcastState('participant_updated');
@@ -163,6 +203,7 @@ async function handleApi(req, res, pathname, method) {
       if (method === 'POST' && subresource === 'adjust') {
         const body = await readBody(req);
         applyAdjustment(participant, body);
+        recalculateParticipant(participant);
         touchState();
         broadcastState('participant_adjusted');
         return sendJson(res, { participant });
@@ -277,10 +318,11 @@ function executeStandardAction(body) {
   participant.apCurrent = Math.max(0, participant.apCurrent - action.apCost);
   if (action.id === 'guard') {
     const before = participant.shield;
-    participant.shield = Math.min(participant.maxShield, participant.shield + action.shieldRestore);
+    const restoreAmount = participant.guardRestore ?? DEFAULT_GUARD_RESTORE;
+    participant.shield = Math.min(participant.maxShield, participant.shield + restoreAmount);
     participant.guardUsedThisTurn = true;
     pushLog(
-      `${participant.name} guards (${before} → ${participant.shield} Shield).`,
+      `${participant.name} guards (${before} → ${participant.shield} Shield, +${restoreAmount}).`,
       participant.id
     );
   } else {
@@ -316,18 +358,40 @@ function sanitizeParticipantUpdate(body, current) {
   const update = {};
   const numericFields = [
     'initiative',
-    'apMax',
     'apCurrent',
     'hp',
-    'maxHp',
     'shield',
-    'maxShield',
     'mastery'
   ];
   for (const field of numericFields) {
     if (typeof body[field] === 'number') {
       update[field] = body[field];
     }
+  }
+  const baseStats = { ...(current.baseStats || {}) };
+  let baseChanged = false;
+  if (typeof body.apMax === 'number') {
+    baseStats.apMax = body.apMax;
+    baseChanged = true;
+  }
+  if (typeof body.maxHp === 'number') {
+    baseStats.maxHp = body.maxHp;
+    baseChanged = true;
+  }
+  if (typeof body.maxShield === 'number') {
+    baseStats.maxShield = body.maxShield;
+    baseChanged = true;
+  }
+  if (typeof body.baseGuardRestore === 'number') {
+    baseStats.guardRestore = body.baseGuardRestore;
+    baseChanged = true;
+  }
+  if (typeof body.baseDamageBonus === 'number') {
+    baseStats.damageBonus = body.baseDamageBonus;
+    baseChanged = true;
+  }
+  if (baseChanged) {
+    update.baseStats = baseStats;
   }
   if (typeof body.name === 'string') update.name = body.name;
   if (typeof body.setFocus === 'string') update.setFocus = body.setFocus;
@@ -346,7 +410,14 @@ function createParticipant(body = {}) {
   const apMax = typeof body.apMax === 'number' ? body.apMax : 6;
   const maxHp = typeof body.maxHp === 'number' ? body.maxHp : 20;
   const maxShield = typeof body.maxShield === 'number' ? body.maxShield : 0;
-  return {
+  const baseStats = {
+    apMax,
+    maxHp,
+    maxShield,
+    guardRestore: typeof body.baseGuardRestore === 'number' ? body.baseGuardRestore : DEFAULT_GUARD_RESTORE,
+    damageBonus: typeof body.baseDamageBonus === 'number' ? body.baseDamageBonus : 0
+  };
+  const participant = {
     id,
     name: body.name?.trim() || `Combatant ${trackerState.encounter.participants.length + 1}`,
     initiative: typeof body.initiative === 'number' ? body.initiative : 0,
@@ -371,8 +442,19 @@ function createParticipant(body = {}) {
       charisma: 0,
       ...(body.stats || {})
     },
-    guardUsedThisTurn: false
+    guardUsedThisTurn: false,
+    guardRestore: baseStats.guardRestore,
+    damageBonus: baseStats.damageBonus,
+    baseStats,
+    derivedBonuses: {
+      base: baseStats,
+      totals: createZeroModifier(),
+      cardModifiers: [],
+      setBonuses: []
+    }
   };
+  recalculateParticipant(participant);
+  return participant;
 }
 
 function sortParticipants() {
@@ -553,4 +635,121 @@ function touchState() {
 
 function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function createZeroModifier() {
+  return {
+    apMax: 0,
+    maxHp: 0,
+    maxShield: 0,
+    guardRestore: 0,
+    damageBonus: 0
+  };
+}
+
+function ensureBaseStats(participant) {
+  if (!participant.baseStats) {
+    participant.baseStats = {
+      apMax: participant.apMax ?? 6,
+      maxHp: participant.maxHp ?? 20,
+      maxShield: participant.maxShield ?? 0,
+      guardRestore: participant.guardRestore ?? DEFAULT_GUARD_RESTORE,
+      damageBonus: participant.damageBonus ?? 0
+    };
+  }
+  return participant.baseStats;
+}
+
+function normalizeModifiers(modifiers = {}) {
+  const normalized = createZeroModifier();
+  if (!modifiers) return normalized;
+  for (const key of Object.keys(normalized)) {
+    if (typeof modifiers[key] === 'number') {
+      normalized[key] = modifiers[key];
+    }
+  }
+  return normalized;
+}
+
+function hasModifierValue(modifiers) {
+  return Object.values(modifiers).some((value) => value !== 0);
+}
+
+function addModifierTotals(target, addition) {
+  for (const key of Object.keys(target)) {
+    target[key] += addition[key] || 0;
+  }
+}
+
+function computeSetBonuses(participant) {
+  const counts = {};
+  for (const card of participant.cards || []) {
+    if (!card.set) continue;
+    counts[card.set] = (counts[card.set] || 0) + 1;
+  }
+  const appliedBonuses = [];
+  const totals = createZeroModifier();
+  for (const [setName, count] of Object.entries(counts)) {
+    const definitions = SET_LIBRARY[setName];
+    if (!definitions) continue;
+    definitions.forEach((bonus) => {
+      if (count >= bonus.pieces) {
+        const modifiers = normalizeModifiers(bonus.modifiers);
+        appliedBonuses.push({
+          set: setName,
+          pieces: bonus.pieces,
+          effect: bonus.effect,
+          modifiers
+        });
+        addModifierTotals(totals, modifiers);
+      }
+    });
+  }
+  return { appliedBonuses, setTotals: totals };
+}
+
+function recalculateParticipant(participant) {
+  const base = ensureBaseStats(participant);
+  const totals = createZeroModifier();
+  const cardModifiers = [];
+  for (const card of participant.cards || []) {
+    const modifiers = normalizeModifiers(card.modifiers);
+    if (hasModifierValue(modifiers)) {
+      cardModifiers.push({
+        cardId: card.id,
+        name: card.name,
+        modifiers
+      });
+    }
+    addModifierTotals(totals, modifiers);
+  }
+  const { appliedBonuses, setTotals } = computeSetBonuses(participant);
+  addModifierTotals(totals, setTotals);
+
+  participant.apMax = Math.max(1, Math.round((base.apMax ?? 0) + totals.apMax));
+  participant.apCurrent = clampNumber(
+    participant.apCurrent ?? participant.apMax,
+    0,
+    participant.apMax
+  );
+  participant.maxHp = Math.max(1, Math.round((base.maxHp ?? 0) + totals.maxHp));
+  participant.hp = clampNumber(participant.hp ?? participant.maxHp, 0, participant.maxHp);
+  participant.maxShield = Math.max(0, Math.round((base.maxShield ?? 0) + totals.maxShield));
+  participant.shield = clampNumber(
+    participant.shield ?? participant.maxShield,
+    0,
+    participant.maxShield
+  );
+  participant.guardRestore = Math.max(
+    1,
+    Math.round((base.guardRestore ?? DEFAULT_GUARD_RESTORE) + totals.guardRestore)
+  );
+  participant.damageBonus = Math.round((base.damageBonus ?? 0) + totals.damageBonus);
+  participant.derivedBonuses = {
+    base,
+    totals,
+    cardModifiers,
+    setBonuses: appliedBonuses
+  };
+  clampParticipant(participant);
 }

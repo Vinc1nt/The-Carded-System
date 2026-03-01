@@ -10,99 +10,75 @@
     <div class="app-shell">
       <header class="top-bar">
         <div class="encounter-meta">
-          <h1>The Carded System Tracker</h1>
-          <div class="meta-row">
-            <span>Round <strong data-round>1</strong></span>
-            <span>Combatants <strong data-count>0</strong></span>
-          </div>
-          <div id="currentTurnSummary" class="current-turn-summary">No combatants yet.</div>
+          <div class="meta-label">Round</div>
+          <div class="meta-value" data-round>1</div>
+          <div class="meta-label">Combatants</div>
+          <div class="meta-value" data-count>0</div>
         </div>
         <div class="turn-controls">
           <button type="button" id="startEncounter">Start Encounter</button>
-          <button type="button" id="prevTurn">Previous Turn</button>
+          <button type="button" id="prevTurn">Prev Turn</button>
           <button type="button" class="primary" id="nextTurn">Next Turn</button>
         </div>
-        <div class="player-window-link">
+        <div class="header-actions">
+          <button type="button" id="toggleAddForm">Add Combatant</button>
           <a href="/player" target="_blank" rel="noopener noreferrer">Open Player Dashboard</a>
         </div>
       </header>
-
-      <main class="layout-grid">
-        <section class="panel">
-          <div class="panel-header">
-            <h2>Turn Order</h2>
-          </div>
-          <div id="turnList" class="turn-list empty-state">No combatants yet.</div>
-          <form id="addParticipantForm" class="stacked-form">
-            <h3>Add Combatant</h3>
-            <div class="form-row">
-              <label>Name
-                <input name="name" type="text" placeholder="Bladewalker" required />
-              </label>
-              <label>Initiative
-                <input name="initiative" type="number" value="0" />
-              </label>
+      <main class="main-grid">
+        <aside class="turn-column">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Turn Order</h2>
+              <button type="button" id="refreshState">Refresh</button>
             </div>
-            <div class="form-row">
-              <label>Max HP
-                <input name="maxHp" type="number" value="20" />
-              </label>
-              <label>Max Shield
-                <input name="maxShield" type="number" value="0" />
-              </label>
+            <div id="turnList" class="turn-list empty-state">No combatants yet.</div>
+            <div id="addDrawer" class="drawer">
+              <form id="addParticipantForm" class="stacked-form">
+                <h3>Add Combatant</h3>
+                <div class="form-row">
+                  <label>Name
+                    <input name="name" type="text" placeholder="Bladewalker" required />
+                  </label>
+                  <label>Initiative
+                    <input name="initiative" type="number" value="0" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Base HP
+                    <input name="maxHp" type="number" value="20" />
+                  </label>
+                  <label>Base Shield
+                    <input name="maxShield" type="number" value="0" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Base AP
+                    <input name="apMax" type="number" value="6" />
+                  </label>
+                  <label>Set Focus
+                    <input name="setFocus" type="text" placeholder="Elemental" />
+                  </label>
+                </div>
+                <button type="submit" class="primary">Add Combatant</button>
+              </form>
             </div>
-            <div class="form-row">
-              <label>Max AP
-                <input name="apMax" type="number" value="6" />
-              </label>
-              <label>Set Focus
-                <input name="setFocus" type="text" placeholder="Elemental" />
-              </label>
+          </section>
+        </aside>
+        <section class="detail-column">
+          <div id="detailPanel" class="panel detail-panel empty-state">
+            Select a combatant to manage their turn, automation, and cards.
+          </div>
+          <section class="panel log-panel">
+            <div class="panel-header collapsible">
+              <h2>Action Log</h2>
+              <button type="button" id="toggleLog">Hide</button>
             </div>
-            <button type="submit" class="primary">Add Combatant</button>
-          </form>
-        </section>
-
-        <section class="panel">
-          <div class="panel-header">
-            <h2>Active Combatant</h2>
-          </div>
-          <div id="detailPanel" class="detail-panel empty-state">
-            Select a combatant to edit their stats, cards, and statuses.
-          </div>
-        </section>
-
-        <section class="panel action-panel">
-          <div class="panel-header">
-            <h2>Standard Actions</h2>
-          </div>
-          <label class="checkbox-row">
-            <input type="checkbox" id="difficultTerrain" />
-            <span>Difficult terrain (Move = 5 ft)</span>
-          </label>
-          <div id="standardActions" class="button-grid"></div>
-          <div class="rest-controls">
-            <button type="button" data-rest="short">Short Rest</button>
-            <button type="button" data-rest="long">Long Rest</button>
-          </div>
-          <form id="customActionForm" class="stacked-form">
-            <label>Log a custom action
-              <textarea name="text" rows="2" placeholder="Describe the action or ruling"></textarea>
-            </label>
-            <button type="submit">Log Entry</button>
-          </form>
-        </section>
-
-        <section class="panel log-panel">
-          <div class="panel-header">
-            <h2>Action Log</h2>
-            <button type="button" id="refreshState">Refresh</button>
-          </div>
-          <div id="logList" class="log-list"></div>
+            <div id="logList" class="log-list"></div>
+          </section>
         </section>
       </main>
     </div>
-
     <script type="module" src="/app.js"></script>
   </body>
 </html>
