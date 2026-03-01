@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Player Dashboard — Carded System</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell player-shell">
+      <header class="top-bar player-top">
+        <div>
+          <h1>Player Dashboard</h1>
+          <p class="muted">Real-time stats pulled from the encounter console.</p>
+        </div>
+        <label class="player-select">Watching
+          <select id="playerSelect"></select>
+        </label>
+        <div class="player-turn" id="playerTurnInfo">Waiting for data…</div>
+      </header>
+      <main class="layout-grid player-grid">
+        <section class="panel" id="playerStats">
+          <p class="empty-state">Choose a combatant to display stats.</p>
+        </section>
+        <section class="panel" id="playerCards">
+          <h2>Cards & Loadout</h2>
+          <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
+        </section>
+        <section class="panel log-panel" id="playerLog">
+          <div class="panel-header">
+            <h2>Recent Actions</h2>
+          </div>
+          <div id="playerLogList" class="log-list"></div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/player.js"></script>
+  </body>
+</html>

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Carded System — Encounter Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="top-bar">
+        <div class="encounter-meta">
+          <h1>The Carded System Tracker</h1>
+          <div class="meta-row">
+            <span>Round <strong data-round>1</strong></span>
+            <span>Combatants <strong data-count>0</strong></span>
+          </div>
+          <div id="currentTurnSummary" class="current-turn-summary">No combatants yet.</div>
+        </div>
+        <div class="turn-controls">
+          <button type="button" id="startEncounter">Start Encounter</button>
+          <button type="button" id="prevTurn">Previous Turn</button>
+          <button type="button" class="primary" id="nextTurn">Next Turn</button>
+        </div>
+        <div class="player-window-link">
+          <a href="/player" target="_blank" rel="noopener noreferrer">Open Player Dashboard</a>
+        </div>
+      </header>
+
+      <main class="layout-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Turn Order</h2>
+          </div>
+          <div id="turnList" class="turn-list empty-state">No combatants yet.</div>
+          <form id="addParticipantForm" class="stacked-form">
+            <h3>Add Combatant</h3>
+            <div class="form-row">
+              <label>Name
+                <input name="name" type="text" placeholder="Bladewalker" required />
+              </label>
+              <label>Initiative
+                <input name="initiative" type="number" value="0" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Max HP
+                <input name="maxHp" type="number" value="20" />
+              </label>
+              <label>Max Shield
+                <input name="maxShield" type="number" value="0" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Max AP
+                <input name="apMax" type="number" value="6" />
+              </label>
+              <label>Set Focus
+                <input name="setFocus" type="text" placeholder="Elemental" />
+              </label>
+            </div>
+            <button type="submit" class="primary">Add Combatant</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Active Combatant</h2>
+          </div>
+          <div id="detailPanel" class="detail-panel empty-state">
+            Select a combatant to edit their stats, cards, and statuses.
+          </div>
+        </section>
+
+        <section class="panel action-panel">
+          <div class="panel-header">
+            <h2>Standard Actions</h2>
+          </div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="difficultTerrain" />
+            <span>Difficult terrain (Move = 5 ft)</span>
+          </label>
+          <div id="standardActions" class="button-grid"></div>
+          <div class="rest-controls">
+            <button type="button" data-rest="short">Short Rest</button>
+            <button type="button" data-rest="long">Long Rest</button>
+          </div>
+          <form id="customActionForm" class="stacked-form">
+            <label>Log a custom action
+              <textarea name="text" rows="2" placeholder="Describe the action or ruling"></textarea>
+            </label>
+            <button type="submit">Log Entry</button>
+          </form>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-header">
+            <h2>Action Log</h2>
+            <button type="button" id="refreshState">Refresh</button>
+          </div>
+          <div id="logList" class="log-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
