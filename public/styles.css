@@ -215,6 +215,51 @@ button.danger {
   display: none !important;
 }
 
+.collapsible-block {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 14px;
+  padding: 0.6rem 0.85rem;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.collapsible-block + .collapsible-block {
+  margin-top: 0.9rem;
+}
+
+.collapsible-block summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.collapsible-block summary button {
+  flex-shrink: 0;
+}
+
+.collapsible-body {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.status-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.status-chip {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.78rem;
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;
@@ -380,6 +425,64 @@ textarea {
 
 .card-item button {
   margin-top: 0.5rem;
+}
+
+.player-sheet {
+  gap: 1.25rem;
+}
+
+.player-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.player-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.player-table th,
+.player-table td {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 0.35rem 0.4rem;
+  text-align: left;
+}
+
+.player-table th {
+  font-weight: 600;
+}
+
+.player-table input[type='checkbox'] {
+  pointer-events: none;
+}
+
+.set-block {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: rgba(2, 6, 23, 0.4);
+  margin-bottom: 0.75rem;
+}
+
+.set-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.set-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--muted);
+}
+
+.set-list li.active {
+  color: var(--accent);
 }
 
 .log-panel.collapsed #logList {

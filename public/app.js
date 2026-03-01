@@ -59,11 +59,7 @@ function wireGlobalEvents() {
 
   els.toggleLog?.addEventListener('click', () => {
     els.logPanel?.classList.toggle('collapsed');
-    if (els.logPanel?.classList.contains('collapsed')) {
-      els.toggleLog.textContent = 'Show';
-    } else {
-      els.toggleLog.textContent = 'Hide';
-    }
+    els.toggleLog.textContent = els.logPanel?.classList.contains('collapsed') ? 'Show' : 'Hide';
   });
 
   els.startEncounter?.addEventListener('click', () => api('/api/turn/start', 'POST'));
@@ -184,6 +180,7 @@ function renderDetailPanel() {
   els.detailPanel.classList.remove('empty-state');
   const automation = participant.derivedBonuses || {};
   const base = automation.base || participant.baseStats || {};
+
   els.detailPanel.innerHTML = `
     <div class="active-header">
       <div>
@@ -200,145 +197,208 @@ function renderDetailPanel() {
       ${renderVitalCard('Shield', participant.shield, participant.maxShield, 'shield')}
       ${renderVitalCard('AP', participant.apCurrent, participant.apMax, 'ap')}
     </div>
-    <section>
-      <div class="section-header">
-        <h3>Statuses</h3>
+    ${renderStatusSection(participant)}
+    ${renderActionsSection(participant)}
+    ${renderCardsSection(participant)}
+    ${renderAutomationSection(participant)}
+    ${renderAdvancedSection(participant, base)}
+  `;
+
+  wireDetailEvents(participant);
+}
+
+function renderVitalCard(label, current, max, key) {
+  return `
+    <div class="vital-card">
+      <h4>${label}</h4>
+      <div class="value">${current}/${max}</div>
+      <div class="stat-controls">
+        <button type="button" data-adjust-target="${key}" data-delta="-1">-1</button>
+        <button type="button" data-adjust-target="${key}" data-delta="1">+1</button>
+        <button type="button" data-adjust-target="${key}" data-reset="max">Reset</button>
       </div>
-      <div class="status-list">
-        ${renderStatuses(participant)}
-      </div>
-      <form data-form="status" class="stacked-form">
-        <div class="form-row">
-          <label>Name
-            <input type="text" name="name" placeholder="Bleeding" required />
-          </label>
-          <label>Severity
-            <select name="severity">
-              <option value="minor">Minor</option>
-              <option value="moderate">Moderate</option>
-              <option value="severe">Severe</option>
-            </select>
-          </label>
-          <label>Stacks
-            <input type="number" name="stacks" value="1" min="1" />
-          </label>
+    </div>`;
+}
+
+function renderStatusSection(participant) {
+  return `
+    <details class="collapsible-block" data-section="statuses">
+      <summary>
+        <div>
+          <strong>Statuses</strong>
+          <div class="status-summary">${renderStatusSummary(participant)}</div>
         </div>
-        <label>Notes
-          <input type="text" name="notes" placeholder="Ends on save DC 14" />
-        </label>
-        <button type="submit">Add Status</button>
-      </form>
-    </section>
-    <section class="stacked-form">
-      <div class="section-header">
-        <h3>Standard Actions</h3>
+        <button type="button" data-toggle-status-form>Add Status</button>
+      </summary>
+      <div class="collapsible-body">
+        <div class="status-list">
+          ${renderStatuses(participant)}
+        </div>
+        <form data-form="status" class="stacked-form hidden">
+          <div class="form-row">
+            <label>Name
+              <input type="text" name="name" placeholder="Bleeding" required />
+            </label>
+            <label>Severity
+              <select name="severity">
+                <option value="minor">Minor</option>
+                <option value="moderate">Moderate</option>
+                <option value="severe">Severe</option>
+              </select>
+            </label>
+            <label>Stacks
+              <input type="number" name="stacks" value="1" min="1" />
+            </label>
+          </div>
+          <label>Notes
+            <input type="text" name="notes" placeholder="Ends on save DC 14" />
+          </label>
+          <button type="submit">Add Status</button>
+        </form>
+      </div>
+    </details>
+  `;
+}
+
+function renderActionsSection(participant) {
+  return `
+    <details class="collapsible-block" data-section="actions">
+      <summary>
+        <strong>Standard Actions</strong>
+      </summary>
+      <div class="collapsible-body">
         <label class="checkbox-row">
           <input type="checkbox" id="difficultTerrain" />
           <span>Difficult terrain (Move = 5 ft)</span>
         </label>
-      </div>
-      <div class="button-grid" id="standardActions">
-        ${renderStandardActionButtons()}
-      </div>
-      <div class="rest-controls">
-        <button type="button" data-rest="short">Short Rest</button>
-        <button type="button" data-rest="long">Long Rest</button>
-      </div>
-      <form id="customActionForm">
-        <label>Log a custom action
-          <textarea name="text" rows="2" placeholder="Describe the action or ruling"></textarea>
-        </label>
-        <button type="submit">Log Entry</button>
-      </form>
-    </section>
-    <section class="automation-summary">
-      <h3>Automation</h3>
-      <p class="muted">Guard restores <strong>${participant.guardRestore}</strong> Shield. Damage bonus: <strong>${participant.damageBonus || 0}</strong>.</p>
-      <div>
-        <strong>Card modifiers</strong>
-        <ul>
-          ${renderAutomationList(automation.cardModifiers, 'card')}
-        </ul>
-      </div>
-      <div>
-        <strong>Set bonuses</strong>
-        <ul>
-          ${renderAutomationList(automation.setBonuses, 'set')}
-        </ul>
-      </div>
-    </section>
-    <section class="cards-block">
-      <div class="section-header">
-        <h3>Cards (${participant.cards?.length || 0})</h3>
-        <button type="button" data-toggle-card-form>New Card</button>
-      </div>
-      <div class="cards-grid">
-        ${renderCards(participant)}
-      </div>
-      <form data-form="card" class="stacked-form hidden" id="cardForm">
-        <datalist id="setOptions">
-          ${renderSetOptions()}
-        </datalist>
-        <div class="form-row">
-          <label>Name
-            <input type="text" name="name" required />
-          </label>
-          <label>Set
-            <input type="text" name="set" list="setOptions" />
-          </label>
-          <label>Type
-            <input type="text" name="type" placeholder="Attack" />
-          </label>
-          <label>Tier
-            <input type="text" name="tier" placeholder="Rare" />
-          </label>
+        <div class="button-grid" id="standardActions">
+          ${renderStandardActionButtons()}
         </div>
-        <div class="form-row">
-          <label>AP Cost
-            <input type="number" step="0.1" name="apCost" value="2" />
-          </label>
-          <label>Range (ft)
-            <input type="number" name="range" value="5" />
-          </label>
-          <label>Health Bonus
-            <input type="number" name="healthBonus" value="0" />
-          </label>
+        <div class="rest-controls">
+          <button type="button" data-rest="short">Short Rest</button>
+          <button type="button" data-rest="long">Long Rest</button>
         </div>
-        <div class="form-row">
-          <label>Max HP Bonus
-            <input type="number" name="modMaxHp" value="0" />
+        <form id="customActionForm" class="stacked-form">
+          <label>Log a custom action
+            <textarea name="text" rows="2" placeholder="Describe the action or ruling"></textarea>
           </label>
-          <label>Max Shield Bonus
-            <input type="number" name="modMaxShield" value="0" />
-          </label>
-          <label>AP Max Bonus
-            <input type="number" name="modApMax" value="0" />
-          </label>
+          <button type="submit">Log Entry</button>
+        </form>
+      </div>
+    </details>
+  `;
+}
+
+function renderCardsSection(participant) {
+  const cards = participant.cards || [];
+  return `
+    <details class="collapsible-block" data-section="cards">
+      <summary>
+        <strong>Cards (${cards.length})</strong>
+        <button type="button" data-toggle-card-form>Add Card</button>
+      </summary>
+      <div class="collapsible-body">
+        <div class="cards-grid">
+          ${renderCards(participant)}
         </div>
-        <div class="form-row">
-          <label>Guard Bonus
-            <input type="number" name="modGuard" value="0" />
+        <form data-form="card" class="stacked-form hidden">
+          <datalist id="setOptions">
+            ${renderSetOptions()}
+          </datalist>
+          <div class="form-row">
+            <label>Name
+              <input type="text" name="name" required />
+            </label>
+            <label>Set
+              <input type="text" name="set" list="setOptions" />
+            </label>
+            <label>Type
+              <input type="text" name="type" placeholder="Attack" />
+            </label>
+            <label>Tier
+              <input type="text" name="tier" placeholder="Rare" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>AP Cost
+              <input type="number" step="0.1" name="apCost" value="2" />
+            </label>
+            <label>Range (ft)
+              <input type="number" name="range" value="5" />
+            </label>
+            <label>Health Bonus
+              <input type="number" name="healthBonus" value="0" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Max HP Bonus
+              <input type="number" name="modMaxHp" value="0" />
+            </label>
+            <label>Max Shield Bonus
+              <input type="number" name="modMaxShield" value="0" />
+            </label>
+            <label>AP Max Bonus
+              <input type="number" name="modApMax" value="0" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Guard Bonus
+              <input type="number" name="modGuard" value="0" />
+            </label>
+            <label>Damage Bonus
+              <input type="number" name="modDamage" value="0" />
+            </label>
+          </div>
+          <label>Tags
+            <input type="text" name="tags" placeholder="Piercing, Bleed" />
           </label>
-          <label>Damage Bonus
-            <input type="number" name="modDamage" value="0" />
+          <label>Effect
+            <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
           </label>
+          <label>Mastery Progression
+            <textarea name="mastery" rows="2" placeholder="Level 1: ..., Level 2: ..."></textarea>
+          </label>
+          <label>Fusion Notes
+            <input type="text" name="fusion" placeholder="Fusion with..." />
+          </label>
+          <button type="submit">Add Card</button>
+        </form>
+      </div>
+    </details>
+  `;
+}
+
+function renderAutomationSection(participant) {
+  const automation = participant.derivedBonuses || {};
+  return `
+    <details class="collapsible-block" data-section="automation">
+      <summary>
+        <div>
+          <strong>Automation</strong>
+          <span class="muted">Guard +${participant.guardRestore || 3}, Damage +${participant.damageBonus || 0}</span>
         </div>
-        <label>Tags
-          <input type="text" name="tags" placeholder="Piercing, Bleed" />
-        </label>
-        <label>Effect
-          <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
-        </label>
-        <label>Mastery Progression
-          <textarea name="mastery" rows="2" placeholder="Level 1: ..., Level 2: ..."></textarea>
-        </label>
-        <label>Fusion Notes
-          <input type="text" name="fusion" placeholder="Fusion with..." />
-        </label>
-        <button type="submit">Add Card</button>
-      </form>
-    </section>
-    <details class="advanced-editor">
+      </summary>
+      <div class="collapsible-body automation-summary">
+        <div>
+          <strong>Card modifiers</strong>
+          <ul>
+            ${renderAutomationList(automation.cardModifiers)}
+          </ul>
+        </div>
+        <div>
+          <strong>Set bonuses</strong>
+          <ul>
+            ${renderAutomationSetList(automation.setBonuses)}
+          </ul>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderAdvancedSection(participant, base) {
+  return `
+    <details class="advanced-editor" data-section="advanced">
       <summary>Advanced Stats & Notes</summary>
       <form data-form="participant">
         <div class="form-row">
@@ -380,21 +440,14 @@ function renderDetailPanel() {
       </form>
     </details>
   `;
-
-  wireDetailEvents(participant);
 }
 
-function renderVitalCard(label, current, max, key) {
-  return `
-    <div class="vital-card">
-      <h4>${label}</h4>
-      <div class="value">${current}/${max}</div>
-      <div class="stat-controls">
-        <button type="button" data-adjust-target="${key}" data-delta="-1">-1</button>
-        <button type="button" data-adjust-target="${key}" data-delta="1">+1</button>
-        <button type="button" data-adjust-target="${key}" data-reset="max">Reset</button>
-      </div>
-    </div>`;
+function renderStatusSummary(participant) {
+  const statuses = participant.statuses || [];
+  if (!statuses.length) return '<span class="muted">None</span>';
+  return statuses
+    .map((status) => `<span class="status-chip">${status.name}${status.stacks ? ` ×${status.stacks}` : ''}</span>`)
+    .join('');
 }
 
 function renderStandardActionButtons() {
@@ -403,21 +456,29 @@ function renderStandardActionButtons() {
     return '<p class="empty-state">Standard actions will appear once the server boots.</p>';
   }
   return actions
-    .map((action) => `<button type="button" data-standard="${action.id}">${action.label} (${action.apCost} AP)</button>`)
+    .map(
+      (action) => `<button type="button" data-standard="${action.id}">${action.label} (${action.apCost} AP)</button>`
+    )
     .join('');
 }
 
-function renderAutomationList(entries = [], type) {
+function renderAutomationList(entries = []) {
   if (!entries.length) {
-    return '<li class="muted">None</li>';
+    return '<li class="muted">No card modifiers.</li>';
   }
   return entries
-    .map((entry) => {
-      if (type === 'card') {
-        return `<li>${entry.name}: ${summarizeModifiers(entry.modifiers)}</li>`;
-      }
-      return `<li>${entry.set} (${entry.pieces}+ pcs): ${entry.effect || summarizeModifiers(entry.modifiers)}</li>`;
-    })
+    .map((entry) => `<li>${entry.name}: ${summarizeModifiers(entry.modifiers)}</li>`)
+    .join('');
+}
+
+function renderAutomationSetList(entries = []) {
+  if (!entries.length) {
+    return '<li class="muted">No set bonuses active.</li>';
+  }
+  return entries
+    .map(
+      (entry) => `<li>${entry.set} (${entry.pieces}+ pcs): ${entry.effect || summarizeModifiers(entry.modifiers)}</li>`
+    )
     .join('');
 }
 
@@ -465,7 +526,11 @@ function wireDetailEvents(participant) {
     }
   });
 
-  panel.querySelector('[data-form="status"]')?.addEventListener('submit', async (event) => {
+  const statusForm = panel.querySelector('[data-form="status"]');
+  panel.querySelector('[data-toggle-status-form]')?.addEventListener('click', () => {
+    statusForm?.classList.toggle('hidden');
+  });
+  statusForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
     const newStatus = {
@@ -480,6 +545,7 @@ function wireDetailEvents(participant) {
         statuses: [...(participant.statuses || []), newStatus]
       });
       event.target.reset();
+      statusForm.classList.add('hidden');
     } catch (err) {
       notify(err.message);
     }
@@ -502,11 +568,9 @@ function wireDetailEvents(participant) {
   });
 
   const cardForm = panel.querySelector('[data-form="card"]');
-  const toggleCardButton = panel.querySelector('[data-toggle-card-form]');
-  toggleCardButton?.addEventListener('click', () => {
+  panel.querySelector('[data-toggle-card-form]')?.addEventListener('click', () => {
     cardForm?.classList.toggle('hidden');
   });
-
   cardForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
@@ -516,6 +580,7 @@ function wireDetailEvents(participant) {
         cards: [...(participant.cards || []), newCard]
       });
       event.target.reset();
+      cardForm.classList.add('hidden');
     } catch (err) {
       notify(err.message);
     }
@@ -611,25 +676,6 @@ function renderStatuses(participant) {
         </span>`
     )
     .join('');
-}
-
-function summarizeModifiers(modifiers = {}) {
-  const mapped = {
-    maxHp: 'HP',
-    maxShield: 'Shield',
-    apMax: 'AP',
-    guardRestore: 'Guard',
-    damageBonus: 'Damage'
-  };
-  const summary = Object.entries(mapped)
-    .map(([key, label]) => {
-      const value = modifiers[key] || 0;
-      if (!value) return null;
-      return `${label} ${value > 0 ? '+' : ''}${value}`;
-    })
-    .filter(Boolean)
-    .join(', ');
-  return summary || '—';
 }
 
 function renderCards(participant) {

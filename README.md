@@ -24,7 +24,7 @@ The sandbox used while developing this project blocks listening on ports, so the
 ## Encounter Console tour
 
 - **Turn Order:** Add combatants with initiative, HP/Shield/AP caps, and set focus. Click any row to edit full details (stats, tags, notes, cards, and statuses).
-- **Active Combatant panel:** Update AP/HP/Shield, ability scores, tags, and mastery. Add/remove card entries with the structured form so cards show set/tier/AP-/Range/Tags text for the player view. Statuses are tracked with severity + stack counts.
+- **Active Combatant panel:** Update AP/HP/Shield, ability scores, tags, and mastery. Card management, statuses, automation, and standard actions each live in collapsible drawers so you can keep the cards near the top of the viewport and pop open the area you need.
 - **Standard Actions:** Buttons send the proper AP spend + log line. The “Difficult terrain” checkbox converts Move into the 5-ft version. Guard enforces the once/turn cap and automatically restores 3 Shield. Manual Swap spends 2 AP, matching your core rules.
 - **Short/Long Rest:** Buttons now call the `/api/rest/short|long` endpoints. Short Rest auto-heals `5 + CON` and clears one minor condition; Long Rest restores HP/Shield/AP and wipes conditions—fixing the “long and short rest don’t work” problem from the baseline.
 - **Custom log entries:** Free-form textarea for rulings, condition saves, etc.
@@ -43,8 +43,8 @@ The sandbox used while developing this project blocks listening on ports, so the
 
 Each player can pop `/player?id=<combatantId>` (or pick themselves from the dropdown) to see:
 
-- Live HP/Shield/AP totals, ability scores, statuses, notes, and the default action reference.
-- Their full card list with set, tier, AP cost, ranges, tags, mastery track, fusion notes, and set bonuses.
+- Live HP/Shield/AP totals plus Guard restore and damage bonus, a printable-style character sheet (ability scores, saving throws, skills), a set tracker, statuses, and notes.
+- Their full card list with set, tier, AP cost, ranges, tags, mastery track, fusion notes, and the automation bonuses that card contributes.
 - A filtered action log that only shows their own turns/resolutions.
 - A banner reminding them when it’s their turn (based on the shared initiative order).
 

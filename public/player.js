@@ -1,6 +1,6 @@
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
-  reference: { standardActions: [] },
+  reference: { standardActions: [], sets: [] },
   updatedAt: null
 };
 
@@ -102,66 +102,192 @@ function renderStats() {
   }
   const stats = participant.stats || {};
   els.stats.innerHTML = `
-    <div class="panel-header">
-      <div>
-        <h2>${participant.name}</h2>
-        <p class="muted">Set Focus: ${participant.setFocus || '—'}</p>
+    <div class="panel player-sheet">
+      <div class="panel-header">
+        <div>
+          <h2>${participant.name}</h2>
+          <p class="muted">Set Focus: ${participant.setFocus || '—'}</p>
+        </div>
+        <div class="muted">Round ${state.encounter.round}</div>
       </div>
-      <div class="muted">Round ${state.encounter.round}</div>
-    </div>
-    <div class="stats-grid">
-      <label>HP
-        <div class="stat-callout">${participant.hp} / ${participant.maxHp}</div>
-      </label>
-      <label>Shield
-        <div class="stat-callout">${participant.shield} / ${participant.maxShield}</div>
-      </label>
-      <label>AP
-        <div class="stat-callout">${participant.apCurrent} / ${participant.apMax}</div>
-      </label>
-      <label>Guard Restore
-        <div class="stat-callout">${participant.guardRestore || 3}</div>
-      </label>
-      <label>Damage Bonus
-        <div class="stat-callout">${participant.damageBonus || 0}</div>
-      </label>
-    </div>
-    <div class="stats-grid">
-      ${renderAbility(statEntry('STR', stats.strength))}
-      ${renderAbility(statEntry('DEX', stats.dexterity))}
-      ${renderAbility(statEntry('CON', stats.constitution))}
-      ${renderAbility(statEntry('INT', stats.intelligence))}
-      ${renderAbility(statEntry('WIS', stats.wisdom))}
-      ${renderAbility(statEntry('CHA', stats.charisma))}
-    </div>
-    <div>
-      <h3>Statuses</h3>
-      <div class="status-list">
-        ${renderStatuses(participant)}
+      <div class="vitals-grid">
+        ${renderPlayerVital('HP', participant.hp, participant.maxHp)}
+        ${renderPlayerVital('Shield', participant.shield, participant.maxShield)}
+        ${renderPlayerVital('AP', participant.apCurrent, participant.apMax)}
+        ${renderPlayerVital('Guard Restore', participant.guardRestore || 3)}
+        ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
       </div>
-    </div>
-    <div>
-      <h3>Notes</h3>
-      <p class="muted">${participant.notes || '—'}</p>
-    </div>
-    <div>
-      <h3>Action Reference</h3>
-      <ul class="reference-list">
-        ${renderActionReference()}
-      </ul>
+      <section class="player-section">
+        <h3>Ability Scores</h3>
+        ${renderAbilityTable(stats)}
+      </section>
+      <section class="player-section">
+        <h3>Saving Throws</h3>
+        ${renderSavingThrows(stats)}
+      </section>
+      <section class="player-section">
+        <h3>Skills</h3>
+        ${renderSkillsTable(stats)}
+      </section>
+      <section class="player-section">
+        <h3>Set Tracker</h3>
+        ${renderSetTracker(participant)}
+      </section>
+      <section class="player-section">
+        <h3>Statuses</h3>
+        <div class="status-list">${renderStatuses(participant)}</div>
+      </section>
+      <section class="player-section">
+        <h3>Notes</h3>
+        <p class="muted">${participant.notes || '—'}</p>
+      </section>
     </div>
   `;
 }
 
-function renderAbility([label, value]) {
+function renderPlayerVital(label, value, max) {
+  if (typeof max === 'number') {
+    return `
+      <div class="vital-card">
+        <h4>${label}</h4>
+        <div class="value">${value} / ${max}</div>
+      </div>`;
+  }
   return `
-    <label>${label}
-      <div class="stat-callout">${value}</div>
-    </label>`;
+    <div class="vital-card">
+      <h4>${label}</h4>
+      <div class="value">${value}</div>
+    </div>`;
 }
 
-function statEntry(label, value = 0) {
-  return [label, value ?? 0];
+const ABILITIES = [
+  { key: 'strength', label: 'STR' },
+  { key: 'dexterity', label: 'DEX' },
+  { key: 'constitution', label: 'CON' },
+  { key: 'intelligence', label: 'INT' },
+  { key: 'wisdom', label: 'WIS' },
+  { key: 'charisma', label: 'CHA' }
+];
+
+function renderAbilityTable(stats) {
+  const rows = ABILITIES.map(({ key, label }) => {
+    const value = stats[key] ?? 0;
+    return `<tr><th>${label}</th><td>${value}</td><td>${value}</td></tr>`;
+  }).join('');
+  return `
+    <table class="player-table">
+      <thead>
+        <tr><th>Ability</th><th>Base</th><th>Modified</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderSavingThrows(stats) {
+  const rows = ABILITIES.map(({ key, label }) => {
+    const mod = stats[key] ?? 0;
+    return `
+      <tr>
+        <th>${label}</th>
+        <td>${formatMod(mod)}</td>
+        <td><input type="checkbox" disabled /></td>
+        <td>${formatMod(mod)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <table class="player-table">
+      <thead>
+        <tr><th>Ability</th><th>Mod</th><th>Proficient</th><th>Total</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+const SKILLS = [
+  ['Acrobatics', 'dexterity'],
+  ['Animal Handling', 'wisdom'],
+  ['Arcana', 'intelligence'],
+  ['Athletics', 'strength'],
+  ['Deception', 'charisma'],
+  ['History', 'intelligence'],
+  ['Insight', 'wisdom'],
+  ['Intimidation', 'charisma'],
+  ['Investigation', 'intelligence'],
+  ['Medicine', 'wisdom'],
+  ['Nature', 'intelligence'],
+  ['Perception', 'wisdom'],
+  ['Performance', 'charisma'],
+  ['Persuasion', 'charisma'],
+  ['Religion', 'intelligence'],
+  ['Sleight of Hand', 'dexterity'],
+  ['Stealth', 'dexterity'],
+  ['Survival', 'wisdom']
+];
+
+function renderSkillsTable(stats) {
+  const rows = SKILLS.map(([skill, ability]) => {
+    const mod = stats[ability] ?? 0;
+    return `
+      <tr>
+        <th>${skill}</th>
+        <td>${abilityLabel(ability)}</td>
+        <td>${formatMod(mod)}</td>
+        <td><input type="checkbox" disabled /></td>
+        <td><input type="checkbox" disabled /></td>
+        <td>${formatMod(mod)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <table class="player-table">
+      <thead>
+        <tr><th>Skill</th><th>Ability</th><th>Ability Mod</th><th>Prof</th><th>Expert</th><th>Total</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function abilityLabel(key) {
+  const match = ABILITIES.find((entry) => entry.key === key);
+  return match ? match.label : key?.toUpperCase();
+}
+
+function formatMod(value) {
+  const num = Number(value) || 0;
+  return num >= 0 ? `+${num}` : `${num}`;
+}
+
+function renderSetTracker(participant) {
+  const counts = {};
+  for (const card of participant.cards || []) {
+    if (!card.set) continue;
+    counts[card.set] = (counts[card.set] || 0) + 1;
+  }
+  const entries = Object.entries(counts);
+  if (!entries.length) {
+    return '<p class="muted">No set bonuses equipped.</p>';
+  }
+  return entries
+    .map(([setName, count]) => {
+      const ref = (state.reference.sets || []).find((entry) => entry.name === setName);
+      const bonuses = ref?.bonuses || [];
+      const list = bonuses
+        .map(
+          (bonus) => `
+            <li class="${count >= bonus.pieces ? 'active' : ''}">
+              ${bonus.pieces} pcs — ${bonus.effect || summarizeModifiers(bonus.modifiers || {})}
+            </li>`
+        )
+        .join('');
+      return `
+        <div class="set-block">
+          <div class="set-header">
+            <strong>${setName}</strong>
+            <span>${count} card${count === 1 ? '' : 's'}</span>
+          </div>
+          <ul class="set-list">${list}</ul>
+        </div>`;
+    })
+    .join('');
 }
 
 function renderCards() {
@@ -234,16 +360,6 @@ function renderStatuses(participant) {
   }
   return statuses
     .map((status) => `<span class="status-pill">${status.name}${status.stacks ? ` ×${status.stacks}` : ''} (${status.severity})</span>`)
-    .join('');
-}
-
-function renderActionReference() {
-  const actions = state.reference?.standardActions || [];
-  if (!actions.length) {
-    return '<li>Waiting for tracker…</li>';
-  }
-  return actions
-    .map((action) => `<li><strong>${action.label}</strong>: ${action.summary}</li>`)
     .join('');
 }
 
