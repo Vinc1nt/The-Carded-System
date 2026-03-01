@@ -586,13 +586,17 @@ function wireDetailEvents(participant) {
     const formData = new FormData(event.target);
     const newCard = buildCardFromForm(formData);
     try {
-      const latest = getParticipantSnapshot(participant.id) || participant;
-      await api(`/api/participants/${participant.id}`, 'PATCH', {
-        cards: [...(latest.cards || []), newCard]
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const existingCards = latest?.cards || participant.cards || [];
+      const response = await api(`/api/participants/${participant.id}`, 'PATCH', {
+        cards: [...existingCards, newCard]
       });
+      if (response?.participant) {
+        updateParticipantInState(response.participant);
+      }
+      fetchState();
       event.target.reset();
       cardForm.classList.add('hidden');
-      fetchState();
     } catch (err) {
       notify(err.message);
     }
@@ -601,15 +605,19 @@ function wireDetailEvents(participant) {
   panel.querySelectorAll('[data-remove-card]').forEach((button, index) => {
     button.addEventListener('click', async () => {
       const cardId = button.dataset.removeCard;
-      const latest = getParticipantSnapshot(participant.id) || participant;
-      const updated = (latest.cards || []).filter((card, idx) => {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const sourceCards = latest?.cards || participant.cards || [];
+      const updated = sourceCards.filter((card, idx) => {
         if (card.id) {
           return card.id !== cardId;
         }
         return idx !== index;
       });
       try {
-        await api(`/api/participants/${participant.id}`, 'PATCH', { cards: updated });
+        const response = await api(`/api/participants/${participant.id}`, 'PATCH', { cards: updated });
+        if (response?.participant) {
+          updateParticipantInState(response.participant);
+        }
         fetchState();
       } catch (err) {
         notify(err.message);
@@ -654,7 +662,7 @@ function wireDetailEvents(participant) {
   });
 }
 
-function handleAdjust(button, participant) {
+async function handleAdjust(button, participant) {
   const target = button.dataset.adjustTarget;
   const mapping = { hp: 'hp', shield: 'shield', ap: 'ap' };
   const maxMapping = { hp: 'maxHp', shield: 'maxShield', ap: 'apMax' };
@@ -673,7 +681,16 @@ function handleAdjust(button, participant) {
       payload[field] = newValue;
     }
   }
-  api(`/api/participants/${participant.id}/adjust`, 'POST', payload).catch((err) => notify(err.message));
+  try {
+    const result = await api(`/api/participants/${participant.id}/adjust`, 'POST', payload);
+    if (result?.participant) {
+      updateParticipantInState(result.participant);
+    } else {
+      fetchState();
+    }
+  } catch (err) {
+    notify(err.message);
+  }
 }
 
 function renderStatuses(participant) {
@@ -814,11 +831,14 @@ async function importCardsFromFile(input, participantId) {
       notify('No cards found in file.');
       return;
     }
-    const latest = getParticipantSnapshot(participantId);
+    const latest = (await getServerParticipant(participantId)) || getParticipantSnapshot(participantId);
     const existingCards = latest?.cards || [];
-    await api(`/api/participants/${participantId}`, 'PATCH', {
+    const response = await api(`/api/participants/${participantId}`, 'PATCH', {
       cards: [...existingCards, ...imported]
     });
+    if (response?.participant) {
+      updateParticipantInState(response.participant);
+    }
     notify(`Imported ${imported.length} card${imported.length === 1 ? '' : 's'}.`);
     fetchState();
   } catch (err) {
@@ -916,4 +936,28 @@ function notify(message) {
   setTimeout(() => {
     toast.remove();
   }, 2500);
+}
+
+async function getServerParticipant(participantId) {
+  if (!participantId) return null;
+  try {
+    const response = await api(`/api/participants/${participantId}/export`);
+    return response?.participant || null;
+  } catch (err) {
+    notify(err.message);
+    return getParticipantSnapshot(participantId);
+  }
+}
+
+function updateParticipantInState(nextParticipant) {
+  if (!nextParticipant?.id) return;
+  const list = Array.isArray(state.encounter.participants) ? [...state.encounter.participants] : [];
+  const index = list.findIndex((entry) => entry.id === nextParticipant.id);
+  if (index >= 0) {
+    list[index] = nextParticipant;
+  } else {
+    list.push(nextParticipant);
+  }
+  state.encounter.participants = list;
+  render();
 }

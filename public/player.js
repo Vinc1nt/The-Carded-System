@@ -45,8 +45,8 @@ function wirePlayerCardForm() {
     }
     const formData = new FormData(form);
     const newCard = buildPlayerCardFromForm(formData);
-    const latest = getParticipantSnapshot(participant.id) || participant;
-    const updatedCards = [...(latest.cards || []), newCard];
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const updatedCards = [...(latest?.cards || []), newCard];
     await patchParticipant(participant.id, { cards: updatedCards });
     form.reset();
     fetchState();
@@ -399,8 +399,11 @@ function renderRelics(participant) {
   listEl.querySelectorAll('[data-remove-relic]').forEach((button) => {
     button.onclick = async () => {
       const index = Number(button.dataset.removeRelic);
-      const updated = relics.filter((_, idx) => idx !== index);
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const currentRelics = latest?.relics || relics;
+      const updated = currentRelics.filter((_, idx) => idx !== index);
       await patchParticipant(participant.id, { relics: updated });
+      fetchState();
     };
   });
   if (formEl) {
@@ -415,8 +418,11 @@ function renderRelics(participant) {
         ability: data.get('ability') || '',
         description: data.get('description') || ''
       };
-      await patchParticipant(participant.id, { relics: [...relics, newRelic] });
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const currentRelics = latest?.relics || relics;
+      await patchParticipant(participant.id, { relics: [...currentRelics, newRelic] });
       formEl.reset();
+      fetchState();
     };
   }
 }
@@ -493,6 +499,7 @@ function wirePlayerSheetEvents(participant) {
       const ability = input.dataset.abilityInput;
       const value = Number(input.value || 0);
       await patchParticipant(participant.id, { stats: { [ability]: value } });
+      fetchState();
     };
   });
   const profInput = panel.querySelector('[data-proficiency-input]');
@@ -500,20 +507,25 @@ function wirePlayerSheetEvents(participant) {
     profInput.onchange = async () => {
       const value = Number(profInput.value || 0);
       await patchParticipant(participant.id, { proficiencyBonus: value });
+      fetchState();
     };
   }
   panel.querySelectorAll('[data-save-toggle]').forEach((checkbox) => {
     checkbox.onchange = async () => {
+      const saves = getSavingThrowsSnapshot(participant);
+      saves[checkbox.dataset.saveToggle] = checkbox.checked;
       await patchParticipant(participant.id, {
-        savingThrows: { [checkbox.dataset.saveToggle]: checkbox.checked }
+        savingThrows: saves
       });
+      fetchState();
     };
   });
   panel.querySelectorAll('[data-skill-toggle]').forEach((checkbox) => {
     checkbox.onchange = async () => {
       const skill = checkbox.dataset.skillToggle;
       const type = checkbox.dataset.toggleType;
-      const current = getSkillState(participant, skill);
+      const skills = getSkillsSnapshot(participant);
+      const current = skills[skill] || getSkillState(participant, skill);
       const next = {
         proficient: type === 'proficient' ? checkbox.checked : current.proficient,
         expert: type === 'expert' ? checkbox.checked : current.expert
@@ -521,7 +533,9 @@ function wirePlayerSheetEvents(participant) {
       if (next.expert && !next.proficient) {
         next.proficient = true;
       }
-      await patchParticipant(participant.id, { skills: { [skill]: next } });
+      skills[skill] = next;
+      await patchParticipant(participant.id, { skills });
+      fetchState();
     };
   });
 }
@@ -553,9 +567,10 @@ function updateUrl() {
 
 async function patchParticipant(participantId, payload) {
   try {
-    await api(`/api/participants/${participantId}`, 'PATCH', payload);
+    return await api(`/api/participants/${participantId}`, 'PATCH', payload);
   } catch (err) {
     notify(err.message);
+    return null;
   }
 }
 
@@ -632,6 +647,33 @@ function normalizeMasteryInput(input) {
 function toNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+}
+
+function getSavingThrowsSnapshot(participant) {
+  const snapshot = {};
+  ABILITIES.forEach(({ key }) => {
+    snapshot[key] = Boolean(participant.savingThrows?.[key]);
+  });
+  return snapshot;
+}
+
+function getSkillsSnapshot(participant) {
+  const snapshot = {};
+  SKILLS.forEach(([, , key]) => {
+    const entry = getSkillState(participant, key);
+    snapshot[key] = { ...entry };
+  });
+  return snapshot;
+}
+
+async function fetchParticipantFromServer(participantId) {
+  try {
+    const response = await api(`/api/participants/${participantId}/export`);
+    return response?.participant || null;
+  } catch (err) {
+    notify(err.message);
+    return getParticipantSnapshot(participantId);
+  }
 }
 
 async function api(path, method = 'GET', body) {
