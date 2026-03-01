@@ -485,6 +485,33 @@ textarea {
   color: var(--accent);
 }
 
+.relic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.relic-card {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: rgba(2, 6, 23, 0.45);
+}
+
+.relic-card h4 {
+  margin: 0 0 0.3rem;
+}
+
+.relic-card p {
+  margin: 0.15rem 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.relic-card button {
+  margin-top: 0.5rem;
+}
+
 .log-panel.collapsed #logList {
   display: none;
 }

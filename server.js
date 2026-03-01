@@ -116,6 +116,28 @@ function buildReferenceData() {
   };
 }
 
+const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+const SKILL_KEYS = [
+  'acrobatics',
+  'animalHandling',
+  'arcana',
+  'athletics',
+  'deception',
+  'history',
+  'insight',
+  'intimidation',
+  'investigation',
+  'medicine',
+  'nature',
+  'perception',
+  'performance',
+  'persuasion',
+  'religion',
+  'sleightOfHand',
+  'stealth',
+  'survival'
+];
+
 const trackerState = {
   encounter: {
     name: 'Untitled Encounter',
@@ -402,6 +424,24 @@ function sanitizeParticipantUpdate(body, current) {
   if (body.stats && typeof body.stats === 'object') {
     update.stats = { ...current.stats, ...body.stats };
   }
+  if (typeof body.proficiencyBonus === 'number') {
+    update.proficiencyBonus = body.proficiencyBonus;
+  }
+  if (body.savingThrows && typeof body.savingThrows === 'object') {
+    update.savingThrows = {
+      ...current.savingThrows,
+      ...normalizeSavingThrows(body.savingThrows)
+    };
+  }
+  if (body.skills && typeof body.skills === 'object') {
+    update.skills = {
+      ...current.skills,
+      ...normalizeSkills(body.skills)
+    };
+  }
+  if (Array.isArray(body.relics)) {
+    update.relics = body.relics;
+  }
   return update;
 }
 
@@ -442,6 +482,10 @@ function createParticipant(body = {}) {
       charisma: 0,
       ...(body.stats || {})
     },
+    proficiencyBonus: typeof body.proficiencyBonus === 'number' ? body.proficiencyBonus : 2,
+    savingThrows: normalizeSavingThrows(body.savingThrows),
+    skills: normalizeSkills(body.skills),
+    relics: Array.isArray(body.relics) ? body.relics : [],
     guardUsedThisTurn: false,
     guardRestore: baseStats.guardRestore,
     damageBonus: baseStats.damageBonus,
@@ -645,6 +689,48 @@ function createZeroModifier() {
     guardRestore: 0,
     damageBonus: 0
   };
+}
+
+function defaultSavingThrows() {
+  const defaults = {};
+  for (const key of ABILITY_KEYS) {
+    defaults[key] = false;
+  }
+  return defaults;
+}
+
+function normalizeSavingThrows(value) {
+  const normalized = defaultSavingThrows();
+  if (!value || typeof value !== 'object') return normalized;
+  for (const key of ABILITY_KEYS) {
+    if (typeof value[key] === 'boolean') {
+      normalized[key] = value[key];
+    }
+  }
+  return normalized;
+}
+
+function defaultSkills() {
+  const defaults = {};
+  for (const key of SKILL_KEYS) {
+    defaults[key] = { proficient: false, expert: false };
+  }
+  return defaults;
+}
+
+function normalizeSkills(value) {
+  const normalized = defaultSkills();
+  if (!value || typeof value !== 'object') return normalized;
+  for (const key of SKILL_KEYS) {
+    const entry = value[key];
+    if (entry && typeof entry === 'object') {
+      normalized[key] = {
+        proficient: Boolean(entry.proficient),
+        expert: Boolean(entry.expert)
+      };
+    }
+  }
+  return normalized;
 }
 
 function ensureBaseStats(participant) {

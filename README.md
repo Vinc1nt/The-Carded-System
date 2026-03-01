@@ -44,7 +44,9 @@ The sandbox used while developing this project blocks listening on ports, so the
 Each player can pop `/player?id=<combatantId>` (or pick themselves from the dropdown) to see:
 
 - Live HP/Shield/AP totals plus Guard restore and damage bonus, a printable-style character sheet (ability scores, saving throws, skills), a set tracker, statuses, and notes.
+- Ability scores, proficiency bonus, saving throws, and skills are editable in-place; totals auto-calc using the D&D mod/proficiency rules so players can manage level-ups without touching the GM console.
 - Their full card list with set, tier, AP cost, ranges, tags, mastery track, fusion notes, and the automation bonuses that card contributes.
+- A relics/artifacts section lets players add/remove custom items (with HP/AP/ability notes) to track narrative power-ups alongside cards.
 - A filtered action log that only shows their own turns/resolutions.
 - A banner reminding them when it’s their turn (based on the shared initiative order).
 

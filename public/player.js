@@ -119,15 +119,18 @@ function renderStats() {
       </div>
       <section class="player-section">
         <h3>Ability Scores</h3>
+        <label>Proficiency Bonus
+          <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
+        </label>
         ${renderAbilityTable(stats)}
       </section>
       <section class="player-section">
         <h3>Saving Throws</h3>
-        ${renderSavingThrows(stats)}
+        ${renderSavingThrows(participant)}
       </section>
       <section class="player-section">
         <h3>Skills</h3>
-        ${renderSkillsTable(stats)}
+        ${renderSkillsTable(participant)}
       </section>
       <section class="player-section">
         <h3>Set Tracker</h3>
@@ -143,6 +146,7 @@ function renderStats() {
       </section>
     </div>
   `;
+  wirePlayerSheetEvents(participant);
 }
 
 function renderPlayerVital(label, value, max) {
@@ -172,75 +176,88 @@ const ABILITIES = [
 function renderAbilityTable(stats) {
   const rows = ABILITIES.map(({ key, label }) => {
     const value = stats[key] ?? 0;
-    return `<tr><th>${label}</th><td>${value}</td><td>${value}</td></tr>`;
-  }).join('');
-  return `
-    <table class="player-table">
-      <thead>
-        <tr><th>Ability</th><th>Base</th><th>Modified</th></tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
-
-function renderSavingThrows(stats) {
-  const rows = ABILITIES.map(({ key, label }) => {
-    const mod = stats[key] ?? 0;
+    const mod = abilityMod(value);
     return `
       <tr>
         <th>${label}</th>
-        <td>${formatMod(mod)}</td>
-        <td><input type="checkbox" disabled /></td>
+        <td><input type="number" data-ability-input="${key}" value="${value}" /></td>
         <td>${formatMod(mod)}</td>
       </tr>`;
   }).join('');
   return `
     <table class="player-table">
       <thead>
-        <tr><th>Ability</th><th>Mod</th><th>Proficient</th><th>Total</th></tr>
+        <tr><th>Ability</th><th>Score</th><th>Mod</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderSavingThrows(participant) {
+  const stats = participant.stats || {};
+  const rows = ABILITIES.map(({ key, label }) => {
+    const mod = abilityMod(stats[key] ?? 0);
+    const proficient = Boolean(participant.savingThrows?.[key]);
+    const total = mod + (proficient ? participant.proficiencyBonus || 0 : 0);
+    return `
+      <tr>
+        <th>${label}</th>
+        <td>${formatMod(mod)}</td>
+        <td><input type="checkbox" data-save-toggle="${key}" ${proficient ? 'checked' : ''} /></td>
+        <td>${formatMod(total)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <table class="player-table">
+      <thead>
+        <tr><th>Ability</th><th>Mod</th><th>Prof</th><th>Total</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
 
 const SKILLS = [
-  ['Acrobatics', 'dexterity'],
-  ['Animal Handling', 'wisdom'],
-  ['Arcana', 'intelligence'],
-  ['Athletics', 'strength'],
-  ['Deception', 'charisma'],
-  ['History', 'intelligence'],
-  ['Insight', 'wisdom'],
-  ['Intimidation', 'charisma'],
-  ['Investigation', 'intelligence'],
-  ['Medicine', 'wisdom'],
-  ['Nature', 'intelligence'],
-  ['Perception', 'wisdom'],
-  ['Performance', 'charisma'],
-  ['Persuasion', 'charisma'],
-  ['Religion', 'intelligence'],
-  ['Sleight of Hand', 'dexterity'],
-  ['Stealth', 'dexterity'],
-  ['Survival', 'wisdom']
+  ['Acrobatics', 'dexterity', 'acrobatics'],
+  ['Animal Handling', 'wisdom', 'animalHandling'],
+  ['Arcana', 'intelligence', 'arcana'],
+  ['Athletics', 'strength', 'athletics'],
+  ['Deception', 'charisma', 'deception'],
+  ['History', 'intelligence', 'history'],
+  ['Insight', 'wisdom', 'insight'],
+  ['Intimidation', 'charisma', 'intimidation'],
+  ['Investigation', 'intelligence', 'investigation'],
+  ['Medicine', 'wisdom', 'medicine'],
+  ['Nature', 'intelligence', 'nature'],
+  ['Perception', 'wisdom', 'perception'],
+  ['Performance', 'charisma', 'performance'],
+  ['Persuasion', 'charisma', 'persuasion'],
+  ['Religion', 'intelligence', 'religion'],
+  ['Sleight of Hand', 'dexterity', 'sleightOfHand'],
+  ['Stealth', 'dexterity', 'stealth'],
+  ['Survival', 'wisdom', 'survival']
 ];
 
-function renderSkillsTable(stats) {
-  const rows = SKILLS.map(([skill, ability]) => {
-    const mod = stats[ability] ?? 0;
+function renderSkillsTable(participant) {
+  const stats = participant.stats || {};
+  const prof = participant.proficiencyBonus || 0;
+  const rows = SKILLS.map(([skill, ability, key]) => {
+    const mod = abilityMod(stats[ability] ?? 0);
+    const entry = getSkillState(participant, key);
+    const total = mod + prof * (entry.expert ? 2 : entry.proficient ? 1 : 0);
     return `
       <tr>
         <th>${skill}</th>
         <td>${abilityLabel(ability)}</td>
         <td>${formatMod(mod)}</td>
-        <td><input type="checkbox" disabled /></td>
-        <td><input type="checkbox" disabled /></td>
-        <td>${formatMod(mod)}</td>
+        <td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="proficient" ${entry.proficient ? 'checked' : ''} /></td>
+        <td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="expert" ${entry.expert ? 'checked' : ''} /></td>
+        <td>${formatMod(total)}</td>
       </tr>`;
   }).join('');
   return `
     <table class="player-table">
       <thead>
-        <tr><th>Skill</th><th>Ability</th><th>Ability Mod</th><th>Prof</th><th>Expert</th><th>Total</th></tr>
+        <tr><th>Skill</th><th>Ability</th><th>Mod</th><th>Prof</th><th>Expert</th><th>Total</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -254,6 +271,14 @@ function abilityLabel(key) {
 function formatMod(value) {
   const num = Number(value) || 0;
   return num >= 0 ? `+${num}` : `${num}`;
+}
+
+function abilityMod(score = 0) {
+  return Math.floor((Number(score) - 10) / 2);
+}
+
+function getSkillState(participant, key) {
+  return participant.skills?.[key] || { proficient: false, expert: false };
 }
 
 function renderSetTracker(participant) {
@@ -296,25 +321,81 @@ function renderCards() {
   if (!participant || !cards.length) {
     els.cardList.classList.add('empty-state');
     els.cardList.innerHTML = '<p class="empty-state">No cards tracked for this combatant.</p>';
+  } else {
+    els.cardList.classList.remove('empty-state');
+    els.cardList.innerHTML = cards
+      .map(
+        (card) => `
+          <article class="card-item">
+            <h4>${card.name} <small>${card.tier || ''} ${card.type || ''}</small></h4>
+            <p>Set: <strong>${card.set || '—'}</strong></p>
+            <p>AP ${card.apCost || 0} · Range ${card.range || 0} ft · HP +${card.healthBonus || 0}</p>
+            <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
+            <p>${card.effect || ''}</p>
+            ${card.mastery?.length ? `<p>Mastery: ${card.mastery.join(' / ')}</p>` : ''}
+            ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
+            ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
+            <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
+          </article>`
+      )
+      .join('');
+  }
+  renderRelics(participant);
+}
+
+function renderRelics(participant) {
+  const listEl = document.getElementById('playerRelicList');
+  const formEl = document.getElementById('playerRelicForm');
+  if (!listEl) return;
+  if (!participant) {
+    listEl.classList.add('empty-state');
+    listEl.innerHTML = '<p class="empty-state">Select a combatant to view relics.</p>';
+    if (formEl) {
+      formEl.onsubmit = null;
+    }
     return;
   }
-  els.cardList.classList.remove('empty-state');
-  els.cardList.innerHTML = cards
-    .map(
-      (card) => `
-        <article class="card-item">
-          <h4>${card.name} <small>${card.tier || ''} ${card.type || ''}</small></h4>
-          <p>Set: <strong>${card.set || '—'}</strong></p>
-          <p>AP ${card.apCost || 0} · Range ${card.range || 0} ft · HP +${card.healthBonus || 0}</p>
-          <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
-          <p>${card.effect || ''}</p>
-          ${card.mastery?.length ? `<p>Mastery: ${card.mastery.join(' / ')}</p>` : ''}
-          ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
-          ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
-          <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
-        </article>`
-    )
-    .join('');
+  const relics = participant?.relics || [];
+  if (!relics.length) {
+    listEl.classList.add('empty-state');
+    listEl.innerHTML = '<p class="empty-state">No relics tracked.</p>';
+  } else {
+    listEl.classList.remove('empty-state');
+    listEl.innerHTML = relics
+      .map(
+        (relic, index) => `
+          <article class="relic-card">
+            <h4>${relic.name}</h4>
+            <p>HP ${relic.hp ?? 0} · AP ${relic.ap ?? 0} · Focus: ${relic.ability || '—'}</p>
+            <p>${relic.description || ''}</p>
+            <button type="button" data-remove-relic="${index}">Remove</button>
+          </article>`
+      )
+      .join('');
+  }
+  listEl.querySelectorAll('[data-remove-relic]').forEach((button) => {
+    button.onclick = async () => {
+      const index = Number(button.dataset.removeRelic);
+      const updated = relics.filter((_, idx) => idx !== index);
+      await patchParticipant(participant.id, { relics: updated });
+    };
+  });
+  if (formEl) {
+    formEl.onsubmit = async (event) => {
+      event.preventDefault();
+      const data = new FormData(formEl);
+      const newRelic = {
+        id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+        name: data.get('name'),
+        hp: Number(data.get('hp') || 0),
+        ap: Number(data.get('ap') || 0),
+        ability: data.get('ability') || '',
+        description: data.get('description') || ''
+      };
+      await patchParticipant(participant.id, { relics: [...relics, newRelic] });
+      formEl.reset();
+    };
+  }
 }
 
 function renderLog() {
@@ -382,6 +463,46 @@ function summarizeModifiers(modifiers = {}) {
   return summary || '—';
 }
 
+function wirePlayerSheetEvents(participant) {
+  const panel = els.stats;
+  panel.querySelectorAll('[data-ability-input]').forEach((input) => {
+    input.onchange = async () => {
+      const ability = input.dataset.abilityInput;
+      const value = Number(input.value || 0);
+      await patchParticipant(participant.id, { stats: { [ability]: value } });
+    };
+  });
+  const profInput = panel.querySelector('[data-proficiency-input]');
+  if (profInput) {
+    profInput.onchange = async () => {
+      const value = Number(profInput.value || 0);
+      await patchParticipant(participant.id, { proficiencyBonus: value });
+    };
+  }
+  panel.querySelectorAll('[data-save-toggle]').forEach((checkbox) => {
+    checkbox.onchange = async () => {
+      await patchParticipant(participant.id, {
+        savingThrows: { [checkbox.dataset.saveToggle]: checkbox.checked }
+      });
+    };
+  });
+  panel.querySelectorAll('[data-skill-toggle]').forEach((checkbox) => {
+    checkbox.onchange = async () => {
+      const skill = checkbox.dataset.skillToggle;
+      const type = checkbox.dataset.toggleType;
+      const current = getSkillState(participant, skill);
+      const next = {
+        proficient: type === 'proficient' ? checkbox.checked : current.proficient,
+        expert: type === 'expert' ? checkbox.checked : current.expert
+      };
+      if (next.expert && !next.proficient) {
+        next.proficient = true;
+      }
+      await patchParticipant(participant.id, { skills: { [skill]: next } });
+    };
+  });
+}
+
 function getFocusedParticipant() {
   return state.encounter.participants?.find((participant) => participant.id === focusId) || null;
 }
@@ -400,4 +521,31 @@ function updateUrl() {
     url.searchParams.delete('id');
   }
   window.history.replaceState(null, '', url);
+}
+
+async function patchParticipant(participantId, payload) {
+  try {
+    await api(`/api/participants/${participantId}`, 'PATCH', payload);
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function api(path, method = 'GET', body) {
+  const response = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || 'Request failed');
+  }
+  return data;
+}
+
+function notify(message) {
+  if (message) {
+    console.warn(message);
+  }
 }

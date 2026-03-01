@@ -25,6 +25,32 @@
         <section class="panel" id="playerCards">
           <h2>Cards & Loadout</h2>
           <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
+          <div class="player-section">
+            <h3>Relics & Artifacts</h3>
+            <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
+            <form id="playerRelicForm" class="stacked-form">
+              <div class="form-row">
+                <label>Name
+                  <input type="text" name="name" required />
+                </label>
+                <label>HP Bonus
+                  <input type="number" name="hp" value="0" />
+                </label>
+                <label>AP Bonus
+                  <input type="number" name="ap" value="0" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Ability Focus
+                  <input type="text" name="ability" placeholder="Machine, Shield, etc." />
+                </label>
+                <label>Description
+                  <input type="text" name="description" placeholder="What does it do?" />
+                </label>
+              </div>
+              <button type="submit">Add Relic</button>
+            </form>
+          </div>
         </section>
         <section class="panel log-panel" id="playerLog">
           <div class="panel-header">
