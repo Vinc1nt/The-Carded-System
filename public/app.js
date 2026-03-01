@@ -298,6 +298,13 @@ function renderCardsSection(participant) {
         <button type="button" data-toggle-card-form>Add Card</button>
       </summary>
       <div class="collapsible-body">
+        <div class="card-import">
+          <label class="file-upload">
+            Import cards (.json)
+            <input type="file" accept="application/json" data-card-import />
+          </label>
+          <p class="muted help-text">Upload a single card object or {"cards": []} list with automation fields.</p>
+        </div>
         <div class="cards-grid">
           ${renderCards(participant)}
         </div>
@@ -571,6 +578,9 @@ function wireDetailEvents(participant) {
   panel.querySelector('[data-toggle-card-form]')?.addEventListener('click', () => {
     cardForm?.classList.toggle('hidden');
   });
+  panel.querySelector('[data-card-import]')?.addEventListener('change', (event) => {
+    importCardsFromFile(event.currentTarget, participant);
+  });
   cardForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
@@ -761,34 +771,112 @@ async function handleStandardAction(actionId) {
 
 function buildCardFromForm(formData) {
   const masteryRaw = formData.get('mastery') || '';
-  const mastery = masteryRaw
-    .split(/\n|,/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return {
-    id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+  const card = {
     name: formData.get('name'),
     set: formData.get('set') || '',
     type: formData.get('type') || 'Attack',
     tier: formData.get('tier') || 'Common',
-    apCost: Number(formData.get('apCost') || 0),
-    range: Number(formData.get('range') || 0),
-    healthBonus: Number(formData.get('healthBonus') || 0),
-    tags: (formData.get('tags') || '')
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean),
+    apCost: formData.get('apCost'),
+    range: formData.get('range'),
+    healthBonus: formData.get('healthBonus'),
+    tags: formData.get('tags') || '',
     effect: formData.get('effect') || '',
-    mastery,
+    mastery: masteryRaw,
     fusion: formData.get('fusion') || '',
     modifiers: {
-      maxHp: Number(formData.get('modMaxHp') || 0),
-      maxShield: Number(formData.get('modMaxShield') || 0),
-      apMax: Number(formData.get('modApMax') || 0),
-      guardRestore: Number(formData.get('modGuard') || 0),
-      damageBonus: Number(formData.get('modDamage') || 0)
+      maxHp: formData.get('modMaxHp'),
+      maxShield: formData.get('modMaxShield'),
+      apMax: formData.get('modApMax'),
+      guardRestore: formData.get('modGuard'),
+      damageBonus: formData.get('modDamage')
     }
   };
+  return normalizeCardPayload(card);
+}
+
+async function importCardsFromFile(input, participant) {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const imported = extractCardsFromPayload(payload).map((card) => normalizeCardPayload(card));
+    if (!imported.length) {
+      notify('No cards found in file.');
+      return;
+    }
+    await api(`/api/participants/${participant.id}`, 'PATCH', {
+      cards: [...(participant.cards || []), ...imported]
+    });
+    notify(`Imported ${imported.length} card${imported.length === 1 ? '' : 's'}.`);
+  } catch (err) {
+    notify(`Card import failed: ${err.message}`);
+  } finally {
+    input.value = '';
+  }
+}
+
+function extractCardsFromPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.cards)) return payload.cards;
+  if (payload.card && Array.isArray(payload.card)) return payload.card;
+  if (payload.card && typeof payload.card === 'object') return [payload.card];
+  if (typeof payload === 'object') return [payload];
+  return [];
+}
+
+function normalizeCardPayload(raw = {}) {
+  return {
+    id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+    name: (raw.name || 'Imported Card').trim(),
+    set: raw.set || '',
+    type: raw.type || 'Attack',
+    tier: raw.tier || 'Common',
+    apCost: toNumber(raw.apCost ?? raw.ap ?? 0),
+    range: toNumber(raw.range ?? 0),
+    healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
+    tags: normalizeTagList(raw.tags),
+    effect: raw.effect || '',
+    mastery: normalizeMasteryInput(raw.mastery ?? raw.masteryLevels),
+    fusion: raw.fusion || raw.fusionNotes || '',
+    modifiers: {
+      maxHp: toNumber(raw.modifiers?.maxHp ?? raw.modMaxHp ?? raw.maxHpBonus ?? 0),
+      maxShield: toNumber(raw.modifiers?.maxShield ?? raw.modMaxShield ?? raw.maxShieldBonus ?? 0),
+      apMax: toNumber(raw.modifiers?.apMax ?? raw.modApMax ?? raw.apMaxBonus ?? 0),
+      guardRestore: toNumber(raw.modifiers?.guardRestore ?? raw.modGuard ?? raw.guardBonus ?? 0),
+      damageBonus: toNumber(raw.modifiers?.damageBonus ?? raw.modDamage ?? raw.damageBonus ?? 0)
+    }
+  };
+}
+
+function normalizeTagList(tags) {
+  if (!tags) return [];
+  if (Array.isArray(tags)) {
+    return tags
+      .map((tag) => String(tag).trim())
+      .filter(Boolean);
+  }
+  return String(tags)
+    .split(/,|\n/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function normalizeMasteryInput(input) {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return input.map((line) => String(line).trim()).filter(Boolean);
+  }
+  return String(input)
+    .split(/\n|,/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function toNumber(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
 }
 
 async function api(path, method = 'GET', body) {
