@@ -83,11 +83,13 @@ body {
   gap: 1rem;
 }
 
-.player-menu {
+.player-menu,
+.gm-menu {
   position: relative;
 }
 
-.player-menu-panel {
+.player-menu-panel,
+.gm-menu-panel {
   position: absolute;
   right: 0;
   top: calc(100% + 0.5rem);
@@ -103,31 +105,16 @@ body {
   z-index: 20;
 }
 
-.player-menu-panel.is-open {
+.player-menu-panel.is-open,
+.gm-menu-panel.is-open {
   display: flex;
 }
 
-.player-menu .menu-section {
+.player-menu .menu-section,
+.gm-menu .menu-section {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-}
-
-.adjust-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.9rem;
-}
-
-.adjust-buttons {
-  display: flex;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.adjust-buttons input {
-  width: 80px;
 }
 
 .main-grid {
@@ -224,6 +211,19 @@ body {
 .empty-state {
   color: var(--muted);
   text-align: center;
+}
+
+.player-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.player-empty h2 {
+  margin: 0 0 0.5rem;
+}
+
+.player-empty button {
+  margin-top: 1rem;
 }
 
 button {
@@ -423,6 +423,17 @@ textarea {
   font-weight: 700;
 }
 
+.inline-adjust {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.inline-adjust input {
+  width: 70px;
+}
+
 .stat-controls {
   display: flex;
   gap: 0.4rem;
@@ -509,6 +520,12 @@ textarea {
 
 .card-item button {
   margin-top: 0.5rem;
+}
+
+.card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .player-sheet {

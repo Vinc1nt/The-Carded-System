@@ -22,6 +22,16 @@
         </div>
         <div class="header-actions">
           <button type="button" id="toggleAddForm">Add Combatant</button>
+          <div class="gm-menu">
+            <button type="button" id="gmMenuToggle">Encounter Menu ▾</button>
+            <div class="gm-menu-panel" id="gmMenuPanel">
+              <button type="button" id="downloadEncounter">Download Encounter</button>
+              <label class="file-upload">
+                Import Encounter
+                <input type="file" id="uploadEncounter" accept="application/json" />
+              </label>
+            </div>
+          </div>
           <a href="/player" target="_blank" rel="noopener noreferrer">Open Player Dashboard</a>
         </div>
       </header>
@@ -62,13 +72,6 @@
                 </div>
                 <button type="submit" class="primary">Add Combatant</button>
             </form>
-            <div class="import-export">
-              <button type="button" id="downloadEncounter">Download Encounter</button>
-              <label class="file-upload">
-                Import Encounter
-                <input type="file" id="uploadEncounter" accept="application/json" />
-              </label>
-            </div>
           </div>
         </section>
         </aside>

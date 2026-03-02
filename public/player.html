@@ -22,41 +22,22 @@
             <button type="button" id="playerMenuToggle">Player Menu ▾</button>
             <div class="player-menu-panel" id="playerMenuPanel">
               <div class="menu-section">
-                <h4>Quick Adjust</h4>
-                <div class="adjust-row">
-                  <span>HP</span>
-                  <div class="adjust-buttons">
-                    <button type="button" data-stat-adjust="hp" data-delta="-1">-1</button>
-                    <button type="button" data-stat-adjust="hp" data-delta="1">+1</button>
-                    <input type="number" data-stat-input="hp" placeholder="Set value" />
-                    <button type="button" data-stat-set="hp">Set</button>
-                  </div>
-                </div>
-                <div class="adjust-row">
-                  <span>Shield</span>
-                  <div class="adjust-buttons">
-                    <button type="button" data-stat-adjust="shield" data-delta="-1">-1</button>
-                    <button type="button" data-stat-adjust="shield" data-delta="1">+1</button>
-                    <input type="number" data-stat-input="shield" placeholder="Set value" />
-                    <button type="button" data-stat-set="shield">Set</button>
-                  </div>
-                </div>
-                <div class="adjust-row">
-                  <span>AP</span>
-                  <div class="adjust-buttons">
-                    <button type="button" data-stat-adjust="ap" data-delta="-1">-1</button>
-                    <button type="button" data-stat-adjust="ap" data-delta="1">+1</button>
-                    <input type="number" data-stat-input="ap" placeholder="Set value" />
-                    <button type="button" data-stat-set="ap">Set</button>
-                  </div>
-                </div>
-              </div>
-              <div class="menu-section">
-                <h4>Import / Export</h4>
+                <h4>Character Files</h4>
                 <button type="button" id="downloadCharacter">Download Character</button>
                 <label class="file-upload">
                   Import Character
                   <input type="file" id="uploadCharacter" accept="application/json" />
+                </label>
+              </div>
+              <div class="menu-section">
+                <h4>Cards</h4>
+                <label class="file-upload">
+                  Import Card
+                  <input type="file" id="playerImportCard" accept="application/json" />
+                </label>
+                <label class="file-upload">
+                  Import Card Deck
+                  <input type="file" id="playerImportDeck" accept="application/json" />
                 </label>
               </div>
             </div>

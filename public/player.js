@@ -18,7 +18,11 @@ const els = {
   cardDrawer: document.getElementById('playerCardDrawer'),
   menuToggle: document.getElementById('playerMenuToggle'),
   menuPanel: document.getElementById('playerMenuPanel'),
-  nextTurn: document.getElementById('playerNextTurn')
+  nextTurn: document.getElementById('playerNextTurn'),
+  downloadCharacter: document.getElementById('downloadCharacter'),
+  uploadCharacter: document.getElementById('uploadCharacter'),
+  importCardFile: document.getElementById('playerImportCard'),
+  importDeckFile: document.getElementById('playerImportDeck')
 };
 
 const STAT_FIELD_MAP = {
@@ -66,34 +70,19 @@ function wirePlayerCardForm() {
 
 function wirePlayerMenu() {
   if (!els.menuToggle || !els.menuPanel) return;
-  els.menuToggle.addEventListener('click', () => {
+  els.menuToggle.addEventListener('click', (event) => {
+    event.stopPropagation();
     els.menuPanel.classList.toggle('is-open');
   });
   document.addEventListener('click', (event) => {
-    if (!els.menuPanel.classList.contains('is-open')) return;
+    if (!els.menuPanel?.classList?.contains('is-open')) return;
     if (event.target.closest('.player-menu')) return;
     els.menuPanel.classList.remove('is-open');
   });
-  els.menuPanel.querySelectorAll('[data-stat-adjust]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const field = button.dataset.statAdjust;
-      const delta = Number(button.dataset.delta || 0);
-      handleStatAdjustment(field, delta);
-    });
-  });
-  els.menuPanel.querySelectorAll('[data-stat-set]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const field = button.dataset.statSet;
-      const input = els.menuPanel.querySelector(`[data-stat-input="${field}"]`);
-      const value = Number(input?.value);
-      if (!Number.isFinite(value)) {
-        notify('Enter a value before setting the stat.');
-        return;
-      }
-      handleStatSet(field, value);
-      if (input) input.value = '';
-    });
-  });
+  els.downloadCharacter?.addEventListener('click', handleCharacterDownload);
+  els.uploadCharacter?.addEventListener('change', handleCharacterImport);
+  els.importCardFile?.addEventListener('change', (event) => handlePlayerCardFile(event, 'card'));
+  els.importDeckFile?.addEventListener('change', (event) => handlePlayerCardFile(event, 'deck'));
 }
 
 function wireTopButtons() {
@@ -173,7 +162,14 @@ function renderSelectOptions() {
 function renderStats() {
   const participant = getFocusedParticipant();
   if (!participant) {
-    els.stats.innerHTML = '<p class="empty-state">Waiting for the encounter console.</p>';
+    const hasCombatants = (state.encounter.participants || []).length > 0;
+    els.stats.innerHTML = `
+      <div class="player-empty">
+        <h2>${hasCombatants ? 'Select Your Character' : 'Waiting for the GM'}</h2>
+        <p>${hasCombatants ? 'Pick a combatant from the dropdown or import your saved character.' : 'The GM has not added any combatants yet.'}</p>
+        <button type="button" data-player-open-menu>Import Character</button>
+      </div>`;
+    els.stats.querySelector('[data-player-open-menu]')?.addEventListener('click', openPlayerMenu);
     return;
   }
   const stats = participant.stats || {};
@@ -187,9 +183,9 @@ function renderStats() {
         <div class="muted">Round ${state.encounter.round}</div>
       </div>
       <div class="vitals-grid">
-        ${renderPlayerVital('HP', participant.hp, participant.maxHp)}
-        ${renderPlayerVital('Shield', participant.shield, participant.maxShield)}
-        ${renderPlayerVital('AP', participant.apCurrent, participant.apMax)}
+        ${renderPlayerVital('HP', participant.hp, participant.maxHp, 'hp')}
+        ${renderPlayerVital('Shield', participant.shield, participant.maxShield, 'shield')}
+        ${renderPlayerVital('AP', participant.apCurrent, participant.apMax, 'ap')}
         ${renderPlayerVital('Guard Restore', participant.guardRestore || 3)}
         ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
       </div>
@@ -232,12 +228,13 @@ function renderStats() {
   wirePlayerSheetEvents(participant);
 }
 
-function renderPlayerVital(label, value, max) {
+function renderPlayerVital(label, value, max, key) {
   if (typeof max === 'number') {
     return `
       <div class="vital-card">
         <h4>${label}</h4>
         <div class="value">${value} / ${max}</div>
+        ${key ? renderInlineAdjust(key) : ''}
       </div>`;
   }
   return `
@@ -245,6 +242,17 @@ function renderPlayerVital(label, value, max) {
       <h4>${label}</h4>
       <div class="value">${value}</div>
     </div>`;
+}
+
+function renderInlineAdjust(fieldKey) {
+  return `
+    <div class="inline-adjust">
+      <button type="button" data-inline-adjust="${fieldKey}" data-delta="-1">-1</button>
+      <button type="button" data-inline-adjust="${fieldKey}" data-delta="1">+1</button>
+      <input type="number" data-inline-input="${fieldKey}" placeholder="Set" />
+      <button type="button" data-inline-set="${fieldKey}">Set</button>
+    </div>
+  `;
 }
 
 const ABILITIES = [
@@ -458,11 +466,30 @@ function renderCards() {
             ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
             ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
             <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
+            <div class="card-actions">
+              <button type="button" data-player-export-card="${card.id}">Export Card</button>
+            </div>
           </article>`
       )
       .join('');
   }
   renderRelics(participant);
+  wirePlayerCardExports(participant);
+}
+
+function wirePlayerCardExports(participant) {
+  if (!participant) return;
+  els.cardList.querySelectorAll('[data-player-export-card]').forEach((button) => {
+    button.onclick = () => {
+      const cards = participant?.cards || [];
+      const card = cards.find((entry) => entry.id === button.dataset.playerExportCard);
+      if (!card) {
+        notify('Card not found.');
+        return;
+      }
+      downloadJson(card, `${slugify(participant?.name || 'card')}-${slugify(card.name)}.json`);
+    };
+  });
 }
 
 function renderRelics(participant) {
@@ -602,6 +629,25 @@ function summarizeModifiers(modifiers = {}) {
 
 function wirePlayerSheetEvents(participant) {
   const panel = els.stats;
+  panel.querySelectorAll('[data-inline-adjust]').forEach((button) => {
+    button.onclick = () => {
+      const delta = Number(button.dataset.delta || 0);
+      handleStatAdjustment(button.dataset.inlineAdjust, delta);
+    };
+  });
+  panel.querySelectorAll('[data-inline-set]').forEach((button) => {
+    button.onclick = () => {
+      const field = button.dataset.inlineSet;
+      const input = panel.querySelector(`[data-inline-input="${field}"]`);
+      const value = Number(input?.value);
+      if (!Number.isFinite(value)) {
+        notify('Enter a value before setting the stat.');
+        return;
+      }
+      handleStatSet(field, value);
+      if (input) input.value = '';
+    };
+  });
   panel.querySelectorAll('[data-ability-input]').forEach((input) => {
     input.onchange = async () => {
       const ability = input.dataset.abilityInput;
@@ -867,6 +913,82 @@ function getSkillsSnapshot(participant) {
   return snapshot;
 }
 
+async function handleCharacterDownload() {
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant to export.');
+    return;
+  }
+  const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+  downloadJson(latest, `${slugify(latest?.name || 'character')}.json`);
+  els.menuPanel?.classList.remove('is-open');
+}
+
+async function handleCharacterImport(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const participantData = payload.participant || payload;
+    if (!participantData || typeof participantData !== 'object') {
+      throw new Error('Invalid character file.');
+    }
+    const result = await api('/api/import/participant', 'POST', { participant: participantData });
+    if (result?.participant?.id) {
+      focusId = result.participant.id;
+      updateUrl();
+      notify('Character imported.');
+    }
+    fetchState();
+  } catch (err) {
+    notify(`Import failed: ${err.message}`);
+  } finally {
+    event.target.value = '';
+    els.menuPanel?.classList.remove('is-open');
+  }
+}
+
+async function handlePlayerCardFile(event, mode = 'card') {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant first.');
+    event.target.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const cards = extractCardsFromPayload(payload).map((card) => normalizeCardPayload(card));
+    if (!cards.length) {
+      throw new Error('No cards found in file.');
+    }
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const existing = latest?.cards || [];
+    const updated = mode === 'deck' ? cards : [...existing, ...cards];
+    await patchParticipant(participant.id, { cards: updated });
+    fetchState();
+    notify(`Imported ${cards.length} card${cards.length === 1 ? '' : 's'}.`);
+  } catch (err) {
+    notify(`Card import failed: ${err.message}`);
+  } finally {
+    event.target.value = '';
+    els.menuPanel?.classList.remove('is-open');
+  }
+}
+
+function extractCardsFromPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.cards)) return payload.cards;
+  if (payload.card && Array.isArray(payload.card)) return payload.card;
+  if (payload.card && typeof payload.card === 'object') return [payload.card];
+  if (typeof payload === 'object' && (payload.name || payload.set)) return [payload];
+  return [];
+}
+
 async function fetchParticipantFromServer(participantId) {
   try {
     const response = await api(`/api/participants/${participantId}/export`);
@@ -894,4 +1016,28 @@ function notify(message) {
   if (message) {
     console.warn(message);
   }
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function slugify(value) {
+  return (value || 'record')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50) || 'record';
+}
+
+function openPlayerMenu() {
+  els.menuPanel?.classList.add('is-open');
 }

@@ -23,7 +23,11 @@ const els = {
   startEncounter: document.getElementById('startEncounter'),
   prevTurn: document.getElementById('prevTurn'),
   nextTurn: document.getElementById('nextTurn'),
-  refreshState: document.getElementById('refreshState')
+  refreshState: document.getElementById('refreshState'),
+  gmMenuToggle: document.getElementById('gmMenuToggle'),
+  gmMenuPanel: document.getElementById('gmMenuPanel'),
+  downloadEncounter: document.getElementById('downloadEncounter'),
+  uploadEncounter: document.getElementById('uploadEncounter')
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -68,6 +72,18 @@ function wireGlobalEvents() {
   els.prevTurn?.addEventListener('click', () => api('/api/turn/previous', 'POST'));
   els.nextTurn?.addEventListener('click', () => api('/api/turn/next', 'POST'));
   els.refreshState?.addEventListener('click', fetchState);
+
+  els.gmMenuToggle?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    els.gmMenuPanel?.classList.toggle('is-open');
+  });
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.gm-menu')) {
+      els.gmMenuPanel?.classList.remove('is-open');
+    }
+  });
+  els.downloadEncounter?.addEventListener('click', handleEncounterDownload);
+  els.uploadEncounter?.addEventListener('change', handleEncounterImport);
 }
 
 function subscribeToEvents() {
@@ -196,6 +212,8 @@ function renderDetailPanel() {
       </div>
       <div class="detail-actions">
         <a href="/player?id=${participant.id}" target="_blank" rel="noopener noreferrer">Player View</a>
+        <button type="button" data-export-character>Export Character</button>
+        <button type="button" data-export-deck>Export Deck</button>
         <button type="button" class="danger" data-remove>Remove</button>
       </div>
     </div>
@@ -258,6 +276,7 @@ function renderStatusSection(participant) {
                 <option value="minor">Minor</option>
                 <option value="moderate">Moderate</option>
                 <option value="severe">Severe</option>
+                <option value="exceptional">Exceptional</option>
               </select>
             </label>
             <label>Stacks
@@ -544,6 +563,22 @@ function wireDetailEvents(participant) {
       notify(err.message);
     }
   });
+  panel.querySelector('[data-export-character]')?.addEventListener('click', async () => {
+    const latest = (await getServerParticipant(participant.id)) || participant;
+    if (!latest) {
+      notify('Unable to export character.');
+      return;
+    }
+    downloadJson(latest, `${slugify(latest.name)}.json`);
+  });
+  panel.querySelector('[data-export-deck]')?.addEventListener('click', async () => {
+    const latest = (await getServerParticipant(participant.id)) || participant;
+    if (!latest) {
+      notify('Unable to export deck.');
+      return;
+    }
+    downloadJson({ cards: latest.cards || [] }, `${slugify(latest.name)}-deck.json`);
+  });
 
   panel.querySelectorAll('[data-standard]').forEach((button) => {
     button.addEventListener('click', () => handleStandardAction(button.dataset.standard));
@@ -667,6 +702,18 @@ function wireDetailEvents(participant) {
       }
     });
   });
+  panel.querySelectorAll('[data-export-card]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const cards = latest?.cards || participant.cards || [];
+      const card = cards.find((entry) => entry.id === button.dataset.exportCard);
+      if (!card) {
+        notify('Card not found for export.');
+        return;
+      }
+      downloadJson(card, `${slugify(latest?.name || participant.name)}-${slugify(card.name)}.json`);
+    });
+  });
 
   panel.querySelector('[data-form="participant"]')?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -769,7 +816,10 @@ function renderCards(participant) {
         ${card.mastery?.length ? `<p>Mastery: ${card.mastery.join(' / ')}</p>` : ''}
         ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
         <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
-        <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove Card</button>
+        <div class="card-actions">
+          <button type="button" data-export-card="${card.id || ''}">Export</button>
+          <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove</button>
+        </div>
       </article>`
     )
     .join('');
@@ -1023,6 +1073,60 @@ function notify(message) {
   setTimeout(() => {
     toast.remove();
   }, 2500);
+}
+
+async function handleEncounterDownload() {
+  try {
+    const data = await api('/api/export/encounter');
+    if (data?.encounter) {
+      downloadJson(data.encounter, `encounter-${new Date().toISOString().slice(0, 10)}.json`);
+      els.gmMenuPanel?.classList.remove('is-open');
+    } else {
+      notify('Unable to export encounter.');
+    }
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function handleEncounterImport(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const encounter = payload.encounter || payload;
+    if (!encounter || typeof encounter !== 'object') {
+      throw new Error('Invalid encounter file.');
+    }
+    await api('/api/import/encounter', 'POST', { encounter });
+    notify('Encounter imported.');
+  } catch (err) {
+    notify(`Encounter import failed: ${err.message}`);
+  } finally {
+    event.target.value = '';
+    els.gmMenuPanel?.classList.remove('is-open');
+  }
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function slugify(value) {
+  return (value || 'record')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50) || 'record';
 }
 
 async function getServerParticipant(participantId) {
