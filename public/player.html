@@ -29,17 +29,6 @@
                   <input type="file" id="uploadCharacter" accept="application/json" />
                 </label>
               </div>
-              <div class="menu-section">
-                <h4>Cards</h4>
-                <label class="file-upload">
-                  Import Card
-                  <input type="file" id="playerImportCard" accept="application/json" />
-                </label>
-                <label class="file-upload">
-                  Import Card Deck
-                  <input type="file" id="playerImportDeck" accept="application/json" />
-                </label>
-              </div>
             </div>
           </div>
         </div>
@@ -54,7 +43,18 @@
           <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
           <div class="player-section">
             <details id="playerCardDrawer">
-              <summary>Add Card</summary>
+              <summary>Card Tools</summary>
+              <div class="card-import">
+                <label class="file-upload">
+                  Import Card
+                  <input type="file" id="playerImportCard" accept="application/json" />
+                </label>
+                <label class="file-upload">
+                  Import Card Deck
+                  <input type="file" id="playerImportDeck" accept="application/json" />
+                </label>
+                <p class="muted help-text">Upload single cards or a {"cards": []} deck file.</p>
+              </div>
               <form id="playerCardForm" class="stacked-form">
                 <div class="form-row">
                   <label>Name
@@ -110,28 +110,31 @@
           <div class="player-section">
             <h3>Relics & Artifacts</h3>
             <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
-            <form id="playerRelicForm" class="stacked-form">
-              <div class="form-row">
-                <label>Name
-                  <input type="text" name="name" required />
-                </label>
-                <label>HP Bonus
-                  <input type="number" name="hp" value="0" />
-                </label>
-                <label>AP Bonus
-                  <input type="number" name="ap" value="0" />
-                </label>
-              </div>
-              <div class="form-row">
-                <label>Ability Focus
-                  <input type="text" name="ability" placeholder="Machine, Shield, etc." />
-                </label>
-                <label>Description
-                  <input type="text" name="description" placeholder="What does it do?" />
-                </label>
-              </div>
-              <button type="submit">Add Relic</button>
-            </form>
+            <details id="playerRelicDrawer">
+              <summary>Add Relic</summary>
+              <form id="playerRelicForm" class="stacked-form">
+                <div class="form-row">
+                  <label>Name
+                    <input type="text" name="name" required />
+                  </label>
+                  <label>HP Bonus
+                    <input type="number" name="hp" value="0" />
+                  </label>
+                  <label>AP Bonus
+                    <input type="number" name="ap" value="0" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Ability Focus
+                    <input type="text" name="ability" placeholder="Machine, Shield, etc." />
+                  </label>
+                  <label>Description
+                    <input type="text" name="description" placeholder="What does it do?" />
+                  </label>
+                </div>
+                <button type="submit">Add Relic</button>
+              </form>
+            </details>
           </div>
         </section>
         <section class="panel log-panel" id="playerLog">

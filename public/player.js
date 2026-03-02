@@ -189,21 +189,27 @@ function renderStats() {
         ${renderPlayerVital('Guard Restore', participant.guardRestore || 3)}
         ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
       </div>
-      <section class="player-section">
-        <h3>Ability Scores</h3>
-        <label>Proficiency Bonus
-          <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
-        </label>
-        ${renderAbilityTable(stats)}
-      </section>
-      <section class="player-section">
-        <h3>Saving Throws</h3>
-        ${renderSavingThrows(participant)}
-      </section>
-      <section class="player-section">
-        <h3>Skills</h3>
-        ${renderSkillsTable(participant)}
-      </section>
+      <details class="player-collapsible" data-player-section="abilities">
+        <summary><strong>Ability Scores</strong></summary>
+        <div class="collapsible-body">
+          <label>Proficiency Bonus
+            <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
+          </label>
+          ${renderAbilityTable(stats)}
+        </div>
+      </details>
+      <details class="player-collapsible" data-player-section="saves">
+        <summary><strong>Saving Throws</strong></summary>
+        <div class="collapsible-body">
+          ${renderSavingThrows(participant)}
+        </div>
+      </details>
+      <details class="player-collapsible" data-player-section="skills">
+        <summary><strong>Skills</strong></summary>
+        <div class="collapsible-body">
+          ${renderSkillsTable(participant)}
+        </div>
+      </details>
       <section class="player-section">
         <h3>Set Tracker</h3>
         ${renderSetTracker(participant)}
@@ -975,7 +981,6 @@ async function handlePlayerCardFile(event, mode = 'card') {
     notify(`Card import failed: ${err.message}`);
   } finally {
     event.target.value = '';
-    els.menuPanel?.classList.remove('is-open');
   }
 }
 

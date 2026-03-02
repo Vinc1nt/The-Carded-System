@@ -225,6 +225,7 @@ function renderDetailPanel() {
     ${renderStatusSection(participant)}
     ${renderActionsSection(participant)}
     ${renderCardsSection(participant)}
+    ${renderRelicSection(participant)}
     ${renderAutomationSection(participant)}
     ${renderAdvancedSection(participant, base)}
   `;
@@ -331,17 +332,18 @@ function renderCardsSection(participant) {
         <button type="button" data-toggle-card-form>Add Card</button>
       </summary>
       <div class="collapsible-body">
-        <div class="card-import">
-          <label class="file-upload">
-            Import cards (.json)
-            <input type="file" accept="application/json" data-card-import />
-          </label>
-          <p class="muted help-text">Upload a single card object or {"cards": []} list with automation fields.</p>
-        </div>
         <div class="cards-grid">
           ${renderCards(participant)}
         </div>
-        <form data-form="card" class="stacked-form hidden">
+        <div class="card-tooling hidden" data-card-tooling>
+          <div class="card-import">
+            <label class="file-upload">
+              Import cards (.json)
+              <input type="file" accept="application/json" data-card-import />
+            </label>
+            <p class="muted help-text">Upload a single card object or {"cards": []} list with automation fields.</p>
+          </div>
+          <form data-form="card" class="stacked-form">
           <datalist id="setOptions">
             ${renderSetOptions()}
           </datalist>
@@ -403,6 +405,54 @@ function renderCardsSection(participant) {
           </label>
           <button type="submit">Add Card</button>
         </form>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderRelicSection(participant) {
+  const relics = participant.relics || [];
+  return `
+    <details class="collapsible-block" data-section="relics">
+      <summary>
+        <strong>Relics (${relics.length})</strong>
+        <button type="button" data-toggle-relic-form>Add Relic</button>
+      </summary>
+      <div class="collapsible-body">
+        <div class="cards-grid relic-grid">
+          ${renderRelicCards(participant)}
+        </div>
+        <div class="card-tooling hidden" data-relic-tooling>
+          <div class="card-import">
+            <label class="file-upload">
+              Import relics (.json)
+              <input type="file" accept="application/json" data-relic-import />
+            </label>
+          </div>
+          <form data-form="relic" class="stacked-form">
+            <div class="form-row">
+              <label>Name
+                <input type="text" name="name" required />
+              </label>
+              <label>Ability Focus
+                <input type="text" name="ability" placeholder="Machine, Shield, etc." />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>HP Bonus
+                <input type="number" name="hp" value="0" />
+              </label>
+              <label>AP Bonus
+                <input type="number" name="ap" value="0" />
+              </label>
+            </div>
+            <label>Description
+              <input type="text" name="description" placeholder="What does it do?" />
+            </label>
+            <button type="submit">Add Relic</button>
+          </form>
+        </div>
       </div>
     </details>
   `;
@@ -652,11 +702,12 @@ function wireDetailEvents(participant) {
     });
   });
 
-  const cardForm = panel.querySelector('[data-form="card"]');
+  const cardTools = panel.querySelector('[data-card-tooling]');
+  const cardForm = cardTools?.querySelector('[data-form="card"]');
   panel.querySelector('[data-toggle-card-form]')?.addEventListener('click', () => {
-    cardForm?.classList.toggle('hidden');
+    cardTools?.classList.toggle('hidden');
   });
-  panel.querySelector('[data-card-import]')?.addEventListener('change', (event) => {
+  cardTools?.querySelector('[data-card-import]')?.addEventListener('change', (event) => {
     importCardsFromFile(event.currentTarget, participant.id);
   });
   cardForm?.addEventListener('submit', async (event) => {
@@ -674,7 +725,7 @@ function wireDetailEvents(participant) {
       }
       fetchState();
       event.target.reset();
-      cardForm.classList.add('hidden');
+      cardTools?.classList.add('hidden');
     } catch (err) {
       notify(err.message);
     }
@@ -712,6 +763,57 @@ function wireDetailEvents(participant) {
         return;
       }
       downloadJson(card, `${slugify(latest?.name || participant.name)}-${slugify(card.name)}.json`);
+    });
+  });
+
+  const relicTools = panel.querySelector('[data-relic-tooling]');
+  const relicForm = relicTools?.querySelector('[data-form="relic"]');
+  panel.querySelector('[data-toggle-relic-form]')?.addEventListener('click', () => {
+    relicTools?.classList.toggle('hidden');
+  });
+  relicTools?.querySelector('[data-relic-import]')?.addEventListener('change', (event) => {
+    importRelicsFromFile(event.currentTarget, participant.id);
+  });
+  relicForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const newRelic = buildRelicFromForm(formData);
+    try {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const existing = latest?.relics || participant.relics || [];
+      const response = await api(`/api/participants/${participant.id}`, 'PATCH', {
+        relics: [...existing, newRelic]
+      });
+      if (response?.participant) {
+        updateParticipantInState(response.participant);
+      }
+      fetchState();
+      event.target.reset();
+      relicTools?.classList.add('hidden');
+    } catch (err) {
+      notify(err.message);
+    }
+  });
+  panel.querySelectorAll('[data-remove-relic]').forEach((button, index) => {
+    button.addEventListener('click', async () => {
+      const relicId = button.dataset.removeRelic;
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const source = latest?.relics || participant.relics || [];
+      const updated = source.filter((relic, idx) => {
+        if (relic.id) {
+          return relic.id !== relicId;
+        }
+        return idx !== index;
+      });
+      try {
+        const response = await api(`/api/participants/${participant.id}`, 'PATCH', { relics: updated });
+        if (response?.participant) {
+          updateParticipantInState(response.participant);
+        }
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
     });
   });
 
@@ -821,6 +923,26 @@ function renderCards(participant) {
           <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove</button>
         </div>
       </article>`
+    )
+    .join('');
+}
+
+function renderRelicCards(participant) {
+  const relics = participant.relics || [];
+  if (!relics.length) {
+    return '<p class="empty-state">No relics added.</p>';
+  }
+  return relics
+    .map(
+      (relic, index) => `
+        <article class="relic-card">
+          <h4>${relic.name}</h4>
+          <p>HP ${relic.hp ?? 0} · AP ${relic.ap ?? 0} · Focus: ${relic.ability || '—'}</p>
+          <p>${relic.description || ''}</p>
+          <div class="card-actions">
+            <button type="button" data-remove-relic="${relic.id || ''}" data-relic-index="${index}">Remove</button>
+          </div>
+        </article>`
     )
     .join('');
 }
@@ -1041,6 +1163,72 @@ function normalizeMasteryInput(input) {
     .split(/\n|,/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function buildRelicFromForm(formData) {
+  return normalizeRelicPayload({
+    name: formData.get('name'),
+    ability: formData.get('ability'),
+    description: formData.get('description'),
+    hp: formData.get('hp'),
+    ap: formData.get('ap')
+  });
+}
+
+async function importRelicsFromFile(input, participantId) {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const imported = extractRelicsFromPayload(payload).map((relic) => normalizeRelicPayload(relic));
+    if (!imported.length) {
+      notify('No relics found in file.');
+      return;
+    }
+    const latest = (await getServerParticipant(participantId)) || getParticipantSnapshot(participantId);
+    const existing = latest?.relics || [];
+    const response = await api(`/api/participants/${participantId}`, 'PATCH', {
+      relics: [...existing, ...imported]
+    });
+    if (response?.participant) {
+      updateParticipantInState(response.participant);
+    }
+    notify(`Imported ${imported.length} relic${imported.length === 1 ? '' : 's'}.`);
+    fetchState();
+  } catch (err) {
+    notify(`Relic import failed: ${err.message}`);
+  } finally {
+    input.value = '';
+  }
+}
+
+function extractRelicsFromPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.relics)) return payload.relics;
+  if (payload.relic && Array.isArray(payload.relic)) return payload.relic;
+  if (payload.relic && typeof payload.relic === 'object') return [payload.relic];
+  if (typeof payload === 'object' && (payload.name || payload.description)) return [payload];
+  return [];
+}
+
+function normalizeRelicPayload(raw = {}) {
+  return {
+    id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+    name: (raw.name || 'Imported Relic').trim(),
+    ability: raw.ability || raw.focus || '',
+    description: raw.description || raw.notes || '',
+    hp: toNumber(raw.hp ?? raw.hpBonus ?? raw.modifiers?.maxHp ?? 0),
+    ap: toNumber(raw.ap ?? raw.apBonus ?? raw.modifiers?.apMax ?? 0),
+    modifiers: {
+      maxHp: toNumber(raw.modifiers?.maxHp ?? raw.modMaxHp ?? 0),
+      maxShield: toNumber(raw.modifiers?.maxShield ?? raw.modMaxShield ?? 0),
+      apMax: toNumber(raw.modifiers?.apMax ?? raw.modApMax ?? 0),
+      guardRestore: toNumber(raw.modifiers?.guardRestore ?? raw.modGuard ?? 0),
+      damageBonus: toNumber(raw.modifiers?.damageBonus ?? raw.modDamage ?? 0)
+    }
+  };
 }
 
 function toNumber(value, fallback = 0) {
