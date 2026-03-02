@@ -1,8 +1,10 @@
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
-  reference: { standardActions: [], sets: [] },
+  reference: { standardActions: [], sets: [], statuses: [] },
   updatedAt: null
 };
+
+const detailSectionState = new Map();
 
 let selectedParticipantId = null;
 let eventSource;
@@ -171,10 +173,15 @@ function highlightSelection() {
 }
 
 function renderDetailPanel() {
+  const previousId = els.detailPanel.dataset.participantId;
+  if (previousId) {
+    rememberDetailSections(previousId);
+  }
   const participant = getSelectedParticipant();
   if (!participant) {
     els.detailPanel.classList.add('empty-state');
     els.detailPanel.innerHTML = 'Select a combatant to manage their turn, automation, and cards.';
+    els.detailPanel.dataset.participantId = '';
     return;
   }
   els.detailPanel.classList.remove('empty-state');
@@ -203,8 +210,9 @@ function renderDetailPanel() {
     ${renderAutomationSection(participant)}
     ${renderAdvancedSection(participant, base)}
   `;
-
+  els.detailPanel.dataset.participantId = participant.id;
   wireDetailEvents(participant);
+  restoreDetailSections(participant.id);
 }
 
 function renderVitalCard(label, current, max, key) {
@@ -235,6 +243,12 @@ function renderStatusSection(participant) {
           ${renderStatuses(participant)}
         </div>
         <form data-form="status" class="stacked-form hidden">
+          <label>Preset
+            <select name="preset" data-status-preset>
+              <option value="">Custom</option>
+              ${renderStatusOptions()}
+            </select>
+          </label>
           <div class="form-row">
             <label>Name
               <input type="text" name="name" placeholder="Bleeding" required />
@@ -495,6 +509,31 @@ function renderSetOptions() {
     .join('');
 }
 
+function renderStatusOptions() {
+  return (state.reference?.statuses || [])
+    .map((status) => `<option value="${status.id}">${status.name}</option>`)
+    .join('');
+}
+
+function summarizeModifiers(modifiers = {}) {
+  const labels = {
+    maxHp: 'HP',
+    maxShield: 'Shield',
+    apMax: 'AP',
+    guardRestore: 'Guard',
+    damageBonus: 'Damage'
+  };
+  const summary = Object.entries(labels)
+    .map(([key, label]) => {
+      const value = modifiers?.[key] || 0;
+      if (!value) return null;
+      return `${label} ${value > 0 ? '+' : ''}${value}`;
+    })
+    .filter(Boolean)
+    .join(', ');
+  return summary || '—';
+}
+
 function wireDetailEvents(participant) {
   const panel = els.detailPanel;
   panel.querySelector('[data-remove]')?.addEventListener('click', async () => {
@@ -537,11 +576,15 @@ function wireDetailEvents(participant) {
   panel.querySelector('[data-toggle-status-form]')?.addEventListener('click', () => {
     statusForm?.classList.toggle('hidden');
   });
+  statusForm?.querySelector('[data-status-preset]')?.addEventListener('change', (event) => {
+    applyStatusPreset(event.currentTarget, statusForm);
+  });
   statusForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
     const newStatus = {
       id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+      presetId: formData.get('preset') || '',
       name: formData.get('name'),
       severity: formData.get('severity') || 'minor',
       stacks: Number(formData.get('stacks') || 1),
@@ -703,6 +746,7 @@ function renderStatuses(participant) {
       (status, index) => `
         <span class="status-pill">
           ${status.name} (${status.severity}${status.stacks ? ` ×${status.stacks}` : ''})
+          ${status.notes ? `<small>${status.notes}</small>` : ''}
           <button type="button" data-remove-status="${status.id || ''}" data-status-index="${index}">✕</button>
         </span>`
     )
@@ -774,6 +818,49 @@ function getParticipantSnapshot(participantId) {
 
 function getSelectedParticipant() {
   return getParticipantSnapshot(selectedParticipantId);
+}
+
+function getStatusPresetById(id) {
+  if (!id) return null;
+  return (state.reference?.statuses || []).find((entry) => entry.id === id) || null;
+}
+
+function applyStatusPreset(selectEl, formEl) {
+  const preset = getStatusPresetById(selectEl?.value);
+  if (!preset || !formEl) {
+    return;
+  }
+  const nameInput = formEl.querySelector('input[name="name"]');
+  const severitySelect = formEl.querySelector('select[name="severity"]');
+  const stackInput = formEl.querySelector('input[name="stacks"]');
+  const notesInput = formEl.querySelector('input[name="notes"]');
+  if (nameInput) nameInput.value = preset.name;
+  if (severitySelect) severitySelect.value = preset.severity || 'minor';
+  if (stackInput && typeof preset.defaultStacks === 'number') stackInput.value = preset.defaultStacks;
+  if (notesInput) notesInput.value = preset.description || '';
+}
+
+function rememberDetailSections(participantId) {
+  if (!participantId) return;
+  const nextState = {};
+  els.detailPanel.querySelectorAll('details[data-section], details.advanced-editor').forEach((node) => {
+    const key = node.dataset.section || node.dataset.sectionKey || node.id || node.className;
+    if (!key) return;
+    nextState[key] = node.open;
+  });
+  detailSectionState.set(participantId, nextState);
+}
+
+function restoreDetailSections(participantId) {
+  if (!participantId) return;
+  const stored = detailSectionState.get(participantId);
+  if (!stored) return;
+  els.detailPanel.querySelectorAll('details[data-section], details.advanced-editor').forEach((node) => {
+    const key = node.dataset.section || node.dataset.sectionKey || node.id || node.className;
+    if (stored[key]) {
+      node.open = true;
+    }
+  });
 }
 
 async function handleStandardAction(actionId) {

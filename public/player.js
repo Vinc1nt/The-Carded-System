@@ -1,6 +1,6 @@
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
-  reference: { standardActions: [], sets: [] },
+  reference: { standardActions: [], sets: [], statuses: [] },
   updatedAt: null
 };
 
@@ -15,12 +15,23 @@ const els = {
   logList: document.getElementById('playerLogList'),
   turnInfo: document.getElementById('playerTurnInfo'),
   cardForm: document.getElementById('playerCardForm'),
-  cardDrawer: document.getElementById('playerCardDrawer')
+  cardDrawer: document.getElementById('playerCardDrawer'),
+  menuToggle: document.getElementById('playerMenuToggle'),
+  menuPanel: document.getElementById('playerMenuPanel'),
+  nextTurn: document.getElementById('playerNextTurn')
+};
+
+const STAT_FIELD_MAP = {
+  hp: 'hp',
+  shield: 'shield',
+  ap: 'apCurrent'
 };
 
 document.addEventListener('DOMContentLoaded', () => {
   wireSelect();
   wirePlayerCardForm();
+  wirePlayerMenu();
+  wireTopButtons();
   subscribe();
   fetchState();
 });
@@ -50,6 +61,48 @@ function wirePlayerCardForm() {
     await patchParticipant(participant.id, { cards: updatedCards });
     form.reset();
     fetchState();
+  });
+}
+
+function wirePlayerMenu() {
+  if (!els.menuToggle || !els.menuPanel) return;
+  els.menuToggle.addEventListener('click', () => {
+    els.menuPanel.classList.toggle('is-open');
+  });
+  document.addEventListener('click', (event) => {
+    if (!els.menuPanel.classList.contains('is-open')) return;
+    if (event.target.closest('.player-menu')) return;
+    els.menuPanel.classList.remove('is-open');
+  });
+  els.menuPanel.querySelectorAll('[data-stat-adjust]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const field = button.dataset.statAdjust;
+      const delta = Number(button.dataset.delta || 0);
+      handleStatAdjustment(field, delta);
+    });
+  });
+  els.menuPanel.querySelectorAll('[data-stat-set]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const field = button.dataset.statSet;
+      const input = els.menuPanel.querySelector(`[data-stat-input="${field}"]`);
+      const value = Number(input?.value);
+      if (!Number.isFinite(value)) {
+        notify('Enter a value before setting the stat.');
+        return;
+      }
+      handleStatSet(field, value);
+      if (input) input.value = '';
+    });
+  });
+}
+
+function wireTopButtons() {
+  els.nextTurn?.addEventListener('click', async () => {
+    try {
+      await api('/api/turn/next', 'POST');
+    } catch (err) {
+      notify(err.message);
+    }
   });
 }
 
@@ -160,12 +213,19 @@ function renderStats() {
         ${renderSetTracker(participant)}
       </section>
       <section class="player-section">
-        <h3>Statuses</h3>
+        <div class="section-header">
+          <h3>Statuses</h3>
+          <button type="button" data-player-toggle-status>Manage</button>
+        </div>
         <div class="status-list">${renderStatuses(participant)}</div>
+        ${renderPlayerStatusForm()}
       </section>
       <section class="player-section">
-        <h3>Notes</h3>
-        <p class="muted">${participant.notes || '—'}</p>
+        <div class="section-header">
+          <h3>Notes</h3>
+          <button type="button" data-player-save-notes>Save</button>
+        </div>
+        <textarea data-player-notes rows="3" placeholder="Add notes for the GM or reminders">${participant.notes || ''}</textarea>
       </section>
     </div>
   `;
@@ -338,6 +398,45 @@ function renderSetTracker(participant) {
     .join('');
 }
 
+function renderPlayerStatusForm() {
+  return `
+    <form data-player-status-form class="stacked-form hidden">
+      <label>Preset
+        <select name="preset" data-status-preset>
+          <option value="">Custom</option>
+          ${renderStatusPresetOptions()}
+        </select>
+      </label>
+      <div class="form-row">
+        <label>Name
+          <input type="text" name="name" placeholder="Bleeding" required />
+        </label>
+        <label>Severity
+          <select name="severity">
+            <option value="minor">Minor</option>
+            <option value="moderate">Moderate</option>
+            <option value="severe">Severe</option>
+            <option value="exceptional">Exceptional</option>
+          </select>
+        </label>
+        <label>Stacks
+          <input type="number" name="stacks" value="1" min="1" />
+        </label>
+      </div>
+      <label>Notes
+        <input type="text" name="notes" placeholder="Automation or reminders" />
+      </label>
+      <button type="submit">Add Status</button>
+    </form>
+  `;
+}
+
+function renderStatusPresetOptions() {
+  return (state.reference?.statuses || [])
+    .map((status) => `<option value="${status.id}">${status.name}</option>`)
+    .join('');
+}
+
 function renderCards() {
   const participant = getFocusedParticipant();
   const cards = participant?.cards || [];
@@ -469,7 +568,16 @@ function renderStatuses(participant) {
     return '<span class="muted">None</span>';
   }
   return statuses
-    .map((status) => `<span class="status-pill">${status.name}${status.stacks ? ` ×${status.stacks}` : ''} (${status.severity})</span>`)
+    .map(
+      (status, index) => {
+        const key = status.id || `index-${index}`;
+        return `
+        <span class="status-pill">
+          ${status.name}${status.stacks ? ` ×${status.stacks}` : ''} (${status.severity})
+          ${status.notes ? `<small>${status.notes}</small>` : ''}
+          <button type="button" data-player-remove-status="${key}">✕</button>
+        </span>`;
+      })
     .join('');
 }
 
@@ -538,6 +646,70 @@ function wirePlayerSheetEvents(participant) {
       fetchState();
     };
   });
+
+  const statusForm = panel.querySelector('[data-player-status-form]');
+  panel.querySelector('[data-player-toggle-status]')?.addEventListener('click', () => {
+    statusForm?.classList.toggle('hidden');
+  });
+  statusForm?.querySelector('[data-status-preset]')?.addEventListener('change', (event) => {
+    applyPlayerStatusPreset(event.currentTarget, statusForm);
+  });
+  statusForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const currentStatuses = latest?.statuses || participant.statuses || [];
+    const newStatus = buildStatusFromForm(formData);
+    await patchParticipant(participant.id, { statuses: [...currentStatuses, newStatus] });
+    event.target.reset();
+    statusForm.classList.add('hidden');
+    fetchState();
+  });
+  panel.querySelectorAll('[data-player-remove-status]').forEach((button) => {
+    button.onclick = async () => {
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const statuses = latest?.statuses || participant.statuses || [];
+      const targetId = button.dataset.playerRemoveStatus;
+      const updated = statuses.filter((status, idx) => {
+        const key = status.id || `index-${idx}`;
+        return key !== targetId;
+      });
+      await patchParticipant(participant.id, { statuses: updated });
+      fetchState();
+    };
+  });
+  const notesButton = panel.querySelector('[data-player-save-notes]');
+  const notesInput = panel.querySelector('[data-player-notes]');
+  notesButton?.addEventListener('click', async () => {
+    await patchParticipant(participant.id, { notes: notesInput?.value || '' });
+    fetchState();
+  });
+}
+
+async function handleStatAdjustment(fieldKey, delta) {
+  if (!fieldKey || !Number.isFinite(delta)) return;
+  const participant = getFocusedParticipant();
+  if (!participant) return;
+  const field = STAT_FIELD_MAP[fieldKey];
+  if (!field) return;
+  const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+  const current = field === 'apCurrent' ? latest.apCurrent : latest[field];
+  const payload = {};
+  payload[field === 'apCurrent' ? 'apCurrent' : field] = Number(current || 0) + delta;
+  await patchParticipant(participant.id, payload);
+  fetchState();
+}
+
+async function handleStatSet(fieldKey, value) {
+  if (!fieldKey || !Number.isFinite(value)) return;
+  const participant = getFocusedParticipant();
+  if (!participant) return;
+  const field = STAT_FIELD_MAP[fieldKey];
+  if (!field) return;
+  const payload = {};
+  payload[field === 'apCurrent' ? 'apCurrent' : field] = value;
+  await patchParticipant(participant.id, payload);
+  fetchState();
 }
 
 function getParticipantSnapshot(participantId) {
@@ -596,6 +768,17 @@ function buildPlayerCardFromForm(formData) {
   return normalizeCardPayload(card);
 }
 
+function buildStatusFromForm(formData) {
+  return {
+    id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+    presetId: formData.get('preset') || '',
+    name: formData.get('name'),
+    severity: formData.get('severity') || 'minor',
+    stacks: Number(formData.get('stacks') || 1),
+    notes: formData.get('notes') || ''
+  };
+}
+
 function normalizeCardPayload(raw = {}) {
   return {
     id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
@@ -647,6 +830,24 @@ function normalizeMasteryInput(input) {
 function toNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+}
+
+function getStatusPreset(id) {
+  if (!id) return null;
+  return (state.reference?.statuses || []).find((entry) => entry.id === id) || null;
+}
+
+function applyPlayerStatusPreset(selectEl, formEl) {
+  const preset = getStatusPreset(selectEl?.value);
+  if (!preset || !formEl) return;
+  const nameInput = formEl.querySelector('input[name="name"]');
+  const severitySelect = formEl.querySelector('select[name="severity"]');
+  const stackInput = formEl.querySelector('input[name="stacks"]');
+  const notesInput = formEl.querySelector('input[name="notes"]');
+  if (nameInput) nameInput.value = preset.name;
+  if (severitySelect) severitySelect.value = preset.severity || 'minor';
+  if (stackInput && typeof preset.defaultStacks === 'number') stackInput.value = preset.defaultStacks;
+  if (notesInput) notesInput.value = preset.description || '';
 }
 
 function getSavingThrowsSnapshot(participant) {

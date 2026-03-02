@@ -106,13 +106,153 @@ const SET_LIBRARY = {
   Human: []
 };
 
+const STATUS_LIBRARY = [
+  {
+    id: 'bleeding',
+    name: 'Bleeding',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Start of turn: take 1 HP damage per stack (bypasses Shield); clamp to 4 stacks after damage. Remove via 2 AP Medicine DC 12 or Cleanse.',
+    tags: ['DoT']
+  },
+  {
+    id: 'poisoned',
+    name: 'Poisoned',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Start of turn: take 1 HP damage per stack (bypasses Shield); clamp to 4 after damage. Cleanse or 3 AP CON Resist DC 16 (GM discretion).',
+    tags: ['DoT']
+  },
+  {
+    id: 'burning',
+    name: 'Burning',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Start of turn: take 1 damage per stack (hits Shield first); clamp to 4 after damage. 1 AP Stop/Drop/Roll removes 1 stack; Cleanse removes all.',
+    tags: ['DoT']
+  },
+  {
+    id: 'blinded',
+    name: 'Blinded',
+    severity: 'minor',
+    defaultStacks: 1,
+    description: 'Cannot target beyond 5 ft; your attacks deal -2 damage. Auto-decay end of next turn or spend 1 AP to end early.',
+    tags: ['Accuracy']
+  },
+  {
+    id: 'weakened',
+    name: 'Weakened',
+    severity: 'minor',
+    defaultStacks: 1,
+    description: 'Attacks deal -2 damage (min 0). Auto-decay end of next turn or 1 AP to clear.',
+    tags: ['Debuff']
+  },
+  {
+    id: 'fatigued',
+    name: 'Fatigued',
+    severity: 'minor',
+    defaultStacks: 1,
+    description: 'Lose 1 AP on your next turn (min 1). Automatically clears at end of that turn or spend 1 AP to remove pre-emptively.',
+    tags: ['AP']
+  },
+  {
+    id: 'rooted',
+    name: 'Rooted',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Speed becomes 0 but you can still act. Clear with 2 AP STR Resist (DC 12/14/16) or Cleanse.',
+    tags: ['Control']
+  },
+  {
+    id: 'restrained',
+    name: 'Restrained',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Speed 0; attacks against you deal +2 damage. At 2+ stacks also deal -2 damage (treated as Severe). Remove with 2 AP STR Resist (Moderate) or 3 AP Resist DC 16 when Severe, or Cleanse.',
+    tags: ['Control']
+  },
+  {
+    id: 'prone',
+    name: 'Prone',
+    severity: 'minor',
+    defaultStacks: 1,
+    description: 'Standing up costs 1 AP; melee attacks vs you deal +2 damage and your ranged attacks -2 until you stand. Clears when you stand or end of next turn.',
+    tags: ['Position']
+  },
+  {
+    id: 'frightened',
+    name: 'Frightened',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Cannot move closer to the source; attacks vs the source deal -2 damage. Remove with 2 AP WIS Resist (DC 12/14/16) or Cleanse.',
+    tags: ['Control']
+  },
+  {
+    id: 'charmed',
+    name: 'Charmed',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Cannot target the charmer with hostile actions. Remove with 2 AP CHA/WIS Resist (DC 12/14/16) or Cleanse.',
+    tags: ['Control']
+  },
+  {
+    id: 'silenced',
+    name: 'Silenced',
+    severity: 'moderate',
+    defaultStacks: 1,
+    description: 'Cannot use cards/abilities with the Verbal tag. Remove with 2 AP CON/CHA Resist (DC 12/14/16) or Cleanse.',
+    tags: ['Control']
+  },
+  {
+    id: 'stunned',
+    name: 'Stunned',
+    severity: 'severe',
+    defaultStacks: 1,
+    description: 'Lose your next turn and drop Guard immediately. Remove with 3 AP CON Resist (DC 16) at end of skipped turn or Cleanse.',
+    tags: ['Severe']
+  },
+  {
+    id: 'suppressed',
+    name: 'Suppressed',
+    severity: 'severe',
+    defaultStacks: 1,
+    description: 'Cannot play cards (except Cleanse/Resist); passives remain. Remove with 3 AP WIS Resist (DC 16) or Cleanse.',
+    tags: ['Severe']
+  },
+  {
+    id: 'paralysed',
+    name: 'Paralysed',
+    severity: 'severe',
+    defaultStacks: 1,
+    description: 'Cannot move or take actions; attacks against you deal +2 damage. Remove with 3 AP CON Resist (DC 16) or Cleanse.',
+    tags: ['Severe']
+  },
+  {
+    id: 'petrified',
+    name: 'Petrified',
+    severity: 'exceptional',
+    defaultStacks: 1,
+    description: 'Become stone/incapacitated. Only specific cards/items end it (e.g., Greater Cleanse).',
+    tags: ['Exceptional']
+  },
+  {
+    id: 'unconscious',
+    name: 'Unconscious',
+    severity: 'exceptional',
+    defaultStacks: 1,
+    description: 'Drop to 0 HP and fall prone, unaware. Ends per system stabilization/healing rules.',
+    tags: ['Exceptional']
+  }
+];
+
 function buildReferenceData() {
   return {
     standardActions: Object.values(STANDARD_ACTIONS),
     sets: Object.entries(SET_LIBRARY).map(([name, bonuses]) => ({
       name,
       bonuses
-    }))
+    })),
+    statuses: STATUS_LIBRARY
   };
 }
 
