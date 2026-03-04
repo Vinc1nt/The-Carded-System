@@ -322,6 +322,27 @@ button.danger {
   gap: 0.75rem;
 }
 
+.base-edit-panel {
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.dual-inputs {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.dual-inputs input {
+  flex: 1;
+}
+
+.align-end {
+  justify-content: flex-end;
+}
+
 .card-tooling {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
@@ -572,6 +593,36 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+}
+
+.player-turn-track {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.4rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  margin-bottom: 0.85rem;
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.turn-pill {
+  padding: 0.2rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.turn-pill.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.turn-pill.is-focus {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
 }
 
 .player-table {

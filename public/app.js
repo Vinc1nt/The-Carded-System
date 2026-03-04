@@ -212,11 +212,13 @@ function renderDetailPanel() {
       </div>
       <div class="detail-actions">
         <a href="/player?id=${participant.id}" target="_blank" rel="noopener noreferrer">Player View</a>
+        <button type="button" data-toggle-base-stats>Edit Base Stats</button>
         <button type="button" data-export-character>Export Character</button>
         <button type="button" data-export-deck>Export Deck</button>
         <button type="button" class="danger" data-remove>Remove</button>
       </div>
     </div>
+    ${renderBaseStatsPanel(participant)}
     <div class="vitals-grid">
       ${renderVitalCard('HP', participant.hp, participant.maxHp, 'hp')}
       ${renderVitalCard('Shield', participant.shield, participant.maxShield, 'shield')}
@@ -458,6 +460,38 @@ function renderRelicSection(participant) {
   `;
 }
 
+function renderBaseStatsPanel(participant) {
+  return `
+    <div class="base-edit-panel hidden" data-base-panel>
+      <form data-form="baseStats" class="stacked-form">
+        <div class="form-row">
+          <label>HP (current / max)
+            <div class="dual-inputs">
+              <input type="number" name="hp" value="${participant.hp || 0}" />
+              <input type="number" name="maxHp" value="${participant.maxHp || 0}" />
+            </div>
+          </label>
+          <label>Shield (current / max)
+            <div class="dual-inputs">
+              <input type="number" name="shield" value="${participant.shield || 0}" />
+              <input type="number" name="maxShield" value="${participant.maxShield || 0}" />
+            </div>
+          </label>
+          <label>AP (current / max)
+            <div class="dual-inputs">
+              <input type="number" name="apCurrent" value="${participant.apCurrent ?? participant.apMax ?? 0}" />
+              <input type="number" name="apMax" value="${participant.apMax || 0}" />
+            </div>
+          </label>
+        </div>
+        <div class="form-row align-end">
+          <button type="submit" class="primary">Save Base Stats</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
 function renderAutomationSection(participant) {
   const automation = participant.derivedBonuses || {};
   return `
@@ -632,6 +666,32 @@ function wireDetailEvents(participant) {
 
   panel.querySelectorAll('[data-standard]').forEach((button) => {
     button.addEventListener('click', () => handleStandardAction(button.dataset.standard));
+  });
+
+  const basePanel = panel.querySelector('[data-base-panel]');
+  const baseForm = basePanel?.querySelector('[data-form="baseStats"]');
+  panel.querySelector('[data-toggle-base-stats]')?.addEventListener('click', () => {
+    populateBaseForm(basePanel, participant);
+    basePanel?.classList.toggle('hidden');
+  });
+  baseForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const payload = {
+      hp: Number(formData.get('hp') ?? participant.hp ?? 0),
+      maxHp: Number(formData.get('maxHp') ?? participant.maxHp ?? 0),
+      shield: Number(formData.get('shield') ?? participant.shield ?? 0),
+      maxShield: Number(formData.get('maxShield') ?? participant.maxShield ?? 0),
+      apCurrent: Number(formData.get('apCurrent') ?? participant.apCurrent ?? participant.apMax ?? 0),
+      apMax: Number(formData.get('apMax') ?? participant.apMax ?? 0)
+    };
+    try {
+      await api(`/api/participants/${participant.id}`, 'PATCH', payload);
+      fetchState();
+      basePanel?.classList.add('hidden');
+    } catch (err) {
+      notify(err.message);
+    }
   });
 
   panel.querySelectorAll('[data-rest]').forEach((button) => {
@@ -945,6 +1005,22 @@ function renderRelicCards(participant) {
         </article>`
     )
     .join('');
+}
+
+function populateBaseForm(panel, participant) {
+  if (!panel) return;
+  const pairs = [
+    ['hp', participant.hp],
+    ['maxHp', participant.maxHp],
+    ['shield', participant.shield],
+    ['maxShield', participant.maxShield],
+    ['apCurrent', participant.apCurrent ?? participant.apMax],
+    ['apMax', participant.apMax]
+  ];
+  pairs.forEach(([key, value]) => {
+    const input = panel.querySelector(`input[name="${key}"]`);
+    if (input) input.value = Number(value ?? 0);
+  });
 }
 
 function renderNumberInput(label, name, value = 0) {

@@ -22,7 +22,10 @@ const els = {
   downloadCharacter: document.getElementById('downloadCharacter'),
   uploadCharacter: document.getElementById('uploadCharacter'),
   importCardFile: document.getElementById('playerImportCard'),
-  importDeckFile: document.getElementById('playerImportDeck')
+  importDeckFile: document.getElementById('playerImportDeck'),
+  baseToggle: document.getElementById('playerBaseToggle'),
+  baseForm: document.getElementById('playerBaseForm'),
+  importRelicFile: document.getElementById('playerImportRelic')
 };
 
 const STAT_FIELD_MAP = {
@@ -35,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
   wireSelect();
   wirePlayerCardForm();
   wirePlayerMenu();
+  wirePlayerRelicTools();
   wireTopButtons();
   subscribe();
   fetchState();
@@ -83,6 +87,21 @@ function wirePlayerMenu() {
   els.uploadCharacter?.addEventListener('change', handleCharacterImport);
   els.importCardFile?.addEventListener('change', (event) => handlePlayerCardFile(event, 'card'));
   els.importDeckFile?.addEventListener('change', (event) => handlePlayerCardFile(event, 'deck'));
+  els.baseToggle?.addEventListener('click', () => {
+    if (!els.baseForm) return;
+    const participant = getFocusedParticipant();
+    if (!participant) {
+      notify('Select a combatant first.');
+      return;
+    }
+    populatePlayerBaseForm(participant);
+    els.baseForm.classList.toggle('hidden');
+  });
+  els.baseForm?.addEventListener('submit', handlePlayerBaseSubmit);
+}
+
+function wirePlayerRelicTools() {
+  els.importRelicFile?.addEventListener('change', handlePlayerRelicFile);
 }
 
 function wireTopButtons() {
@@ -175,6 +194,7 @@ function renderStats() {
   const stats = participant.stats || {};
   els.stats.innerHTML = `
     <div class="panel player-sheet">
+      ${renderPlayerTurnTrack()}
       <div class="panel-header">
         <div>
           <h2>${participant.name}</h2>
@@ -250,6 +270,24 @@ function renderPlayerVital(label, value, max, key) {
     </div>`;
 }
 
+function renderPlayerTurnTrack() {
+  const participants = state.encounter.participants || [];
+  if (!participants.length) return '';
+  const currentIndex = state.encounter.currentIndex ?? -1;
+  return `
+    <div class="player-turn-track">
+      ${participants
+        .map(
+          (entry, index) => `
+            <div class="turn-pill ${index === currentIndex ? 'is-active' : ''} ${entry.id === focusId ? 'is-focus' : ''}">
+              <span>${entry.name}</span>
+            </div>`
+        )
+        .join('')}
+    </div>
+  `;
+}
+
 function renderInlineAdjust(fieldKey) {
   return `
     <div class="inline-adjust">
@@ -288,6 +326,47 @@ function renderAbilityTable(stats) {
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
+}
+
+function populatePlayerBaseForm(participant) {
+  if (!els.baseForm || !participant) return;
+  const pairs = [
+    ['hp', participant.hp],
+    ['maxHp', participant.maxHp],
+    ['shield', participant.shield],
+    ['maxShield', participant.maxShield],
+    ['apCurrent', participant.apCurrent ?? participant.apMax],
+    ['apMax', participant.apMax]
+  ];
+  pairs.forEach(([key, value]) => {
+    const input = els.baseForm.querySelector(`input[name="${key}"]`);
+    if (input) input.value = Number(value ?? 0);
+  });
+}
+
+async function handlePlayerBaseSubmit(event) {
+  event.preventDefault();
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant first.');
+    return;
+  }
+  const formData = new FormData(event.target);
+  const payload = {
+    hp: Number(formData.get('hp') ?? participant.hp ?? 0),
+    maxHp: Number(formData.get('maxHp') ?? participant.maxHp ?? 0),
+    shield: Number(formData.get('shield') ?? participant.shield ?? 0),
+    maxShield: Number(formData.get('maxShield') ?? participant.maxShield ?? 0),
+    apCurrent: Number(formData.get('apCurrent') ?? participant.apCurrent ?? participant.apMax ?? 0),
+    apMax: Number(formData.get('apMax') ?? participant.apMax ?? 0)
+  };
+  try {
+    await patchParticipant(participant.id, payload);
+    fetchState();
+    els.baseForm?.classList.add('hidden');
+  } catch (err) {
+    notify(err.message);
+  }
 }
 
 function renderSavingThrows(participant) {
@@ -992,6 +1071,62 @@ function extractCardsFromPayload(payload) {
   if (payload.card && typeof payload.card === 'object') return [payload.card];
   if (typeof payload === 'object' && (payload.name || payload.set)) return [payload];
   return [];
+}
+
+async function handlePlayerRelicFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant first.');
+    event.target.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const relics = extractRelicsFromPayload(payload).map((relic) => normalizeRelicPayload(relic));
+    if (!relics.length) {
+      throw new Error('No relics found in file.');
+    }
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const existing = latest?.relics || [];
+    await patchParticipant(participant.id, { relics: [...existing, ...relics] });
+    fetchState();
+    notify(`Imported ${relics.length} relic${relics.length === 1 ? '' : 's'}.`);
+  } catch (err) {
+    notify(`Relic import failed: ${err.message}`);
+  } finally {
+    event.target.value = '';
+  }
+}
+
+function extractRelicsFromPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.relics)) return payload.relics;
+  if (payload.relic && Array.isArray(payload.relic)) return payload.relic;
+  if (payload.relic && typeof payload.relic === 'object') return [payload.relic];
+  if (typeof payload === 'object' && (payload.name || payload.description)) return [payload];
+  return [];
+}
+
+function normalizeRelicPayload(raw = {}) {
+  return {
+    id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+    name: (raw.name || 'Imported Relic').trim(),
+    ability: raw.ability || raw.focus || '',
+    description: raw.description || raw.notes || '',
+    hp: Number(raw.hp ?? raw.hpBonus ?? 0),
+    ap: Number(raw.ap ?? raw.apBonus ?? 0),
+    modifiers: {
+      maxHp: Number(raw.modifiers?.maxHp ?? raw.modMaxHp ?? 0),
+      maxShield: Number(raw.modifiers?.maxShield ?? raw.modMaxShield ?? 0),
+      apMax: Number(raw.modifiers?.apMax ?? raw.modApMax ?? 0),
+      guardRestore: Number(raw.modifiers?.guardRestore ?? raw.modGuard ?? 0),
+      damageBonus: Number(raw.modifiers?.damageBonus ?? raw.modDamage ?? 0)
+    }
+  };
 }
 
 async function fetchParticipantFromServer(participantId) {

@@ -29,6 +29,31 @@
                   <input type="file" id="uploadCharacter" accept="application/json" />
                 </label>
               </div>
+              <div class="menu-section">
+                <h4>Base Stats</h4>
+                <button type="button" id="playerBaseToggle">Edit Base Stats</button>
+                <form id="playerBaseForm" class="stacked-form hidden">
+                  <label>HP (current / max)
+                    <div class="dual-inputs">
+                      <input type="number" name="hp" value="0" />
+                      <input type="number" name="maxHp" value="0" />
+                    </div>
+                  </label>
+                  <label>Shield (current / max)
+                    <div class="dual-inputs">
+                      <input type="number" name="shield" value="0" />
+                      <input type="number" name="maxShield" value="0" />
+                    </div>
+                  </label>
+                  <label>AP (current / max)
+                    <div class="dual-inputs">
+                      <input type="number" name="apCurrent" value="0" />
+                      <input type="number" name="apMax" value="0" />
+                    </div>
+                  </label>
+                  <button type="submit" class="primary">Save</button>
+                </form>
+              </div>
             </div>
           </div>
         </div>
@@ -111,7 +136,13 @@
             <h3>Relics & Artifacts</h3>
             <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
             <details id="playerRelicDrawer">
-              <summary>Add Relic</summary>
+              <summary>Relic Tools</summary>
+              <div class="card-import">
+                <label class="file-upload">
+                  Import Relics
+                  <input type="file" id="playerImportRelic" accept="application/json" />
+                </label>
+              </div>
               <form id="playerRelicForm" class="stacked-form">
                 <div class="form-row">
                   <label>Name
