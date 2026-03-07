@@ -28,6 +28,9 @@ let eventSource;
 const els = {
   select: document.getElementById('playerSelect'),
   stats: document.getElementById('playerStats'),
+  journal: document.getElementById('playerJournal'),
+  journalContent: document.getElementById('playerJournalContent'),
+  journalPopup: document.getElementById('journalPopup'),
   cardList: document.getElementById('playerCardList'),
   logList: document.getElementById('playerLogList'),
   turnInfo: document.getElementById('playerTurnInfo'),
@@ -189,6 +192,7 @@ function render() {
   renderSelectOptions();
   const creating = createMode && !focusId;
   renderStats();
+  renderJournal();
   if (!creating) {
     renderCards();
   }
@@ -259,6 +263,7 @@ function renderStats() {
       ${renderPlayerCardsSection()}
       ${renderPlayerStatusSection(participant)}
       ${renderPlayerDamageSection(participant)}
+      ${renderPlayerAbilitiesSection(participant)}
       <details class="player-collapsible" data-player-section="abilities" open>
         <summary><strong>Ability Scores</strong></summary>
         <div class="collapsible-body">
@@ -616,6 +621,146 @@ function renderPlayerDamageGroup(label, values = [], key) {
       </form>
     </div>
   `;
+}
+
+function renderPlayerAbilitiesSection(participant) {
+  return `
+    <details class="player-collapsible" data-player-section="abilitiesText" open>
+      <summary><strong>Abilities</strong></summary>
+      <div class="collapsible-body">
+        <div class="ability-list">
+          ${renderPlayerAbilityEntries(participant)}
+        </div>
+        <form data-player-ability-form class="stacked-form">
+          <label>Name
+            <input type="text" name="name" placeholder="Ability name" />
+          </label>
+          <label>Description
+            <textarea name="description" rows="2" placeholder="Describe the ability..." required></textarea>
+          </label>
+          <button type="submit">Add Ability</button>
+        </form>
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerAbilityEntries(participant) {
+  const entries = participant.abilities || [];
+  if (!entries.length) {
+    return '<p class="muted">No abilities recorded yet.</p>';
+  }
+  return entries
+    .map(
+      (entry, index) => `
+      <article class="journal-entry">
+        <strong>${entry.name || `Ability ${index + 1}`}</strong>
+        <p>${entry.description || 'No description.'}</p>
+        <div class="card-actions">
+          <button type="button" data-player-remove-ability="${entry.id || ''}" data-player-ability-index="${index}">Remove</button>
+        </div>
+      </article>`
+    )
+    .join('');
+}
+
+function journalFieldName(category) {
+  return category === 'achievement' ? 'achievements' : 'quests';
+}
+
+function renderJournal() {
+  if (!els.journal || !els.journalContent) return;
+  const participant = getFocusedParticipant();
+  if (!participant || (createMode && !focusId)) {
+    els.journalContent.innerHTML = '<p class="empty-state">Journal becomes available once a character is selected.</p>';
+    hideJournalPopup();
+    return;
+  }
+  const quests = (participant.quests || []).filter((entry) => entry.acknowledged);
+  const achievements = (participant.achievements || []).filter((entry) => entry.acknowledged);
+  els.journalContent.innerHTML = `
+    <div class="journal-manager-group">
+      <h4>Quests</h4>
+      <div class="journal-list">
+        ${renderPlayerJournalEntries(quests, 'No quests yet.')}
+      </div>
+    </div>
+    <div class="journal-manager-group">
+      <h4>Achievements</h4>
+      <div class="journal-list">
+        ${renderPlayerJournalEntries(achievements, 'No achievements yet.')}
+      </div>
+    </div>
+  `;
+  renderJournalPopup(participant);
+}
+
+function renderPlayerJournalEntries(entries, emptyText) {
+  if (!entries.length) {
+    return `<p class="muted">${emptyText}</p>`;
+  }
+  return entries
+    .map(
+      (entry) => `
+      <article class="journal-entry">
+        <strong>${entry.title || 'Entry'}</strong>
+        ${entry.description ? `<p>${entry.description}</p>` : ''}
+      </article>`
+    )
+    .join('');
+}
+
+function getPendingJournalEntry(participant) {
+  const queue = [];
+  (participant.quests || []).forEach((entry) => {
+    if (!entry.acknowledged) queue.push({ ...entry, category: 'quest' });
+  });
+  (participant.achievements || []).forEach((entry) => {
+    if (!entry.acknowledged) queue.push({ ...entry, category: 'achievement' });
+  });
+  queue.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  return queue[0] || null;
+}
+
+function renderJournalPopup(participant) {
+  const popup = els.journalPopup;
+  if (!popup) return;
+  const pending = getPendingJournalEntry(participant);
+  if (!pending) {
+    hideJournalPopup();
+    return;
+  }
+  popup.innerHTML = `
+    <div class="journal-popup-card">
+      <h3>New ${pending.category === 'achievement' ? 'Achievement' : 'Quest'}</h3>
+      <h4>${pending.title || 'Untitled'}</h4>
+      ${pending.description ? `<p>${pending.description}</p>` : ''}
+      <div class="card-actions">
+        <button type="button" data-journal-ack="${pending.id}" data-journal-category="${pending.category}" class="primary">Acknowledge</button>
+      </div>
+    </div>
+  `;
+  popup.classList.remove('hidden');
+  popup.querySelector('[data-journal-ack]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    try {
+      await api('/api/journal/ack', 'POST', {
+        participantId: participant.id,
+        category: button.dataset.journalCategory,
+        entryId: button.dataset.journalAck
+      });
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
+}
+
+function hideJournalPopup() {
+  const popup = els.journalPopup;
+  if (!popup) return;
+  popup.classList.add('hidden');
+  popup.innerHTML = '';
 }
 
 function renderPlayerSetSection(participant) {
@@ -1364,6 +1509,42 @@ function wirePlayerSheetEvents(participant) {
   panel.querySelectorAll('[data-player-remove-vulnerability]').forEach((button) => {
     button.onclick = () =>
       handlePlayerDamageRemove(participant, 'vulnerabilities', Number(button.dataset.playerRemoveVulnerability));
+  });
+
+  const abilityForm = panel.querySelector('[data-player-ability-form]');
+  abilityForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const description = String(formData.get('description') || '').trim();
+    if (!description) {
+      notify('Ability description is required.');
+      return;
+    }
+    const newAbility = {
+      id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+      name: String(formData.get('name') || '').trim() || 'Ability',
+      description,
+      automation: {}
+    };
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const current = latest?.abilities || participant.abilities || [];
+    await patchParticipant(participant.id, { abilities: [...current, newAbility] });
+    event.target.reset();
+    fetchState();
+  });
+  panel.querySelectorAll('[data-player-remove-ability]').forEach((button) => {
+    button.onclick = async () => {
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const abilities = [...(latest?.abilities || participant.abilities || [])];
+      const targetId = button.dataset.playerRemoveAbility;
+      const fallbackIndex = Number(button.dataset.playerAbilityIndex);
+      let idx = abilities.findIndex((entry) => targetId && entry.id === targetId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= abilities.length) return;
+      abilities.splice(idx, 1);
+      await patchParticipant(participant.id, { abilities });
+      fetchState();
+    };
   });
 
   const statusForm = panel.querySelector('[data-player-status-form]');

@@ -186,6 +186,11 @@ const STATUS_LIBRARY = [
   }
 ];
 
+const JOURNAL_FIELD_BY_CATEGORY = {
+  quest: 'quests',
+  achievement: 'achievements'
+};
+
 function buildReferenceData() {
   return {
     standardActions: Object.values(STANDARD_ACTIONS),
@@ -422,6 +427,95 @@ async function handleApi(req, res, pathname, method) {
       return sendJson(res, { participants: trackerState.encounter.participants });
     }
 
+    if (method === 'POST' && pathname === '/api/journal/entry') {
+      const body = await readBody(req);
+      const category = normalizeJournalCategory(body.category);
+      if (!category) {
+        return sendJson(res, { error: 'Invalid journal category' }, 400);
+      }
+      const targets = resolveJournalTargets(body);
+      if (!targets.length) {
+        return sendJson(res, { error: 'No participants matched journal target' }, 400);
+      }
+      const sharedId = body.id || randomUUID();
+      const field = JOURNAL_FIELD_BY_CATEGORY[category];
+      targets.forEach((participant, index) => {
+        const entry = createJournalEntry(
+          body,
+          category,
+          body.target === 'all' ? sharedId : body.id || randomUUID(),
+          index
+        );
+        participant[field] = normalizeJournalEntries([...(participant[field] || []), entry], category);
+        recalculateParticipant(participant);
+      });
+      touchState();
+      broadcastState('journal_entry_added');
+      return sendJson(res, {
+        participants: targets.map((participant) => ({ id: participant.id, [field]: participant[field] }))
+      });
+    }
+
+    if (method === 'DELETE' && pathname === '/api/journal/entry') {
+      const body = await readBody(req);
+      const category = normalizeJournalCategory(body.category);
+      if (!category) {
+        return sendJson(res, { error: 'Invalid journal category' }, 400);
+      }
+      const entryId = String(body.entryId || '').trim();
+      if (!entryId) {
+        return sendJson(res, { error: 'entryId is required' }, 400);
+      }
+      const field = JOURNAL_FIELD_BY_CATEGORY[category];
+      const targets = resolveJournalTargets(body);
+      if (!targets.length) {
+        return sendJson(res, { error: 'No participants matched journal target' }, 400);
+      }
+      targets.forEach((participant) => {
+        participant[field] = normalizeJournalEntries(
+          (participant[field] || []).filter((entry) => String(entry.id) !== entryId),
+          category
+        );
+        recalculateParticipant(participant);
+      });
+      touchState();
+      broadcastState('journal_entry_removed');
+      return sendJson(res, { ok: true });
+    }
+
+    if (method === 'POST' && pathname === '/api/journal/ack') {
+      const body = await readBody(req);
+      const category = normalizeJournalCategory(body.category);
+      if (!category) {
+        return sendJson(res, { error: 'Invalid journal category' }, 400);
+      }
+      const participant = resolveActor(body.participantId);
+      if (!participant) {
+        return sendJson(res, { error: 'Participant required' }, 400);
+      }
+      const entryId = String(body.entryId || '').trim();
+      if (!entryId) {
+        return sendJson(res, { error: 'entryId is required' }, 400);
+      }
+      const field = JOURNAL_FIELD_BY_CATEGORY[category];
+      const now = new Date().toISOString();
+      participant[field] = normalizeJournalEntries(
+        (participant[field] || []).map((entry) => {
+          if (String(entry.id) !== entryId) return entry;
+          return {
+            ...entry,
+            acknowledged: true,
+            acknowledgedAt: entry.acknowledgedAt || now
+          };
+        }),
+        category
+      );
+      recalculateParticipant(participant);
+      touchState();
+      broadcastState('journal_entry_acknowledged');
+      return sendJson(res, { participant });
+    }
+
     return sendJson(res, { error: 'Not found' }, 404);
   } catch (err) {
     console.error('API error', err);
@@ -557,6 +651,15 @@ function sanitizeParticipantUpdate(body, current) {
   if (Array.isArray(body.cards)) update.cards = body.cards;
   if (Array.isArray(body.tags)) update.tags = body.tags;
   if (Array.isArray(body.statuses)) update.statuses = body.statuses;
+  if (Array.isArray(body.abilities)) {
+    update.abilities = normalizeAbilityEntries(body.abilities);
+  }
+  if (Array.isArray(body.quests)) {
+    update.quests = normalizeJournalEntries(body.quests, 'quest');
+  }
+  if (Array.isArray(body.achievements)) {
+    update.achievements = normalizeJournalEntries(body.achievements, 'achievement');
+  }
   if (body.stats && typeof body.stats === 'object') {
     update.stats = { ...current.stats, ...body.stats };
   }
@@ -613,6 +716,9 @@ function createParticipant(body = {}) {
     cards: Array.isArray(body.cards) ? body.cards : [],
     tags: Array.isArray(body.tags) ? body.tags : [],
     statuses: Array.isArray(body.statuses) ? body.statuses : [],
+    abilities: normalizeAbilityEntries(body.abilities),
+    quests: normalizeJournalEntries(body.quests, 'quest'),
+    achievements: normalizeJournalEntries(body.achievements, 'achievement'),
     resistances: normalizeDamageTypes(body.resistances),
     vulnerabilities: normalizeDamageTypes(body.vulnerabilities),
     notes: body.notes || '',
@@ -1251,6 +1357,91 @@ function normalizeDamageTypes(list = []) {
   return normalized;
 }
 
+function normalizeJournalCategory(value) {
+  const token = String(value || '')
+    .toLowerCase()
+    .trim();
+  if (token.startsWith('quest')) return 'quest';
+  if (token.startsWith('achievement')) return 'achievement';
+  return null;
+}
+
+function normalizeAbilityEntries(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry, index) => {
+      if (entry == null) return null;
+      if (typeof entry === 'string') {
+        const description = entry.trim();
+        if (!description) return null;
+        return {
+          id: randomUUID(),
+          name: `Ability ${index + 1}`,
+          description,
+          automation: {}
+        };
+      }
+      const name = String(entry.name || '').trim();
+      const description = String(entry.description || entry.text || '').trim();
+      if (!name && !description) return null;
+      return {
+        id: entry.id || randomUUID(),
+        name: name || `Ability ${index + 1}`,
+        description,
+        automation: entry.automation && typeof entry.automation === 'object' ? entry.automation : {}
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeJournalEntries(list, category) {
+  if (!Array.isArray(list)) return [];
+  const normalizedCategory = normalizeJournalCategory(category);
+  if (!normalizedCategory) return [];
+  const deduped = new Map();
+  list.forEach((entry, index) => {
+    if (entry == null) return;
+    const parsed = createJournalEntry(
+      typeof entry === 'object' ? entry : { title: String(entry) },
+      normalizedCategory,
+      entry?.id || null,
+      index
+    );
+    const key = String(parsed.id);
+    deduped.set(key, parsed);
+  });
+  return Array.from(deduped.values());
+}
+
+function createJournalEntry(body = {}, category, forcedId = null, fallbackIndex = 0) {
+  const normalizedCategory = normalizeJournalCategory(category);
+  const titleRaw = body.title ?? body.name ?? `${normalizedCategory === 'quest' ? 'Quest' : 'Achievement'} ${fallbackIndex + 1}`;
+  const descriptionRaw = body.description ?? body.text ?? body.details ?? '';
+  const acknowledged = Boolean(body.acknowledged);
+  const createdAt = body.createdAt || new Date().toISOString();
+  const base = {
+    id: forcedId || body.id || randomUUID(),
+    title: String(titleRaw).trim() || `${normalizedCategory === 'quest' ? 'Quest' : 'Achievement'} ${fallbackIndex + 1}`,
+    description: String(descriptionRaw).trim(),
+    createdAt,
+    acknowledged,
+    acknowledgedAt: acknowledged ? body.acknowledgedAt || new Date().toISOString() : null
+  };
+  if (normalizedCategory === 'achievement') {
+    base.automation = body.automation && typeof body.automation === 'object' ? body.automation : {};
+  }
+  return base;
+}
+
+function resolveJournalTargets(body = {}) {
+  const target = String(body.target || 'participant').toLowerCase();
+  if (target === 'all') {
+    return trackerState.encounter.participants;
+  }
+  const participant = findParticipant(body.participantId);
+  return participant ? [participant] : [];
+}
+
 function ensureBaseStats(participant) {
   if (!participant.baseStats) {
     participant.baseStats = {
@@ -1314,6 +1505,9 @@ function computeSetBonuses(participant) {
 
 function recalculateParticipant(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
+  participant.abilities = normalizeAbilityEntries(participant.abilities);
+  participant.quests = normalizeJournalEntries(participant.quests, 'quest');
+  participant.achievements = normalizeJournalEntries(participant.achievements, 'achievement');
   const rootedStacks = getStatusStacks(participant, 'rooted');
   if (rootedStacks >= 5) {
     setStatusStacks(participant, 'rooted', 0);

@@ -246,7 +246,9 @@ function renderDetailPanel() {
     </div>
     ${renderStatusSection(participant)}
     ${renderMitigationSection(participant)}
+    ${renderAbilitiesSection(participant)}
     ${renderActionsSection(participant)}
+    ${renderJournalSection(participant)}
     ${renderCardsSection(participant)}
     ${renderRelicSection(participant)}
     ${renderAutomationSection(participant)}
@@ -517,6 +519,112 @@ function renderMitigationGroup(label, values = [], key) {
       </form>
     </div>
   `;
+}
+
+function renderAbilitiesSection(participant) {
+  return `
+    <details class="collapsible-block" data-section="abilitiesText">
+      <summary>
+        <strong>Abilities</strong>
+      </summary>
+      <div class="collapsible-body">
+        <div class="ability-list">
+          ${renderAbilityEntries(participant)}
+        </div>
+        <form data-form="ability" class="stacked-form">
+          <div class="form-row">
+            <label>Name
+              <input type="text" name="name" placeholder="Passive Focus" />
+            </label>
+          </div>
+          <label>Description
+            <textarea name="description" rows="2" placeholder="Describe the ability effect..." required></textarea>
+          </label>
+          <button type="submit">Add Ability</button>
+        </form>
+      </div>
+    </details>
+  `;
+}
+
+function renderAbilityEntries(participant) {
+  const entries = participant.abilities || [];
+  if (!entries.length) {
+    return '<p class="muted">No abilities recorded yet.</p>';
+  }
+  return entries
+    .map(
+      (entry, index) => `
+        <article class="journal-entry">
+          <strong>${entry.name || `Ability ${index + 1}`}</strong>
+          <p>${entry.description || 'No description.'}</p>
+          <div class="card-actions">
+            <button type="button" data-remove-ability="${entry.id || ''}" data-ability-index="${index}">Remove</button>
+          </div>
+        </article>`
+    )
+    .join('');
+}
+
+function renderJournalSection(participant) {
+  return `
+    <details class="collapsible-block" data-section="journal">
+      <summary>
+        <strong>Journal</strong>
+      </summary>
+      <div class="collapsible-body">
+        ${renderJournalManagerGroup(participant, 'quest', 'Quests')}
+        ${renderJournalManagerGroup(participant, 'achievement', 'Achievements')}
+      </div>
+    </details>
+  `;
+}
+
+function renderJournalManagerGroup(participant, category, label) {
+  const field = journalFieldName(category);
+  const entries = participant[field] || [];
+  const list = entries.length
+    ? entries
+      .map(
+        (entry) => `
+          <article class="journal-entry">
+            <strong>${entry.title || label.slice(0, -1)}</strong>
+            ${entry.description ? `<p>${entry.description}</p>` : ''}
+            <div class="journal-meta">
+              <small class="muted">${entry.acknowledged ? 'Acknowledged' : 'Pending acknowledgement'}</small>
+            </div>
+            <div class="card-actions">
+              <button type="button" data-journal-remove="${entry.id}" data-journal-category="${category}">Remove</button>
+              <button type="button" data-journal-remove-all="${entry.id}" data-journal-category="${category}">Remove from All</button>
+            </div>
+          </article>`
+      )
+      .join('')
+    : '<p class="muted">None yet.</p>';
+  return `
+    <div class="journal-manager-group">
+      <h4>${label}</h4>
+      <div class="journal-list">
+        ${list}
+      </div>
+      <form data-journal-form="${category}" class="stacked-form">
+        <label>Title
+          <input type="text" name="title" placeholder="${label.slice(0, -1)} title" required />
+        </label>
+        <label>Description
+          <textarea name="description" rows="2" placeholder="Optional description"></textarea>
+        </label>
+        <div class="card-actions">
+          <button type="submit">Add to Player</button>
+          <button type="button" data-journal-add-all="${category}">Add to All Players</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function journalFieldName(category) {
+  return category === 'achievement' ? 'achievements' : 'quests';
 }
 
 function renderDamageTypeOptions(includePlaceholder = false) {
@@ -1001,6 +1109,135 @@ function wireDetailEvents(participant) {
     button.addEventListener('click', () =>
       handleMitigationRemove(participant, 'vulnerabilities', Number(button.dataset.removeVulnerability))
     );
+  });
+
+  const abilityForm = panel.querySelector('[data-form="ability"]');
+  abilityForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const description = String(formData.get('description') || '').trim();
+    if (!description) {
+      notify('Ability description is required.');
+      return;
+    }
+    const newEntry = {
+      id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+      name: String(formData.get('name') || '').trim() || 'Ability',
+      description,
+      automation: {}
+    };
+    try {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const abilities = [...(latest?.abilities || participant.abilities || []), newEntry];
+      await api(`/api/participants/${participant.id}`, 'PATCH', { abilities });
+      event.target.reset();
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
+  panel.querySelectorAll('[data-remove-ability]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const entryId = button.dataset.removeAbility;
+      const fallbackIndex = Number(button.dataset.abilityIndex);
+      try {
+        const latest = (await getServerParticipant(participant.id)) || participant;
+        const abilities = [...(latest?.abilities || participant.abilities || [])];
+        let idx = abilities.findIndex((entry) => entryId && entry.id === entryId);
+        if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+        if (idx < 0 || idx >= abilities.length) return;
+        abilities.splice(idx, 1);
+        await api(`/api/participants/${participant.id}`, 'PATCH', { abilities });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-journal-form]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const category = form.dataset.journalForm;
+      const formData = new FormData(form);
+      const title = String(formData.get('title') || '').trim();
+      if (!title) {
+        notify('Journal title is required.');
+        return;
+      }
+      const description = String(formData.get('description') || '').trim();
+      try {
+        await api('/api/journal/entry', 'POST', {
+          target: 'participant',
+          participantId: participant.id,
+          category,
+          title,
+          description
+        });
+        form.reset();
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-journal-add-all]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const category = button.dataset.journalAddAll;
+      const form = button.closest('form[data-journal-form]');
+      if (!form) return;
+      const formData = new FormData(form);
+      const title = String(formData.get('title') || '').trim();
+      if (!title) {
+        notify('Journal title is required.');
+        return;
+      }
+      const description = String(formData.get('description') || '').trim();
+      try {
+        await api('/api/journal/entry', 'POST', {
+          target: 'all',
+          category,
+          title,
+          description
+        });
+        form.reset();
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-journal-remove]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/journal/entry', 'DELETE', {
+          target: 'participant',
+          participantId: participant.id,
+          category: button.dataset.journalCategory,
+          entryId: button.dataset.journalRemove
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-journal-remove-all]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await api('/api/journal/entry', 'DELETE', {
+          target: 'all',
+          category: button.dataset.journalCategory,
+          entryId: button.dataset.journalRemoveAll
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
   });
 
   panel.querySelector('[data-form="participant"]')?.addEventListener('submit', async (event) => {

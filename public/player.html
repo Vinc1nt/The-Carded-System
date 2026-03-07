@@ -67,6 +67,12 @@
         <section class="panel" id="playerStats">
           <p class="empty-state">Choose a combatant to display stats.</p>
         </section>
+        <section class="panel journal-panel" id="playerJournal">
+          <div class="panel-header">
+            <h2>Journal</h2>
+          </div>
+          <div id="playerJournalContent" class="journal-columns"></div>
+        </section>
         <section class="panel log-panel" id="playerLog">
           <div class="panel-header">
             <h2>Recent Actions</h2>
@@ -74,6 +80,7 @@
           <div id="playerLogList" class="log-list"></div>
         </section>
       </main>
+      <div id="journalPopup" class="journal-popup hidden" role="dialog" aria-modal="true"></div>
     </div>
     <script type="module" src="/player.js"></script>
   </body>
