@@ -117,7 +117,6 @@ const STATUS_LIBRARY = [
   {
     id: 'bleeding',
     name: 'Bleeding',
-    severity: 'moderate',
     defaultStacks: 1,
     description:
       'Damaging (bypasses Shield). Start of turn: take damage equal to stacks. If 5+ stacks remain after damage, gain Weakened 1 and reset Bleeding to 1. Recover (1 AP) removes 1 stack.',
@@ -126,7 +125,6 @@ const STATUS_LIBRARY = [
   {
     id: 'poisoned',
     name: 'Poisoned',
-    severity: 'moderate',
     defaultStacks: 1,
     description:
       'Damaging (bypasses Shield). Start of turn: take damage equal to stacks. If 5+ stacks remain after damage, gain Fatigued 1 and reset Poisoned to 1. Recover (1 AP) removes 1 stack.',
@@ -135,7 +133,6 @@ const STATUS_LIBRARY = [
   {
     id: 'burning',
     name: 'Burning',
-    severity: 'moderate',
     defaultStacks: 1,
     description:
       'Damaging (hits Shield first). Start of turn: take damage equal to stacks. Burn does not escalate. Recover (1 AP) removes 1 stack.',
@@ -144,7 +141,6 @@ const STATUS_LIBRARY = [
   {
     id: 'blinded',
     name: 'Blinded',
-    severity: 'minor',
     defaultStacks: 1,
     description:
       'Debuff. Cannot target beyond 5 ft; attacks deal -2 damage. Auto-decays end of next turn or spend 1 AP to clear.',
@@ -153,7 +149,6 @@ const STATUS_LIBRARY = [
   {
     id: 'weakened',
     name: 'Weakened',
-    severity: 'minor',
     defaultStacks: 1,
     description: 'Debuff. Your attacks deal -2 damage (min 0). Clears at end of next turn or spend 1 AP.',
     tags: ['Debuff']
@@ -161,7 +156,6 @@ const STATUS_LIBRARY = [
   {
     id: 'fatigued',
     name: 'Fatigued',
-    severity: 'minor',
     defaultStacks: 1,
     description: 'Debuff. -1 AP on your next turn (min 1). Clears at end of that turn or spend 1 AP.',
     tags: ['Debuff']
@@ -169,7 +163,6 @@ const STATUS_LIBRARY = [
   {
     id: 'rooted',
     name: 'Rooted',
-    severity: 'moderate',
     defaultStacks: 1,
     description:
       'Control. Speed becomes 0 but you can act. If Rooted reaches 5 stacks it upgrades to Restrained. Remove via 2 AP STR Resist (DC 12/14/16) or Cleanse.',
@@ -178,7 +171,6 @@ const STATUS_LIBRARY = [
   {
     id: 'restrained',
     name: 'Restrained',
-    severity: 'severe',
     defaultStacks: 1,
     description:
       'Control. Speed 0; attacks against you deal +2 damage. Replaces Rooted and upgrades to Stunned if a stronger effect applies. Remove via 3 AP Resist (DC 16) or Cleanse.',
@@ -187,7 +179,6 @@ const STATUS_LIBRARY = [
   {
     id: 'stunned',
     name: 'Stunned',
-    severity: 'severe',
     defaultStacks: 1,
     description:
       'Control. You lose your next turn. Replaces Rooted/Restrained. Remove with 3 AP CON Resist (DC 16) or Cleanse.',
@@ -477,10 +468,15 @@ function executeStandardAction(body) {
       participant.id
     );
   } else if (action.id === 'recover') {
-    const recovered = applyRecoverAction(participant);
+    const recovered = applyRecoverAction(participant, {
+      statusIndex: body.recoverStatusIndex,
+      statusId: body.recoverStatusId,
+      statusName: body.recoverStatusName,
+      statusType: body.recoverStatusType
+    });
     if (recovered) {
       pushLog(
-        `${participant.name} recovers and reduces ${recovered} by 1 stack.`,
+        `${participant.name} recovers and reduces ${recovered.name} by 1 stack.`,
         participant.id
       );
     } else {
@@ -750,7 +746,15 @@ function removeMinorStatus(participant) {
   if (!Array.isArray(participant.statuses)) {
     participant.statuses = [];
   }
-  const idx = participant.statuses.findIndex((status) => status.severity === 'minor');
+  const minorTypes = new Set(['blinded', 'weakened', 'fatigued']);
+  const idx = participant.statuses.findIndex((status) => {
+    const type = recoverableStatusType(status);
+    if (minorTypes.has(type)) {
+      return true;
+    }
+    const normalizedName = normalizeStatusToken(status?.name);
+    return minorTypes.has(normalizedName);
+  });
   if (idx !== -1) {
     participant.statuses.splice(idx, 1);
   }
@@ -776,25 +780,71 @@ function applyLongRest(participant) {
   pushLog(`${participant.name} takes a long rest and is fully restored.`, participant.id);
 }
 
-function applyRecoverAction(participant) {
+function normalizeStatusToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+function recoverableStatusType(status) {
+  const candidates = [status?.presetId, status?.name, status?.id];
+  for (const candidate of candidates) {
+    const token = normalizeStatusToken(candidate);
+    if (token.includes('bleeding')) return 'bleeding';
+    if (token.includes('poisoned')) return 'poisoned';
+    if (token.includes('burning')) return 'burning';
+  }
+  return null;
+}
+
+function getRecoverableStatuses(statuses = []) {
+  return statuses
+    .map((status, index) => {
+      const type = recoverableStatusType(status);
+      if (!type) return null;
+      return { status, index, type };
+    })
+    .filter(Boolean);
+}
+
+function applyRecoverAction(participant, target = {}) {
   if (!Array.isArray(participant.statuses)) {
     participant.statuses = [];
   }
-  const recoverable = ['bleeding', 'poisoned', 'burning'];
-  const matchIndex = participant.statuses.findIndex((status) => {
-    const id = String(status.id || '').toLowerCase();
-    const name = String(status.name || '').toLowerCase();
-    return recoverable.includes(id) || recoverable.includes(name);
-  });
-  if (matchIndex === -1) return null;
-  const status = participant.statuses[matchIndex];
+  const recoverable = getRecoverableStatuses(participant.statuses);
+  if (!recoverable.length) return null;
+
+  let matched = null;
+  if (Number.isInteger(target?.statusIndex)) {
+    matched = recoverable.find((entry) => entry.index === Number(target.statusIndex));
+  }
+  if (!matched && target?.statusId) {
+    matched = recoverable.find((entry) => String(entry.status.id || '') === String(target.statusId));
+  }
+  if (!matched && target?.statusType) {
+    const targetType = normalizeStatusToken(target.statusType);
+    matched = recoverable.find((entry) => entry.type === targetType);
+  }
+  if (!matched && target?.statusName) {
+    const targetName = normalizeStatusToken(target.statusName);
+    matched = recoverable.find((entry) => normalizeStatusToken(entry.status.name) === targetName);
+  }
+  if (!matched) {
+    [matched] = recoverable;
+  }
+
+  const status = matched.status;
   const nextStacks = Math.max(0, Number(status.stacks || 1) - 1);
   if (nextStacks <= 0) {
-    participant.statuses.splice(matchIndex, 1);
+    participant.statuses.splice(matched.index, 1);
   } else {
     status.stacks = nextStacks;
   }
-  return status.name || status.id || 'a condition';
+  return {
+    name: status.name || matched.type || 'a condition',
+    type: matched.type,
+    remainingStacks: nextStacks
+  };
 }
 
 async function readBody(req) {

@@ -789,21 +789,97 @@ async function handlePlayerStandardAction(actionId) {
     return;
   }
   let resolvedId = actionId;
+  let recoverPayload = {};
   if (actionId === 'move') {
     const difficultToggle = els.stats.querySelector('[data-player-difficult]');
     if (difficultToggle?.checked) {
       resolvedId = 'move_difficult';
     }
   }
+  if (actionId === 'recover') {
+    const target = choosePlayerRecoverTarget(participant);
+    if (target === null) {
+      return;
+    }
+    recoverPayload = target || {};
+  }
   try {
     await api('/api/actions/standard', 'POST', {
       actionId: resolvedId,
-      participantId: participant.id
+      participantId: participant.id,
+      ...recoverPayload
     });
     fetchState();
   } catch (err) {
     notify(err.message);
   }
+}
+
+function normalizeRecoverToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+function detectRecoverType(status) {
+  const fields = [status?.presetId, status?.name, status?.id];
+  for (const field of fields) {
+    const token = normalizeRecoverToken(field);
+    if (token.includes('bleeding')) return 'bleeding';
+    if (token.includes('poisoned')) return 'poisoned';
+    if (token.includes('burning')) return 'burning';
+  }
+  return null;
+}
+
+function listPlayerRecoverableStatuses(participant) {
+  return (participant?.statuses || [])
+    .map((status, index) => {
+      const type = detectRecoverType(status);
+      if (!type) return null;
+      return {
+        status,
+        index,
+        type,
+        label: `${status.name || type}${status.stacks ? ` ×${status.stacks}` : ''}`
+      };
+    })
+    .filter(Boolean);
+}
+
+function choosePlayerRecoverTarget(participant) {
+  const recoverable = listPlayerRecoverableStatuses(participant);
+  if (!recoverable.length) {
+    notify('No Bleeding, Poisoned, or Burning stacks to recover.');
+    return null;
+  }
+  if (recoverable.length === 1) {
+    const [entry] = recoverable;
+    return {
+      recoverStatusIndex: entry.index,
+      recoverStatusId: entry.status.id,
+      recoverStatusName: entry.status.name,
+      recoverStatusType: entry.type
+    };
+  }
+  const message = [
+    'Choose status to reduce by 1 stack:',
+    ...recoverable.map((entry, index) => `${index + 1}. ${entry.label}`)
+  ].join('\n');
+  const raw = window.prompt(message, '1');
+  if (raw == null) return null;
+  const choice = Number(raw);
+  if (!Number.isInteger(choice) || choice < 1 || choice > recoverable.length) {
+    notify('Invalid selection. Recover cancelled.');
+    return null;
+  }
+  const picked = recoverable[choice - 1];
+  return {
+    recoverStatusIndex: picked.index,
+    recoverStatusId: picked.status.id,
+    recoverStatusName: picked.status.name,
+    recoverStatusType: picked.type
+  };
 }
 
 async function handlePlayerDamageForm(event, participant, field, inputName) {
@@ -981,14 +1057,6 @@ function renderPlayerStatusForm() {
       <div class="form-row">
         <label>Name
           <input type="text" name="name" placeholder="Bleeding" required />
-        </label>
-        <label>Severity
-          <select name="severity">
-            <option value="minor">Minor</option>
-            <option value="moderate">Moderate</option>
-            <option value="severe">Severe</option>
-            <option value="exceptional">Exceptional</option>
-          </select>
         </label>
         <label>Stacks
           <input type="number" name="stacks" value="1" min="1" />
@@ -1175,7 +1243,7 @@ function renderStatuses(participant) {
         const key = status.id || `index-${index}`;
         return `
         <span class="status-pill">
-          ${status.name}${status.stacks ? ` ×${status.stacks}` : ''} (${status.severity})
+          ${status.name}${status.stacks ? ` ×${status.stacks}` : ''}
           ${status.notes ? `<small>${status.notes}</small>` : ''}
           <button type="button" data-player-remove-status="${key}">✕</button>
         </span>`;
@@ -1434,7 +1502,6 @@ function buildStatusFromForm(formData) {
     id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
     presetId: formData.get('preset') || '',
     name: formData.get('name'),
-    severity: formData.get('severity') || 'minor',
     stacks: Number(formData.get('stacks') || 1),
     notes: formData.get('notes') || ''
   };
@@ -1502,11 +1569,9 @@ function applyPlayerStatusPreset(selectEl, formEl) {
   const preset = getStatusPreset(selectEl?.value);
   if (!preset || !formEl) return;
   const nameInput = formEl.querySelector('input[name="name"]');
-  const severitySelect = formEl.querySelector('select[name="severity"]');
   const stackInput = formEl.querySelector('input[name="stacks"]');
   const notesInput = formEl.querySelector('input[name="notes"]');
   if (nameInput) nameInput.value = preset.name;
-  if (severitySelect) severitySelect.value = preset.severity || 'minor';
   if (stackInput && typeof preset.defaultStacks === 'number') stackInput.value = preset.defaultStacks;
   if (notesInput) notesInput.value = preset.description || '';
 }
