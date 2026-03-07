@@ -996,7 +996,11 @@ function updateUrl() {
 
 async function patchParticipant(participantId, payload) {
   try {
-    return await api(`/api/participants/${participantId}`, 'PATCH', payload);
+    const response = await api(`/api/participants/${participantId}`, 'PATCH', payload);
+    if (response?.participant) {
+      mergeParticipant(response.participant);
+    }
+    return response;
   } catch (err) {
     notify(err.message);
     return null;
@@ -1263,6 +1267,21 @@ async function fetchParticipantFromServer(participantId) {
     notify(err.message);
     return getParticipantSnapshot(participantId);
   }
+}
+
+function mergeParticipant(participant) {
+  if (!participant?.id) return;
+  const list = Array.isArray(state.encounter.participants)
+    ? [...state.encounter.participants]
+    : [];
+  const index = list.findIndex((entry) => entry.id === participant.id);
+  if (index >= 0) {
+    list[index] = participant;
+  } else {
+    list.push(participant);
+  }
+  state.encounter.participants = list;
+  render();
 }
 
 async function api(path, method = 'GET', body) {

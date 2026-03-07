@@ -686,8 +686,12 @@ function wireDetailEvents(participant) {
       apMax: Number(formData.get('apMax') ?? participant.apMax ?? 0)
     };
     try {
-      await api(`/api/participants/${participant.id}`, 'PATCH', payload);
-      fetchState();
+      const response = await api(`/api/participants/${participant.id}`, 'PATCH', payload);
+      if (response?.participant) {
+        updateParticipantInState(response.participant);
+      } else {
+        fetchState();
+      }
       basePanel?.classList.add('hidden');
     } catch (err) {
       notify(err.message);
