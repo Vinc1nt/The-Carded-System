@@ -119,7 +119,7 @@ const STATUS_LIBRARY = [
     name: 'Bleeding',
     defaultStacks: 1,
     description:
-      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks. If 5+ stacks remain after damage, gain Weakened 1 and reset Bleeding to 1. Recover (1 AP) removes 1 stack.',
+      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks, then Bleeding loses 1 stack. If Bleeding is still 5+ stacks, gain Weakened 1 and reset Bleeding to 1 (max once/turn). Recover (1 AP) removes 1 stack.',
     tags: ['Damaging']
   },
   {
@@ -127,7 +127,7 @@ const STATUS_LIBRARY = [
     name: 'Poisoned',
     defaultStacks: 1,
     description:
-      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks. If 5+ stacks remain after damage, gain Fatigued 1 and reset Poisoned to 1. Recover (1 AP) removes 1 stack.',
+      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks, then Poisoned loses 1 stack. If Poisoned is still 5+ stacks, gain Fatigued 1 and reset Poisoned to 1 (max once/turn). Recover (1 AP) removes 1 stack.',
     tags: ['Damaging']
   },
   {
@@ -135,7 +135,7 @@ const STATUS_LIBRARY = [
     name: 'Burning',
     defaultStacks: 1,
     description:
-      'Damaging (hits Shield first). Start of turn: take damage equal to stacks. Burn does not escalate. Recover (1 AP) removes 1 stack.',
+      'Damaging (hits Shield first). Start of turn: take damage equal to stacks, then Burning loses 1 stack. Burning does not escalate. Recover (1 AP) removes 1 stack.',
     tags: ['Damaging']
   },
   {
@@ -165,7 +165,7 @@ const STATUS_LIBRARY = [
     name: 'Rooted',
     defaultStacks: 1,
     description:
-      'Control. Speed becomes 0 but you can act. If Rooted reaches 5 stacks it upgrades to Restrained. Remove via 2 AP STR Resist (DC 12/14/16) or Cleanse.',
+      'Control. Speed becomes 0 but you can act. If Rooted is 5+ stacks, it escalates to Restrained (Rooted removed, once/turn).',
     tags: ['Control']
   },
   {
@@ -173,7 +173,7 @@ const STATUS_LIBRARY = [
     name: 'Restrained',
     defaultStacks: 1,
     description:
-      'Control. Speed 0; attacks against you deal +2 damage. Replaces Rooted and upgrades to Stunned if a stronger effect applies. Remove via 3 AP Resist (DC 16) or Cleanse.',
+      'Control. Speed 0; attacks against you deal +2 damage. Restrained replaces Rooted. If Stunned is applied, Restrained is removed.',
     tags: ['Control']
   },
   {
@@ -181,7 +181,7 @@ const STATUS_LIBRARY = [
     name: 'Stunned',
     defaultStacks: 1,
     description:
-      'Control. You lose your next turn. Replaces Rooted/Restrained. Remove with 3 AP CON Resist (DC 16) or Cleanse.',
+      'Control. You lose your next turn. Stunned replaces Rooted and Restrained.',
     tags: ['Control']
   }
 ];
@@ -435,7 +435,8 @@ function startEncounter(startingRound = 1) {
   ensureCurrentIndex();
   const actor = getCurrentParticipant();
   if (actor) {
-    resetTurn(actor);
+    const startEvents = resetTurn(actor, { applyStatusTick: true });
+    startEvents.forEach((event) => pushLog(`${actor.name} ${event}`, actor.id));
     pushLog(`Encounter starts. ${actor.name} takes the first turn.`);
   }
   touchState();
@@ -687,16 +688,21 @@ function advanceTurn(direction = 1) {
   }
   const actor = getCurrentParticipant();
   if (actor) {
-    resetTurn(actor);
+    const startEvents = resetTurn(actor, { applyStatusTick: direction > 0 });
+    startEvents.forEach((event) => pushLog(`${actor.name} ${event}`, actor.id));
     pushLog(`It is now ${actor.name}'s turn (AP ${actor.apCurrent}).`, actor.id);
   }
   touchState();
   broadcastState('turn_advanced');
 }
 
-function resetTurn(participant) {
+function resetTurn(participant, options = {}) {
   participant.apCurrent = participant.apMax;
   participant.guardUsedThisTurn = false;
+  if (options.applyStatusTick) {
+    return applyStartOfTurnStatusEffects(participant);
+  }
+  return [];
 }
 
 function clampParticipant(participant) {
@@ -748,7 +754,7 @@ function removeMinorStatus(participant) {
   }
   const minorTypes = new Set(['blinded', 'weakened', 'fatigued']);
   const idx = participant.statuses.findIndex((status) => {
-    const type = recoverableStatusType(status);
+    const type = detectStatusType(status);
     if (minorTypes.has(type)) {
       return true;
     }
@@ -786,25 +792,193 @@ function normalizeStatusToken(value) {
     .replace(/[^a-z]/g, '');
 }
 
-function recoverableStatusType(status) {
+function detectStatusType(status) {
   const candidates = [status?.presetId, status?.name, status?.id];
   for (const candidate of candidates) {
     const token = normalizeStatusToken(candidate);
     if (token.includes('bleeding')) return 'bleeding';
-    if (token.includes('poisoned')) return 'poisoned';
-    if (token.includes('burning')) return 'burning';
+    if (token.includes('poisoned') || token === 'poison') return 'poisoned';
+    if (token.includes('burning') || token === 'burn') return 'burning';
+    if (token.includes('blinded') || token.includes('blind')) return 'blinded';
+    if (token.includes('weakened') || token.includes('weaken')) return 'weakened';
+    if (token.includes('fatigued') || token.includes('fatigue')) return 'fatigued';
+    if (token.includes('restrained') || token.includes('restrain')) return 'restrained';
+    if (token.includes('stunned') || token.includes('stun')) return 'stunned';
+    if (token.includes('rooted') || token.includes('root')) return 'rooted';
   }
   return null;
 }
 
-function getRecoverableStatuses(statuses = []) {
+function getStatusesByType(statuses = [], type) {
   return statuses
     .map((status, index) => {
-      const type = recoverableStatusType(status);
-      if (!type) return null;
-      return { status, index, type };
+      const detected = detectStatusType(status);
+      if (!detected || detected !== type) return null;
+      return { status, index, type: detected };
     })
     .filter(Boolean);
+}
+
+function getRecoverableStatuses(statuses = []) {
+  const recoverable = ['bleeding', 'poisoned', 'burning'];
+  return statuses
+    .map((status, index) => {
+      const detected = detectStatusType(status);
+      if (!recoverable.includes(detected)) return null;
+      return { status, index, type: detected };
+    })
+    .filter(Boolean);
+}
+
+function statusDisplayName(type) {
+  const labels = {
+    bleeding: 'Bleeding',
+    poisoned: 'Poisoned',
+    burning: 'Burning',
+    blinded: 'Blinded',
+    weakened: 'Weakened',
+    fatigued: 'Fatigued',
+    rooted: 'Rooted',
+    restrained: 'Restrained',
+    stunned: 'Stunned'
+  };
+  return labels[type] || type;
+}
+
+function getStatusStacks(participant, type) {
+  const matches = getStatusesByType(participant.statuses || [], type);
+  return matches.reduce((total, entry) => total + Math.max(0, Number(entry.status?.stacks || 0)), 0);
+}
+
+function setStatusStacks(participant, type, stacks) {
+  if (!Array.isArray(participant.statuses)) {
+    participant.statuses = [];
+  }
+  const matches = getStatusesByType(participant.statuses, type);
+  const nextStacks = Math.max(0, Number(stacks || 0));
+  if (!matches.length) {
+    if (nextStacks > 0) {
+      participant.statuses.push({
+        id: randomUUID(),
+        presetId: type,
+        name: statusDisplayName(type),
+        stacks: nextStacks,
+        notes: ''
+      });
+    }
+    return;
+  }
+  const [first, ...rest] = matches;
+  if (nextStacks <= 0) {
+    [first, ...rest]
+      .sort((a, b) => b.index - a.index)
+      .forEach((entry) => participant.statuses.splice(entry.index, 1));
+    return;
+  }
+  first.status.stacks = nextStacks;
+  if (!first.status.name) first.status.name = statusDisplayName(type);
+  if (!first.status.presetId) first.status.presetId = type;
+  rest
+    .sort((a, b) => b.index - a.index)
+    .forEach((entry) => participant.statuses.splice(entry.index, 1));
+}
+
+function addStatusStacks(participant, type, amount = 1) {
+  const existing = getStatusStacks(participant, type);
+  const increment = Math.max(1, Number(amount || 1));
+  setStatusStacks(participant, type, existing + increment);
+}
+
+function enforceControlHierarchy(participant) {
+  const hasStunned = getStatusStacks(participant, 'stunned') > 0;
+  const hasRestrained = getStatusStacks(participant, 'restrained') > 0;
+  if (hasStunned) {
+    setStatusStacks(participant, 'restrained', 0);
+    setStatusStacks(participant, 'rooted', 0);
+    return;
+  }
+  if (hasRestrained) {
+    setStatusStacks(participant, 'rooted', 0);
+  }
+}
+
+function applyStatusDamage(participant, type, damage) {
+  const amount = Math.max(0, Number(damage || 0));
+  if (!amount) return;
+  if (type === 'burning') {
+    const shieldHit = Math.min(participant.shield, amount);
+    participant.shield -= shieldHit;
+    const hpHit = amount - shieldHit;
+    if (hpHit > 0) {
+      participant.hp = Math.max(0, participant.hp - hpHit);
+    }
+    return;
+  }
+  participant.hp = Math.max(0, participant.hp - amount);
+}
+
+function applyStartOfTurnStatusEffects(participant) {
+  if (!Array.isArray(participant.statuses)) {
+    participant.statuses = [];
+  }
+  const events = [];
+  const startingTypes = new Set(
+    participant.statuses
+      .map((status) => detectStatusType(status))
+      .filter(Boolean)
+  );
+
+  // Debuffs that specifically trigger on "your next turn" apply first, then clear.
+  if (startingTypes.has('fatigued')) {
+    const penalty = Math.max(1, getStatusStacks(participant, 'fatigued'));
+    const before = participant.apCurrent;
+    participant.apCurrent = Math.max(1, participant.apCurrent - penalty);
+    setStatusStacks(participant, 'fatigued', 0);
+    events.push(`loses ${before - participant.apCurrent} AP from Fatigued.`);
+  }
+
+  const escalationTriggered = new Set();
+  ['bleeding', 'poisoned', 'burning'].forEach((type) => {
+    const stacks = getStatusStacks(participant, type);
+    if (stacks <= 0) return;
+    applyStatusDamage(participant, type, stacks);
+    let nextStacks = Math.max(0, stacks - 1);
+    events.push(`takes ${stacks} ${statusDisplayName(type)} damage at start of turn.`);
+    if (type === 'bleeding' && nextStacks >= 5 && !escalationTriggered.has(type)) {
+      escalationTriggered.add(type);
+      addStatusStacks(participant, 'weakened', 1);
+      nextStacks = 1;
+      events.push('Bleeding escalates: gains Weakened 1 and Bleeding resets to 1.');
+    }
+    if (type === 'poisoned' && nextStacks >= 5 && !escalationTriggered.has(type)) {
+      escalationTriggered.add(type);
+      addStatusStacks(participant, 'fatigued', 1);
+      nextStacks = 1;
+      events.push('Poisoned escalates: gains Fatigued 1 and Poisoned resets to 1.');
+    }
+    setStatusStacks(participant, type, nextStacks);
+  });
+
+  if (startingTypes.has('rooted')) {
+    const rootedStacks = getStatusStacks(participant, 'rooted');
+    if (rootedStacks >= 5 && !escalationTriggered.has('rooted')) {
+      escalationTriggered.add('rooted');
+      setStatusStacks(participant, 'rooted', 0);
+      addStatusStacks(participant, 'restrained', 1);
+      events.push('Rooted escalates to Restrained.');
+    }
+  }
+
+  enforceControlHierarchy(participant);
+
+  if (startingTypes.has('stunned') && getStatusStacks(participant, 'stunned') > 0) {
+    participant.apCurrent = 0;
+    setStatusStacks(participant, 'stunned', Math.max(0, getStatusStacks(participant, 'stunned') - 1));
+    events.push('is Stunned and loses this turn.');
+  }
+
+  clampParticipant(participant);
+  return events;
 }
 
 function applyRecoverAction(participant, target = {}) {
@@ -1070,6 +1244,15 @@ function computeSetBonuses(participant) {
 }
 
 function recalculateParticipant(participant) {
+  if (!Array.isArray(participant.statuses)) {
+    participant.statuses = [];
+  }
+  const rootedStacks = getStatusStacks(participant, 'rooted');
+  if (rootedStacks >= 5) {
+    setStatusStacks(participant, 'rooted', 0);
+    addStatusStacks(participant, 'restrained', 1);
+  }
+  enforceControlHierarchy(participant);
   participant.resistances = normalizeDamageTypes(participant.resistances);
   participant.vulnerabilities = normalizeDamageTypes(participant.vulnerabilities);
   const base = ensureBaseStats(participant);
