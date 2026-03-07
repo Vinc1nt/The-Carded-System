@@ -978,13 +978,13 @@ function applyStartOfTurnStatusEffects(participant) {
     applyStatusDamage(participant, type, stacks);
     let nextStacks = Math.max(0, stacks - 1);
     events.push(`takes ${stacks} ${statusDisplayName(type)} damage at start of turn.`);
-    if (type === 'bleeding' && nextStacks >= 5 && !escalationTriggered.has(type)) {
+    if (type === 'bleeding' && stacks >= 5 && !escalationTriggered.has(type)) {
       escalationTriggered.add(type);
       addStatusStacks(participant, 'weakened', 1);
       nextStacks = 1;
       events.push('Bleeding escalates: gains Weakened 1 and Bleeding resets to 1.');
     }
-    if (type === 'poisoned' && nextStacks >= 5 && !escalationTriggered.has(type)) {
+    if (type === 'poisoned' && stacks >= 5 && !escalationTriggered.has(type)) {
       escalationTriggered.add(type);
       addStatusStacks(participant, 'fatigued', 1);
       nextStacks = 1;
