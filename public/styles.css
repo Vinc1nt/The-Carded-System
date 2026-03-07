@@ -400,9 +400,9 @@ button.danger {
 
 .damage-group form {
   display: flex;
-  gap: 0.5rem;
-  align-items: flex-end;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: flex-start;
 }
 
 .damage-group form button {

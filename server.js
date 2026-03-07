@@ -23,51 +23,51 @@ const STANDARD_ACTIONS = {
   move: {
     id: 'move',
     label: 'Move',
-    summary: '1 AP → 10 ft (2 squares)',
+    summary: '1 AP → 10 ft (2 squares); repeat as needed.',
     apCost: 1,
-    detail: 'Standard movement at full speed.',
+    detail: 'Move 10 ft (2 squares). May be repeated without limit.',
     logText: 'moves 10 ft.'
   },
   move_difficult: {
     id: 'move_difficult',
     label: 'Move (Difficult Terrain)',
-    summary: '1 AP → 5 ft (1 square)',
+    summary: '1 AP → 5 ft (1 square) in difficult terrain.',
     apCost: 1,
-    detail: 'Movement through difficult terrain or crawling.',
+    detail: 'When terrain is difficult, 1 AP moves only 5 ft (1 square).',
     logText: 'pushes through difficult terrain (5 ft).'
   },
   disengage: {
     id: 'disengage',
     label: 'Disengage',
-    summary: '2 AP: Your movement this turn avoids OAs.',
+    summary: '2 AP: This turn’s movement does not provoke OAs.',
     apCost: 2,
     logText: 'disengages to avoid opportunity attacks.'
   },
   slip: {
     id: 'slip',
     label: 'Slip',
-    summary: '1 AP: Move 5 ft without triggering OAs.',
+    summary: '1 AP: Move 5 ft without provoking OAs.',
     apCost: 1,
     logText: 'slips 5 ft without provoking.'
   },
   interact: {
     id: 'interact',
     label: 'Interact/Use',
-    summary: 'Usually 1 AP per GM.',
+    summary: '1 AP (usually): interact with an object or context item.',
     apCost: 1,
     logText: 'takes an interact/use action.'
   },
   guard: {
     id: 'guard',
     label: 'Guard',
-    summary: '2 AP → Restore Shield (once/turn).',
+    summary: '2 AP → Restore 3 Shield (once/turn, max shield limit).',
     apCost: 2,
     logText: 'guards and restores shield.'
   },
   recover: {
     id: 'recover',
     label: 'Recover',
-    summary: '1 AP: Remove 1 stack of Bleeding/Poisoned/Burning.',
+    summary: '1 AP: Remove 1 stack of Bleeding, Poisoned, or Burning.',
     apCost: 1,
     logText: 'recovers to reduce damaging stacks.'
   },
