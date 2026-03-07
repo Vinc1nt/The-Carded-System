@@ -27,7 +27,9 @@ const els = {
   gmMenuToggle: document.getElementById('gmMenuToggle'),
   gmMenuPanel: document.getElementById('gmMenuPanel'),
   downloadEncounter: document.getElementById('downloadEncounter'),
-  uploadEncounter: document.getElementById('uploadEncounter')
+  uploadEncounter: document.getElementById('uploadEncounter'),
+  restAllShort: document.getElementById('restAllShort'),
+  restAllLong: document.getElementById('restAllLong')
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -72,6 +74,8 @@ function wireGlobalEvents() {
   els.prevTurn?.addEventListener('click', () => api('/api/turn/previous', 'POST'));
   els.nextTurn?.addEventListener('click', () => api('/api/turn/next', 'POST'));
   els.refreshState?.addEventListener('click', fetchState);
+  els.restAllShort?.addEventListener('click', () => triggerGroupRest('short'));
+  els.restAllLong?.addEventListener('click', () => triggerGroupRest('long'));
 
   els.gmMenuToggle?.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -225,6 +229,7 @@ function renderDetailPanel() {
       ${renderVitalCard('AP', participant.apCurrent, participant.apMax, 'ap')}
     </div>
     ${renderStatusSection(participant)}
+    ${renderMitigationSection(participant)}
     ${renderActionsSection(participant)}
     ${renderCardsSection(participant)}
     ${renderRelicSection(participant)}
@@ -457,6 +462,49 @@ function renderRelicSection(participant) {
         </div>
       </div>
     </details>
+  `;
+}
+
+function renderMitigationSection(participant) {
+  return `
+    <details class="collapsible-block" data-section="mitigation">
+      <summary>
+        <strong>Resistances & Vulnerabilities</strong>
+      </summary>
+      <div class="collapsible-body">
+        ${renderMitigationGroup('Resistances', participant.resistances, 'resistance')}
+        ${renderMitigationGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
+      </div>
+    </details>
+  `;
+}
+
+function renderMitigationGroup(label, values = [], key) {
+  const list = (values || [])
+    .map(
+      (value, index) => `
+        <span class="tag-pill">
+          ${value}
+          <button type="button" aria-label="Remove" data-remove-${key}="${index}">×</button>
+        </span>`
+    )
+    .join('');
+  return `
+    <div class="damage-group">
+      <div class="damage-group-header">
+        <h4>${label}</h4>
+        <small class="muted">${key === 'resistance' ? 'Halves incoming damage' : 'Doubles incoming damage'}</small>
+      </div>
+      <div class="tag-list">
+        ${list || '<span class="muted">None</span>'}
+      </div>
+      <form data-form="${key}">
+        <div class="dual-inputs">
+          <input type="text" name="${key}" placeholder="e.g., fire" />
+          <button type="submit">Add</button>
+        </div>
+      </form>
+    </div>
   `;
 }
 
@@ -879,6 +927,25 @@ function wireDetailEvents(participant) {
         notify(err.message);
       }
     });
+  });
+
+  const resistanceForm = panel.querySelector('[data-form="resistance"]');
+  resistanceForm?.addEventListener('submit', (event) =>
+    handleMitigationSubmit(event, participant, 'resistances', 'resistance')
+  );
+  panel.querySelectorAll('[data-remove-resistance]').forEach((button) => {
+    button.addEventListener('click', () =>
+      handleMitigationRemove(participant, 'resistances', Number(button.dataset.removeResistance))
+    );
+  });
+  const vulnerabilityForm = panel.querySelector('[data-form="vulnerability"]');
+  vulnerabilityForm?.addEventListener('submit', (event) =>
+    handleMitigationSubmit(event, participant, 'vulnerabilities', 'vulnerability')
+  );
+  panel.querySelectorAll('[data-remove-vulnerability]').forEach((button) => {
+    button.addEventListener('click', () =>
+      handleMitigationRemove(participant, 'vulnerabilities', Number(button.dataset.removeVulnerability))
+    );
   });
 
   panel.querySelector('[data-form="participant"]')?.addEventListener('submit', async (event) => {
@@ -1311,6 +1378,54 @@ function normalizeRelicPayload(raw = {}) {
   };
 }
 
+async function handleMitigationSubmit(event, participant, field, inputName) {
+  event.preventDefault();
+  const formData = new FormData(event.target);
+  const value = String(formData.get(inputName) || '').trim();
+  if (!value) {
+    notify('Enter a damage type.');
+    return;
+  }
+  try {
+    const latest = (await getServerParticipant(participant.id)) || participant;
+    const existing = Array.isArray(latest?.[field]) ? [...latest[field]] : [];
+    const duplicate = existing.find((entry) => entry.toLowerCase() === value.toLowerCase());
+    if (duplicate) {
+      notify('Already listed.');
+      return;
+    }
+    const response = await api(`/api/participants/${participant.id}`, 'PATCH', {
+      [field]: [...existing, value]
+    });
+    if (response?.participant) {
+      updateParticipantInState(response.participant);
+    }
+    fetchState();
+    event.target.reset();
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function handleMitigationRemove(participant, field, index) {
+  if (index < 0 || Number.isNaN(index)) return;
+  try {
+    const latest = (await getServerParticipant(participant.id)) || participant;
+    const existing = Array.isArray(latest?.[field]) ? [...latest[field]] : [];
+    if (index >= existing.length) return;
+    existing.splice(index, 1);
+    const response = await api(`/api/participants/${participant.id}`, 'PATCH', {
+      [field]: existing
+    });
+    if (response?.participant) {
+      updateParticipantInState(response.participant);
+    }
+    fetchState();
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
 function toNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -1341,6 +1456,15 @@ function notify(message) {
   setTimeout(() => {
     toast.remove();
   }, 2500);
+}
+
+async function triggerGroupRest(type) {
+  try {
+    await api(`/api/rest/${type}/all`, 'POST');
+    notify(`${type === 'short' ? 'Short' : 'Long'} rest triggered for everyone.`);
+  } catch (err) {
+    notify(err.message);
+  }
 }
 
 async function handleEncounterDownload() {

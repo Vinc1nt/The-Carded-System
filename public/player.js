@@ -19,6 +19,8 @@ const els = {
   menuToggle: document.getElementById('playerMenuToggle'),
   menuPanel: document.getElementById('playerMenuPanel'),
   nextTurn: document.getElementById('playerNextTurn'),
+  playerShortRest: document.getElementById('playerShortRest'),
+  playerLongRest: document.getElementById('playerLongRest'),
   downloadCharacter: document.getElementById('downloadCharacter'),
   uploadCharacter: document.getElementById('uploadCharacter'),
   importCardFile: document.getElementById('playerImportCard'),
@@ -115,6 +117,8 @@ function wireTopButtons() {
       notify(err.message);
     }
   });
+  els.playerShortRest?.addEventListener('click', () => handlePlayerRest('short'));
+  els.playerLongRest?.addEventListener('click', () => handlePlayerRest('long'));
 }
 
 function subscribe() {
@@ -212,8 +216,87 @@ function renderStats() {
         ${renderPlayerVital('Guard Restore', participant.guardRestore || 3)}
         ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
       </div>
-      <section class="player-section">
-        <h3>Cards & Loadout</h3>
+      ${renderPlayerCardsSection()}
+      ${renderPlayerStatusSection(participant)}
+      ${renderPlayerDamageSection(participant)}
+      <details class="player-collapsible" data-player-section="abilities" open>
+        <summary><strong>Ability Scores</strong></summary>
+        <div class="collapsible-body">
+          <label>Proficiency Bonus
+            <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
+          </label>
+          ${renderAbilityTable(stats)}
+        </div>
+      </details>
+      <details class="player-collapsible" data-player-section="saves">
+        <summary><strong>Saving Throws</strong></summary>
+        <div class="collapsible-body">
+          ${renderSavingThrows(participant)}
+        </div>
+      </details>
+      <details class="player-collapsible" data-player-section="skills">
+        <summary><strong>Skills</strong></summary>
+        <div class="collapsible-body">
+          ${renderSkillsTable(participant)}
+        </div>
+      </details>
+      ${renderPlayerSetSection(participant)}
+      ${renderPlayerRelicSection()}
+      ${renderPlayerNotesSection(participant)}
+    </div>
+  `;
+  cachePlayerSectionRefs();
+  wirePlayerSheetEvents(participant);
+}
+
+function renderPlayerVital(label, value, max, key) {
+  if (typeof max === 'number') {
+    return `
+      <div class="vital-card">
+        <h4>${label}</h4>
+        <div class="value">${value} / ${max}</div>
+        ${key ? renderInlineAdjust(key) : ''}
+      </div>`;
+  }
+  return `
+    <div class="vital-card">
+      <h4>${label}</h4>
+      <div class="value">${value}</div>
+    </div>`;
+}
+
+function cachePlayerSectionRefs() {
+  els.cardList = document.getElementById('playerCardList');
+  els.cardForm = document.getElementById('playerCardForm');
+  els.cardDrawer = document.getElementById('playerCardDrawer');
+  els.importCardFile = document.getElementById('playerImportCard');
+  els.importDeckFile = document.getElementById('playerImportDeck');
+  els.importRelicFile = document.getElementById('playerImportRelic');
+}
+
+function renderPlayerTurnTrack() {
+  const participants = state.encounter.participants || [];
+  if (!participants.length) return '';
+  const currentIndex = state.encounter.currentIndex ?? -1;
+  return `
+    <div class="player-turn-track">
+      ${participants
+        .map(
+          (entry, index) => `
+            <div class="turn-pill ${index === currentIndex ? 'is-active' : ''} ${entry.id === focusId ? 'is-focus' : ''}">
+              <span>${entry.name}</span>
+            </div>`
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+function renderPlayerCardsSection() {
+  return `
+    <details class="player-collapsible" data-player-section="cards" open>
+      <summary><strong>Cards & Loadout</strong></summary>
+      <div class="collapsible-body">
         <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
         <details id="playerCardDrawer">
           <summary>Card Tools</summary>
@@ -279,42 +362,84 @@ function renderStats() {
             <button type="submit">Add Card</button>
           </form>
         </details>
-      </section>
-      <section class="player-section">
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerStatusSection(participant) {
+  return `
+    <details class="player-collapsible" data-player-section="statuses" open>
+      <summary><strong>Statuses</strong></summary>
+      <div class="collapsible-body">
         <div class="section-header">
-          <h3>Statuses</h3>
+          <h4>Active Statuses</h4>
           <button type="button" data-player-toggle-status>Manage</button>
         </div>
         <div class="status-list">${renderStatuses(participant)}</div>
         ${renderPlayerStatusForm()}
-      </section>
-      <details class="player-collapsible" data-player-section="abilities">
-        <summary><strong>Ability Scores</strong></summary>
-        <div class="collapsible-body">
-          <label>Proficiency Bonus
-            <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
-          </label>
-          ${renderAbilityTable(stats)}
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerDamageSection(participant) {
+  return `
+    <details class="player-collapsible" data-player-section="mitigation" open>
+      <summary><strong>Resistances & Vulnerabilities</strong></summary>
+      <div class="collapsible-body">
+        ${renderPlayerDamageGroup('Resistances', participant.resistances, 'resistance')}
+        ${renderPlayerDamageGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
+        <p class="muted">Resistances halve incoming damage of that type; vulnerabilities double it.</p>
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerDamageGroup(label, values = [], key) {
+  const list = (values || [])
+    .map(
+      (value, index) => `
+        <span class="tag-pill">
+          ${value}
+          <button type="button" aria-label="Remove" data-player-remove-${key}="${index}">×</button>
+        </span>`
+    )
+    .join('');
+  return `
+    <div class="damage-group">
+      <div class="damage-group-header">
+        <h4>${label}</h4>
+      </div>
+      <div class="tag-list">
+        ${list || '<span class="muted">None</span>'}
+      </div>
+      <form data-${key}-form>
+        <div class="dual-inputs">
+          <input type="text" name="${key}" placeholder="e.g., fire" />
+          <button type="submit">Add</button>
         </div>
-      </details>
-      <details class="player-collapsible" data-player-section="saves">
-        <summary><strong>Saving Throws</strong></summary>
-        <div class="collapsible-body">
-          ${renderSavingThrows(participant)}
-        </div>
-      </details>
-      <details class="player-collapsible" data-player-section="skills">
-        <summary><strong>Skills</strong></summary>
-        <div class="collapsible-body">
-          ${renderSkillsTable(participant)}
-        </div>
-      </details>
-      <section class="player-section">
-        <h3>Set Tracker</h3>
+      </form>
+    </div>
+  `;
+}
+
+function renderPlayerSetSection(participant) {
+  return `
+    <details class="player-collapsible" data-player-section="sets" open>
+      <summary><strong>Set Tracker</strong></summary>
+      <div class="collapsible-body">
         ${renderSetTracker(participant)}
-      </section>
-      <section class="player-section">
-        <h3>Relics & Artifacts</h3>
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerRelicSection() {
+  return `
+    <details class="player-collapsible" data-player-section="relics" open>
+      <summary><strong>Relics & Artifacts</strong></summary>
+      <div class="collapsible-body">
         <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
         <details id="playerRelicDrawer">
           <summary>Relic Tools</summary>
@@ -347,60 +472,23 @@ function renderStats() {
             <button type="submit">Add Relic</button>
           </form>
         </details>
-      </section>
-      <section class="player-section">
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerNotesSection(participant) {
+  return `
+    <details class="player-collapsible" data-player-section="notes" open>
+      <summary><strong>Notes</strong></summary>
+      <div class="collapsible-body">
         <div class="section-header">
-          <h3>Notes</h3>
+          <h4>Notes</h4>
           <button type="button" data-player-save-notes>Save</button>
         </div>
         <textarea data-player-notes rows="3" placeholder="Add notes for the GM or reminders">${participant.notes || ''}</textarea>
-      </section>
-    </div>
-  `;
-  cachePlayerSectionRefs();
-  wirePlayerSheetEvents(participant);
-}
-
-function renderPlayerVital(label, value, max, key) {
-  if (typeof max === 'number') {
-    return `
-      <div class="vital-card">
-        <h4>${label}</h4>
-        <div class="value">${value} / ${max}</div>
-        ${key ? renderInlineAdjust(key) : ''}
-      </div>`;
-  }
-  return `
-    <div class="vital-card">
-      <h4>${label}</h4>
-      <div class="value">${value}</div>
-    </div>`;
-}
-
-function cachePlayerSectionRefs() {
-  els.cardList = document.getElementById('playerCardList');
-  els.cardForm = document.getElementById('playerCardForm');
-  els.cardDrawer = document.getElementById('playerCardDrawer');
-  els.importCardFile = document.getElementById('playerImportCard');
-  els.importDeckFile = document.getElementById('playerImportDeck');
-  els.importRelicFile = document.getElementById('playerImportRelic');
-}
-
-function renderPlayerTurnTrack() {
-  const participants = state.encounter.participants || [];
-  if (!participants.length) return '';
-  const currentIndex = state.encounter.currentIndex ?? -1;
-  return `
-    <div class="player-turn-track">
-      ${participants
-        .map(
-          (entry, index) => `
-            <div class="turn-pill ${index === currentIndex ? 'is-active' : ''} ${entry.id === focusId ? 'is-focus' : ''}">
-              <span>${entry.name}</span>
-            </div>`
-        )
-        .join('')}
-    </div>
+      </div>
+    </details>
   `;
 }
 
@@ -480,6 +568,58 @@ async function handlePlayerBaseSubmit(event) {
     await patchParticipant(participant.id, payload);
     fetchState();
     els.baseForm?.classList.add('hidden');
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function handlePlayerRest(type) {
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant first.');
+    return;
+  }
+  try {
+    await api(`/api/rest/${type}`, 'POST', { participantId: participant.id });
+    fetchState();
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function handlePlayerDamageForm(event, participant, field, inputName) {
+  event.preventDefault();
+  const formData = new FormData(event.target);
+  const value = String(formData.get(inputName) || '').trim();
+  if (!value) {
+    notify('Enter a damage type.');
+    return;
+  }
+  try {
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const existing = Array.isArray(latest?.[field]) ? [...latest[field]] : [];
+    const duplicate = existing.find((entry) => entry.toLowerCase() === value.toLowerCase());
+    if (duplicate) {
+      notify('Already listed.');
+      return;
+    }
+    await patchParticipant(participant.id, { [field]: [...existing, value] });
+    fetchState();
+    event.target.reset();
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function handlePlayerDamageRemove(participant, field, index) {
+  if (index < 0 || Number.isNaN(index)) return;
+  try {
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const existing = Array.isArray(latest?.[field]) ? [...latest[field]] : [];
+    if (index >= existing.length) return;
+    existing.splice(index, 1);
+    await patchParticipant(participant.id, { [field]: existing });
+    fetchState();
   } catch (err) {
     notify(err.message);
   }
@@ -902,6 +1042,21 @@ function wirePlayerSheetEvents(participant) {
       await patchParticipant(participant.id, { skills });
       fetchState();
     };
+  });
+
+  panel.querySelector('[data-resistance-form]')?.addEventListener('submit', (event) =>
+    handlePlayerDamageForm(event, participant, 'resistances', 'resistance')
+  );
+  panel.querySelectorAll('[data-player-remove-resistance]').forEach((button) => {
+    button.onclick = () =>
+      handlePlayerDamageRemove(participant, 'resistances', Number(button.dataset.playerRemoveResistance));
+  });
+  panel.querySelector('[data-vulnerability-form]')?.addEventListener('submit', (event) =>
+    handlePlayerDamageForm(event, participant, 'vulnerabilities', 'vulnerability')
+  );
+  panel.querySelectorAll('[data-player-remove-vulnerability]').forEach((button) => {
+    button.onclick = () =>
+      handlePlayerDamageRemove(participant, 'vulnerabilities', Number(button.dataset.playerRemoveVulnerability));
   });
 
   const statusForm = panel.querySelector('[data-player-status-form]');

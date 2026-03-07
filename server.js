@@ -449,10 +449,7 @@ async function handleApi(req, res, pathname, method) {
       if (!participant) {
         return sendJson(res, { error: 'Participant required' }, 400);
       }
-      const healAmount = 5 + (participant.stats.con ?? 0);
-      participant.hp = Math.min(participant.maxHp, participant.hp + healAmount);
-      removeMinorStatus(participant);
-      pushLog(`${participant.name} completes a short rest and heals ${healAmount} HP.`);
+      applyShortRest(participant);
       touchState();
       broadcastState('short_rest');
       return sendJson(res, { participant });
@@ -464,15 +461,24 @@ async function handleApi(req, res, pathname, method) {
       if (!participant) {
         return sendJson(res, { error: 'Participant required' }, 400);
       }
-      participant.hp = participant.maxHp;
-      participant.shield = participant.maxShield;
-      participant.statuses = [];
-      participant.apCurrent = participant.apMax;
-      participant.guardUsedThisTurn = false;
-      pushLog(`${participant.name} takes a long rest and is fully restored.`);
+      applyLongRest(participant);
       touchState();
       broadcastState('long_rest');
       return sendJson(res, { participant });
+    }
+
+    if (method === 'POST' && pathname === '/api/rest/short/all') {
+      trackerState.encounter.participants.forEach((participant) => applyShortRest(participant));
+      touchState();
+      broadcastState('short_rest_all');
+      return sendJson(res, { participants: trackerState.encounter.participants });
+    }
+
+    if (method === 'POST' && pathname === '/api/rest/long/all') {
+      trackerState.encounter.participants.forEach((participant) => applyLongRest(participant));
+      touchState();
+      broadcastState('long_rest_all');
+      return sendJson(res, { participants: trackerState.encounter.participants });
     }
 
     return sendJson(res, { error: 'Not found' }, 404);
@@ -615,6 +621,12 @@ function sanitizeParticipantUpdate(body, current) {
   if (Array.isArray(body.relics)) {
     update.relics = normalizeRelics(body.relics);
   }
+  if (Array.isArray(body.resistances)) {
+    update.resistances = normalizeDamageTypes(body.resistances);
+  }
+  if (Array.isArray(body.vulnerabilities)) {
+    update.vulnerabilities = normalizeDamageTypes(body.vulnerabilities);
+  }
   return update;
 }
 
@@ -644,6 +656,8 @@ function createParticipant(body = {}) {
     cards: Array.isArray(body.cards) ? body.cards : [],
     tags: Array.isArray(body.tags) ? body.tags : [],
     statuses: Array.isArray(body.statuses) ? body.statuses : [],
+    resistances: normalizeDamageTypes(body.resistances),
+    vulnerabilities: normalizeDamageTypes(body.vulnerabilities),
     notes: body.notes || '',
     setFocus: body.setFocus || '',
     stats: {
@@ -767,10 +781,32 @@ function pushLog(text, participantId = null, meta = {}) {
 }
 
 function removeMinorStatus(participant) {
+  if (!Array.isArray(participant.statuses)) {
+    participant.statuses = [];
+  }
   const idx = participant.statuses.findIndex((status) => status.severity === 'minor');
   if (idx !== -1) {
     participant.statuses.splice(idx, 1);
   }
+}
+
+function applyShortRest(participant) {
+  if (!participant) return;
+  const conMod = Number(participant.stats?.constitution ?? participant.stats?.con ?? 0);
+  const healAmount = Math.max(1, 5 + conMod);
+  participant.hp = Math.min(participant.maxHp, participant.hp + healAmount);
+  removeMinorStatus(participant);
+  pushLog(`${participant.name} completes a short rest and heals ${healAmount} HP.`, participant.id);
+}
+
+function applyLongRest(participant) {
+  if (!participant) return;
+  participant.hp = participant.maxHp;
+  participant.shield = participant.maxShield;
+  participant.statuses = [];
+  participant.apCurrent = participant.apMax;
+  participant.guardUsedThisTurn = false;
+  pushLog(`${participant.name} takes a long rest and is fully restored.`, participant.id);
 }
 
 async function readBody(req) {
@@ -919,6 +955,21 @@ function normalizeRelics(list) {
   }));
 }
 
+function normalizeDamageTypes(list = []) {
+  if (!Array.isArray(list)) return [];
+  const normalized = [];
+  for (const entry of list) {
+    if (typeof entry !== 'string') continue;
+    const value = entry.trim();
+    if (!value) continue;
+    const exists = normalized.find((current) => current.toLowerCase() === value.toLowerCase());
+    if (!exists) {
+      normalized.push(value);
+    }
+  }
+  return normalized;
+}
+
 function ensureBaseStats(participant) {
   if (!participant.baseStats) {
     participant.baseStats = {
@@ -981,6 +1032,8 @@ function computeSetBonuses(participant) {
 }
 
 function recalculateParticipant(participant) {
+  participant.resistances = normalizeDamageTypes(participant.resistances);
+  participant.vulnerabilities = normalizeDamageTypes(participant.vulnerabilities);
   const base = ensureBaseStats(participant);
   const totals = createZeroModifier();
   const cardModifiers = [];
