@@ -880,8 +880,12 @@ function renderPlayerInventorySection() {
     <details class="player-collapsible" data-player-section="inventory" open>
       <summary><strong>Inventory</strong></summary>
       <div class="collapsible-body">
+        <div class="section-header">
+          <h4>Items</h4>
+          <button type="button" data-player-toggle-inventory>Add Item</button>
+        </div>
         <div id="playerInventoryList" class="relic-list empty-state">No inventory items yet.</div>
-        <form id="playerInventoryForm" class="stacked-form">
+        <form id="playerInventoryForm" class="stacked-form hidden">
           <div class="form-row">
             <label>Item
               <input type="text" name="name" placeholder="Potion" required />
@@ -1478,6 +1482,7 @@ function renderInventory(participant) {
       const currentInventory = latest?.inventory || participant.inventory || [];
       await patchParticipant(participant.id, { inventory: [...currentInventory, newItem] });
       formEl.reset();
+      formEl.classList.add('hidden');
       fetchState();
     };
   }
@@ -1754,6 +1759,10 @@ function wirePlayerSheetEvents(participant) {
       await patchParticipant(participant.id, { statuses });
       fetchState();
     };
+  });
+  const inventoryForm = panel.querySelector('#playerInventoryForm');
+  panel.querySelector('[data-player-toggle-inventory]')?.addEventListener('click', () => {
+    inventoryForm?.classList.toggle('hidden');
   });
   const notesButton = panel.querySelector('[data-player-save-notes]');
   const notesInput = panel.querySelector('[data-player-notes]');

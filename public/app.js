@@ -497,28 +497,31 @@ function renderInventorySection(participant) {
     <details class="collapsible-block" data-section="inventory">
       <summary>
         <strong>Inventory (${items.length})</strong>
+        <button type="button" data-toggle-inventory-form>Add Item</button>
       </summary>
       <div class="collapsible-body">
         <div class="ability-list">
           ${renderInventoryEntries(participant)}
         </div>
-        <form data-form="inventory" class="stacked-form">
-          <div class="form-row">
-            <label>Item
-              <input type="text" name="name" placeholder="Potion" required />
+        <div class="card-tooling hidden" data-inventory-tooling>
+          <form data-form="inventory" class="stacked-form">
+            <div class="form-row">
+              <label>Item
+                <input type="text" name="name" placeholder="Potion" required />
+              </label>
+              <label>Qty
+                <input type="number" name="quantity" min="1" value="1" />
+              </label>
+            </div>
+            <label>Description
+              <input type="text" name="description" placeholder="Optional details" />
             </label>
-            <label>Qty
-              <input type="number" name="quantity" min="1" value="1" />
+            <label>Tags
+              <input type="text" name="tags" placeholder="Consumable, Quest, Crafting" />
             </label>
-          </div>
-          <label>Description
-            <input type="text" name="description" placeholder="Optional details" />
-          </label>
-          <label>Tags
-            <input type="text" name="tags" placeholder="Consumable, Quest, Crafting" />
-          </label>
-          <button type="submit">Add Item</button>
-        </form>
+            <button type="submit">Add Item</button>
+          </form>
+        </div>
       </div>
     </details>
   `;
@@ -1302,7 +1305,13 @@ function wireDetailEvents(participant) {
     });
   });
 
-  const inventoryForm = panel.querySelector('[data-form="inventory"]');
+  const inventoryTooling = panel.querySelector('[data-inventory-tooling]');
+  const inventoryForm = inventoryTooling?.querySelector('[data-form="inventory"]');
+  panel.querySelector('[data-toggle-inventory-form]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    inventoryTooling?.classList.toggle('hidden');
+  });
   inventoryForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
