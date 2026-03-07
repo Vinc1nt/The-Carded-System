@@ -441,6 +441,18 @@ button.danger {
   flex-wrap: wrap;
 }
 
+.standard-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.6rem;
+}
+
+.standard-action-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 form {
   display: flex;
   flex-direction: column;

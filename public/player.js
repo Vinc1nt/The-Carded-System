@@ -255,6 +255,7 @@ function renderStats() {
         ${renderPlayerVital('Guard Restore', participant.guardRestore || 3)}
         ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
       </div>
+      ${renderPlayerStandardActionsSection()}
       ${renderPlayerCardsSection()}
       ${renderPlayerStatusSection(participant)}
       ${renderPlayerDamageSection(participant)}
@@ -446,6 +447,41 @@ function buildParticipantFromCreateForm(formData) {
     resistances,
     vulnerabilities
   };
+}
+
+function renderPlayerStandardActionsSection() {
+  return `
+    <details class="player-collapsible" data-player-section="standardActions" open>
+      <summary><strong>Standard Actions</strong></summary>
+      <div class="collapsible-body">
+        <label class="checkbox-row">
+          <input type="checkbox" data-player-difficult />
+          <span>Difficult terrain (Move = 5 ft)</span>
+        </label>
+        <div class="standard-actions-grid">
+          ${renderPlayerStandardActionButtons()}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerStandardActionButtons() {
+  const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
+  const order = ['move', 'disengage', 'slip', 'interact', 'recover', 'guard'];
+  const actions = order.map((id) => actionsById.get(id)).filter(Boolean);
+  if (!actions.length) {
+    return '<p class="empty-state">Standard actions will appear once the server boots.</p>';
+  }
+  return actions
+    .map(
+      (action) => `
+      <div class="standard-action-item">
+        <button type="button" data-player-standard="${action.id}">${action.label} (${action.apCost} AP)</button>
+        <small class="muted small-note">${action.summary || ''}</small>
+      </div>`
+    )
+    .join('');
 }
 
 function renderPlayerCardsSection() {
@@ -739,6 +775,31 @@ async function handlePlayerRest(type) {
   }
   try {
     await api(`/api/rest/${type}`, 'POST', { participantId: participant.id });
+    fetchState();
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function handlePlayerStandardAction(actionId) {
+  if (!actionId) return;
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant first.');
+    return;
+  }
+  let resolvedId = actionId;
+  if (actionId === 'move') {
+    const difficultToggle = els.stats.querySelector('[data-player-difficult]');
+    if (difficultToggle?.checked) {
+      resolvedId = 'move_difficult';
+    }
+  }
+  try {
+    await api('/api/actions/standard', 'POST', {
+      actionId: resolvedId,
+      participantId: participant.id
+    });
     fetchState();
   } catch (err) {
     notify(err.message);
@@ -1143,6 +1204,9 @@ function summarizeModifiers(modifiers = {}) {
 
 function wirePlayerSheetEvents(participant) {
   const panel = els.stats;
+  panel.querySelectorAll('[data-player-standard]').forEach((button) => {
+    button.onclick = () => handlePlayerStandardAction(button.dataset.playerStandard);
+  });
   panel.querySelectorAll('[data-inline-adjust]').forEach((button) => {
     button.onclick = () => {
       const delta = Number(button.dataset.delta || 0);

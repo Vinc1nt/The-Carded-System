@@ -709,6 +709,12 @@ function clampParticipant(participant) {
   participant.shield = clampNumber(participant.shield, 0, participant.maxShield);
 }
 
+function abilityModifier(score = 10) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return 0;
+  return Math.floor((value - 10) / 2);
+}
+
 function getCurrentParticipant() {
   const index = trackerState.encounter.currentIndex;
   if (index < 0) return null;
@@ -752,7 +758,8 @@ function removeMinorStatus(participant) {
 
 function applyShortRest(participant) {
   if (!participant) return;
-  const conMod = Number(participant.stats?.constitution ?? participant.stats?.con ?? 0);
+  const conScore = participant.stats?.constitution ?? participant.stats?.con ?? 10;
+  const conMod = abilityModifier(conScore);
   const healAmount = Math.max(1, 5 + conMod);
   participant.hp = Math.min(participant.maxHp, participant.hp + healAmount);
   removeMinorStatus(participant);
