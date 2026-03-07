@@ -864,6 +864,10 @@ textarea {
   gap: 0.85rem;
 }
 
+.journal-columns .player-collapsible {
+  margin-bottom: 0;
+}
+
 .journal-manager-group {
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 12px;

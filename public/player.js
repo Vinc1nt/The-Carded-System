@@ -287,6 +287,7 @@ function renderStats() {
       </details>
       ${renderPlayerSetSection(participant)}
       ${renderPlayerRelicSection()}
+      ${renderPlayerInventorySection()}
       ${renderPlayerNotesSection(participant)}
     </div>
   `;
@@ -679,20 +680,21 @@ function renderJournal() {
   const quests = (participant.quests || []).filter((entry) => entry.acknowledged);
   const achievements = (participant.achievements || []).filter((entry) => entry.acknowledged);
   els.journalContent.innerHTML = `
-    <div class="journal-manager-group">
-      <h4>Quests</h4>
-      <div class="journal-list">
-        ${renderPlayerJournalEntries(quests, 'No quests yet.', 'quest')}
-      </div>
-    </div>
-    <div class="journal-manager-group">
-      <h4>Achievements</h4>
-      <div class="journal-list">
-        ${renderPlayerJournalEntries(achievements, 'No achievements yet.', 'achievement')}
-      </div>
-    </div>
+    ${renderPlayerJournalGroup('Quests', quests, 'No quests yet.', 'quest')}
+    ${renderPlayerJournalGroup('Achievements', achievements, 'No achievements yet.', 'achievement')}
   `;
   renderJournalPopup(participant);
+}
+
+function renderPlayerJournalGroup(label, entries, emptyText, category) {
+  return `
+    <details class="player-collapsible journal-collapsible" data-journal-section="${category}" open>
+      <summary><strong>${label} (${entries.length})</strong></summary>
+      <div class="collapsible-body journal-list">
+        ${renderPlayerJournalEntries(entries, emptyText, category)}
+      </div>
+    </details>
+  `;
 }
 
 function renderPlayerJournalEntries(entries, emptyText, category) {
@@ -868,6 +870,34 @@ function renderPlayerNotesSection(participant) {
           <button type="button" data-player-save-notes>Save</button>
         </div>
         <textarea data-player-notes rows="3" placeholder="Add notes for the GM or reminders">${participant.notes || ''}</textarea>
+      </div>
+    </details>
+  `;
+}
+
+function renderPlayerInventorySection() {
+  return `
+    <details class="player-collapsible" data-player-section="inventory" open>
+      <summary><strong>Inventory</strong></summary>
+      <div class="collapsible-body">
+        <div id="playerInventoryList" class="relic-list empty-state">No inventory items yet.</div>
+        <form id="playerInventoryForm" class="stacked-form">
+          <div class="form-row">
+            <label>Item
+              <input type="text" name="name" placeholder="Potion" required />
+            </label>
+            <label>Qty
+              <input type="number" name="quantity" min="1" value="1" />
+            </label>
+          </div>
+          <label>Description
+            <input type="text" name="description" placeholder="Optional details" />
+          </label>
+          <label>Tags
+            <input type="text" name="tags" placeholder="Consumable, Quest, Crafting" />
+          </label>
+          <button type="submit">Add Item</button>
+        </form>
       </div>
     </details>
   `;
@@ -1294,6 +1324,7 @@ function renderCards() {
       .join('');
   }
   renderRelics(participant);
+  renderInventory(participant);
   wirePlayerCardForm();
   wirePlayerCardImports();
   wirePlayerCardExports(participant);
@@ -1375,6 +1406,77 @@ function renderRelics(participant) {
       const latest = (await fetchParticipantFromServer(participant.id)) || participant;
       const currentRelics = latest?.relics || relics;
       await patchParticipant(participant.id, { relics: [...currentRelics, newRelic] });
+      formEl.reset();
+      fetchState();
+    };
+  }
+}
+
+function renderInventory(participant) {
+  const listEl = document.getElementById('playerInventoryList');
+  const formEl = document.getElementById('playerInventoryForm');
+  if (!listEl) return;
+  if (!participant) {
+    listEl.classList.add('empty-state');
+    listEl.innerHTML = '<p class="empty-state">Select a combatant to view inventory.</p>';
+    if (formEl) formEl.onsubmit = null;
+    return;
+  }
+  const items = participant?.inventory || [];
+  if (!items.length) {
+    listEl.classList.add('empty-state');
+    listEl.innerHTML = '<p class="empty-state">No inventory items yet.</p>';
+  } else {
+    listEl.classList.remove('empty-state');
+    listEl.innerHTML = items
+      .map(
+        (item, index) => `
+          <article class="relic-card">
+            <h4>${escapeHtml(item.name || `Item ${index + 1}`)}</h4>
+            <p>Qty ${Number(item.quantity || 1)}</p>
+            ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
+            ${(item.tags || []).length ? `<p>Tags: ${escapeHtml((item.tags || []).join(', '))}</p>` : ''}
+            <button type="button" data-remove-inventory="${item.id || ''}" data-inventory-index="${index}">Remove</button>
+          </article>`
+      )
+      .join('');
+  }
+  listEl.querySelectorAll('[data-remove-inventory]').forEach((button) => {
+    button.onclick = async () => {
+      const itemId = button.dataset.removeInventory;
+      const fallbackIndex = Number(button.dataset.inventoryIndex);
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const inventory = [...(latest?.inventory || participant.inventory || [])];
+      let idx = inventory.findIndex((item) => itemId && item.id === itemId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= inventory.length) return;
+      inventory.splice(idx, 1);
+      await patchParticipant(participant.id, { inventory });
+      fetchState();
+    };
+  });
+  if (formEl) {
+    formEl.onsubmit = async (event) => {
+      event.preventDefault();
+      const data = new FormData(formEl);
+      const name = String(data.get('name') || '').trim();
+      if (!name) {
+        notify('Item name is required.');
+        return;
+      }
+      const newItem = {
+        id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+        name,
+        quantity: Math.max(1, Number(data.get('quantity') || 1)),
+        description: String(data.get('description') || '').trim(),
+        tags: String(data.get('tags') || '')
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      };
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const currentInventory = latest?.inventory || participant.inventory || [];
+      await patchParticipant(participant.id, { inventory: [...currentInventory, newItem] });
       formEl.reset();
       fetchState();
     };

@@ -251,6 +251,7 @@ function renderDetailPanel() {
     ${renderJournalSection(participant)}
     ${renderCardsSection(participant)}
     ${renderRelicSection(participant)}
+    ${renderInventorySection(participant)}
     ${renderAutomationSection(participant)}
     ${renderAdvancedSection(participant, base)}
   `;
@@ -488,6 +489,60 @@ function renderMitigationSection(participant) {
       </div>
     </details>
   `;
+}
+
+function renderInventorySection(participant) {
+  const items = participant.inventory || [];
+  return `
+    <details class="collapsible-block" data-section="inventory">
+      <summary>
+        <strong>Inventory (${items.length})</strong>
+      </summary>
+      <div class="collapsible-body">
+        <div class="ability-list">
+          ${renderInventoryEntries(participant)}
+        </div>
+        <form data-form="inventory" class="stacked-form">
+          <div class="form-row">
+            <label>Item
+              <input type="text" name="name" placeholder="Potion" required />
+            </label>
+            <label>Qty
+              <input type="number" name="quantity" min="1" value="1" />
+            </label>
+          </div>
+          <label>Description
+            <input type="text" name="description" placeholder="Optional details" />
+          </label>
+          <label>Tags
+            <input type="text" name="tags" placeholder="Consumable, Quest, Crafting" />
+          </label>
+          <button type="submit">Add Item</button>
+        </form>
+      </div>
+    </details>
+  `;
+}
+
+function renderInventoryEntries(participant) {
+  const items = participant.inventory || [];
+  if (!items.length) {
+    return '<p class="muted">No inventory items yet.</p>';
+  }
+  return items
+    .map(
+      (item, index) => `
+        <article class="journal-entry">
+          <strong>${escapeHtml(item.name || `Item ${index + 1}`)}</strong>
+          <p>Qty: ${Number(item.quantity || 1)}</p>
+          ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
+          ${(item.tags || []).length ? `<p>Tags: ${escapeHtml((item.tags || []).join(', '))}</p>` : ''}
+          <div class="card-actions">
+            <button type="button" data-remove-inventory="${item.id || ''}" data-inventory-index="${index}">Remove</button>
+          </div>
+        </article>`
+    )
+    .join('');
 }
 
 function renderMitigationGroup(label, values = [], key) {
@@ -1240,6 +1295,54 @@ function wireDetailEvents(participant) {
         if (response?.participant) {
           updateParticipantInState(response.participant);
         }
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  const inventoryForm = panel.querySelector('[data-form="inventory"]');
+  inventoryForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const name = String(formData.get('name') || '').trim();
+    if (!name) {
+      notify('Item name is required.');
+      return;
+    }
+    const newItem = {
+      id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+      name,
+      quantity: Math.max(1, Number(formData.get('quantity') || 1)),
+      description: String(formData.get('description') || '').trim(),
+      tags: String(formData.get('tags') || '')
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    };
+    try {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const existing = latest?.inventory || participant.inventory || [];
+      await api(`/api/participants/${participant.id}`, 'PATCH', { inventory: [...existing, newItem] });
+      event.target.reset();
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
+  panel.querySelectorAll('[data-remove-inventory]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const itemId = button.dataset.removeInventory;
+      const fallbackIndex = Number(button.dataset.inventoryIndex);
+      try {
+        const latest = (await getServerParticipant(participant.id)) || participant;
+        const inventory = [...(latest?.inventory || participant.inventory || [])];
+        let idx = inventory.findIndex((item) => itemId && item.id === itemId);
+        if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+        if (idx < 0 || idx >= inventory.length) return;
+        inventory.splice(idx, 1);
+        await api(`/api/participants/${participant.id}`, 'PATCH', { inventory });
         fetchState();
       } catch (err) {
         notify(err.message);
