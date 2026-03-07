@@ -1245,7 +1245,9 @@ function renderStatuses(participant) {
         <span class="status-pill">
           ${status.name}${status.stacks ? ` ×${status.stacks}` : ''}
           ${status.notes ? `<small>${status.notes}</small>` : ''}
-          <button type="button" data-player-remove-status="${key}">✕</button>
+          <button type="button" data-player-status-stack="${key}" data-player-status-index="${index}" data-player-status-delta="-1">-</button>
+          <button type="button" data-player-status-stack="${key}" data-player-status-index="${index}" data-player-status-delta="1">+</button>
+          <button type="button" data-player-remove-status="${key}" data-player-status-index="${index}">✕</button>
         </span>`;
       })
     .join('');
@@ -1382,16 +1384,49 @@ function wirePlayerSheetEvents(participant) {
     statusForm.classList.add('hidden');
     fetchState();
   });
+  panel.querySelectorAll('[data-player-status-stack]').forEach((button) => {
+    button.onclick = async () => {
+      const delta = Number(button.dataset.playerStatusDelta || 0);
+      if (!delta) return;
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const statuses = [...(latest?.statuses || participant.statuses || [])];
+      const targetId = button.dataset.playerStatusStack;
+      const fallbackIndex = Number(button.dataset.playerStatusIndex);
+      let idx = statuses.findIndex((status, index) => {
+        const key = status.id || `index-${index}`;
+        return key === targetId;
+      });
+      if (idx < 0 && Number.isInteger(fallbackIndex)) {
+        idx = fallbackIndex;
+      }
+      if (idx < 0 || idx >= statuses.length) return;
+      const current = Math.max(1, Number(statuses[idx].stacks || 1));
+      const next = current + delta;
+      if (next <= 0) {
+        statuses.splice(idx, 1);
+      } else {
+        statuses[idx] = { ...statuses[idx], stacks: next };
+      }
+      await patchParticipant(participant.id, { statuses });
+      fetchState();
+    };
+  });
   panel.querySelectorAll('[data-player-remove-status]').forEach((button) => {
     button.onclick = async () => {
       const latest = (await fetchParticipantFromServer(participant.id)) || participant;
-      const statuses = latest?.statuses || participant.statuses || [];
+      const statuses = [...(latest?.statuses || participant.statuses || [])];
       const targetId = button.dataset.playerRemoveStatus;
-      const updated = statuses.filter((status, idx) => {
-        const key = status.id || `index-${idx}`;
-        return key !== targetId;
+      const fallbackIndex = Number(button.dataset.playerStatusIndex);
+      let idx = statuses.findIndex((status, index) => {
+        const key = status.id || `index-${index}`;
+        return key === targetId;
       });
-      await patchParticipant(participant.id, { statuses: updated });
+      if (idx < 0 && Number.isInteger(fallbackIndex)) {
+        idx = fallbackIndex;
+      }
+      if (idx < 0 || idx >= statuses.length) return;
+      statuses.splice(idx, 1);
+      await patchParticipant(participant.id, { statuses });
       fetchState();
     };
   });

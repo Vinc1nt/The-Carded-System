@@ -845,6 +845,42 @@ function statusDisplayName(type) {
   return labels[type] || type;
 }
 
+function buildStatusMergeKey(status, fallbackIndex = 0) {
+  const type = detectStatusType(status);
+  if (type) return `type:${type}`;
+  const token = normalizeStatusToken(status?.name || status?.presetId || status?.id || '');
+  if (token) return `name:${token}`;
+  return `index:${fallbackIndex}`;
+}
+
+function normalizeStatuses(statuses = []) {
+  if (!Array.isArray(statuses)) return [];
+  const merged = new Map();
+  statuses.forEach((rawStatus, index) => {
+    if (!rawStatus || typeof rawStatus !== 'object') return;
+    const key = buildStatusMergeKey(rawStatus, index);
+    const type = detectStatusType(rawStatus);
+    const parsedStacks = Number(rawStatus.stacks);
+    const stacks = Number.isFinite(parsedStacks) ? Math.max(1, Math.round(parsedStacks)) : 1;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, {
+        id: rawStatus.id || randomUUID(),
+        presetId: type || rawStatus.presetId || '',
+        name: type ? statusDisplayName(type) : rawStatus.name || rawStatus.presetId || 'Status',
+        stacks,
+        notes: rawStatus.notes || ''
+      });
+      return;
+    }
+    existing.stacks += stacks;
+    if (!existing.notes && rawStatus.notes) {
+      existing.notes = rawStatus.notes;
+    }
+  });
+  return Array.from(merged.values());
+}
+
 function getStatusStacks(participant, type) {
   const matches = getStatusesByType(participant.statuses || [], type);
   return matches.reduce((total, entry) => total + Math.max(0, Number(entry.status?.stacks || 0)), 0);
@@ -918,9 +954,7 @@ function applyStatusDamage(participant, type, damage) {
 }
 
 function applyStartOfTurnStatusEffects(participant) {
-  if (!Array.isArray(participant.statuses)) {
-    participant.statuses = [];
-  }
+  participant.statuses = normalizeStatuses(participant.statuses);
   const events = [];
   const startingTypes = new Set(
     participant.statuses
@@ -982,9 +1016,7 @@ function applyStartOfTurnStatusEffects(participant) {
 }
 
 function applyRecoverAction(participant, target = {}) {
-  if (!Array.isArray(participant.statuses)) {
-    participant.statuses = [];
-  }
+  participant.statuses = normalizeStatuses(participant.statuses);
   const recoverable = getRecoverableStatuses(participant.statuses);
   if (!recoverable.length) return null;
 
@@ -1244,9 +1276,7 @@ function computeSetBonuses(participant) {
 }
 
 function recalculateParticipant(participant) {
-  if (!Array.isArray(participant.statuses)) {
-    participant.statuses = [];
-  }
+  participant.statuses = normalizeStatuses(participant.statuses);
   const rootedStacks = getStatusStacks(participant, 'rooted');
   if (rootedStacks >= 5) {
     setStatusStacks(participant, 'rooted', 0);

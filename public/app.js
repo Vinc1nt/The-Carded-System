@@ -806,26 +806,63 @@ function wireDetailEvents(participant) {
       notes: formData.get('notes') || ''
     };
     try {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const currentStatuses = latest?.statuses || participant.statuses || [];
       await api(`/api/participants/${participant.id}`, 'PATCH', {
-        statuses: [...(participant.statuses || []), newStatus]
+        statuses: [...currentStatuses, newStatus]
       });
       event.target.reset();
       statusForm.classList.add('hidden');
+      fetchState();
     } catch (err) {
       notify(err.message);
     }
   });
 
-  panel.querySelectorAll('[data-remove-status]').forEach((button, index) => {
+  panel.querySelectorAll('[data-status-stack]').forEach((button) => {
     button.addEventListener('click', async () => {
-      const updated = (participant.statuses || []).filter((status, idx) => {
-        if (status.id) {
-          return status.id !== button.dataset.removeStatus;
-        }
-        return idx !== index;
-      });
+      const delta = Number(button.dataset.statusDelta || 0);
+      if (!delta) return;
+      const targetId = button.dataset.statusStack;
+      const fallbackIndex = Number(button.dataset.statusIndex);
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const statuses = [...(latest?.statuses || participant.statuses || [])];
+      let idx = statuses.findIndex((status) => targetId && status.id === targetId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) {
+        idx = fallbackIndex;
+      }
+      if (idx < 0 || idx >= statuses.length) return;
+      const current = Math.max(1, Number(statuses[idx].stacks || 1));
+      const next = current + delta;
+      if (next <= 0) {
+        statuses.splice(idx, 1);
+      } else {
+        statuses[idx] = { ...statuses[idx], stacks: next };
+      }
       try {
-        await api(`/api/participants/${participant.id}`, 'PATCH', { statuses: updated });
+        await api(`/api/participants/${participant.id}`, 'PATCH', { statuses });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-remove-status]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const targetId = button.dataset.removeStatus;
+      const fallbackIndex = Number(button.dataset.statusIndex);
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const statuses = [...(latest?.statuses || participant.statuses || [])];
+      let idx = statuses.findIndex((status) => targetId && status.id === targetId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) {
+        idx = fallbackIndex;
+      }
+      if (idx < 0 || idx >= statuses.length) return;
+      statuses.splice(idx, 1);
+      try {
+        await api(`/api/participants/${participant.id}`, 'PATCH', { statuses });
+        fetchState();
       } catch (err) {
         notify(err.message);
       }
@@ -1045,6 +1082,8 @@ function renderStatuses(participant) {
         <span class="status-pill">
           ${status.name}${status.stacks ? ` ×${status.stacks}` : ''}
           ${status.notes ? `<small>${status.notes}</small>` : ''}
+          <button type="button" data-status-stack="${status.id || ''}" data-status-index="${index}" data-status-delta="-1">-</button>
+          <button type="button" data-status-stack="${status.id || ''}" data-status-index="${index}" data-status-delta="1">+</button>
           <button type="button" data-remove-status="${status.id || ''}" data-status-index="${index}">✕</button>
         </span>`
     )
@@ -1222,6 +1261,7 @@ async function handleStandardAction(actionId) {
       participantId: selectedParticipantId,
       ...recoverPayload
     });
+    fetchState();
   } catch (err) {
     notify(err.message);
   }
