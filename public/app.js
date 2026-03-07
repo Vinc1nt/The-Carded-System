@@ -588,8 +588,8 @@ function renderJournalManagerGroup(participant, category, label) {
       .map(
         (entry) => `
           <article class="journal-entry">
-            <strong>${entry.title || label.slice(0, -1)}</strong>
-            ${entry.description ? `<p>${entry.description}</p>` : ''}
+            <strong>${escapeHtml(entry.title || label.slice(0, -1))}</strong>
+            ${renderJournalEntryDetails(entry, category)}
             <div class="journal-meta">
               <small class="muted">${entry.acknowledged ? 'Acknowledged' : 'Pending acknowledgement'}</small>
             </div>
@@ -608,12 +608,7 @@ function renderJournalManagerGroup(participant, category, label) {
         ${list}
       </div>
       <form data-journal-form="${category}" class="stacked-form">
-        <label>Title
-          <input type="text" name="title" placeholder="${label.slice(0, -1)} title" required />
-        </label>
-        <label>Description
-          <textarea name="description" rows="2" placeholder="Optional description"></textarea>
-        </label>
+        ${renderJournalTemplateFields(category, label)}
         <div class="card-actions">
           <button type="submit">Add to Player</button>
           <button type="button" data-journal-add-all="${category}">Add to All Players</button>
@@ -625,6 +620,166 @@ function renderJournalManagerGroup(participant, category, label) {
 
 function journalFieldName(category) {
   return category === 'achievement' ? 'achievements' : 'quests';
+}
+
+function renderJournalTemplateFields(category, label) {
+  if (category === 'quest') {
+    return `
+      <label>Quest Name
+        <input type="text" name="title" placeholder="Quest title" required />
+      </label>
+      <label>Description / Hook
+        <textarea name="narrative" rows="2" placeholder="Short narrative hook"></textarea>
+      </label>
+      <div class="form-row">
+        <label>Primary Objective
+          <input type="text" name="objectivePrimary" placeholder="Primary task" />
+        </label>
+        <label>Secondary Objective
+          <input type="text" name="objectiveSecondary" placeholder="Optional secondary task" />
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Difficulty
+          <select name="difficulty">
+            <option value="">Select difficulty…</option>
+            <option>Common</option>
+            <option>Uncommon</option>
+            <option>Rare</option>
+            <option>Very Rare</option>
+            <option>Epic</option>
+          </select>
+        </label>
+        <label>Primary Reward
+          <input type="text" name="rewardPrimary" placeholder="XP / Card Shards / Relic / Currency / Unlock" />
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Bonus Reward
+          <input type="text" name="rewardBonus" placeholder="Optional bonus reward" />
+        </label>
+        <label>Failure Condition
+          <input type="text" name="failureCondition" placeholder="Optional failure condition" />
+        </label>
+      </div>
+    `;
+  }
+  return `
+    <label>${label.slice(0, -1)} Title
+      <input type="text" name="title" placeholder="${label.slice(0, -1)} name" required />
+    </label>
+    <label>Requirement
+      <textarea name="requirement" rows="2" placeholder="What the player did"></textarea>
+    </label>
+    <label>Reward
+      <input type="text" name="reward" placeholder="Passive Bonus / Title / Card / Relic" />
+    </label>
+    <label>Description / Flavor
+      <textarea name="flavor" rows="2" placeholder="Flavor text about the accomplishment"></textarea>
+    </label>
+  `;
+}
+
+function renderJournalEntryDetails(entry, category) {
+  const template = entry?.template || {};
+  if (category === 'quest' && Object.keys(template).length) {
+    const objectives = [template.objectivePrimary, template.objectiveSecondary].filter(Boolean);
+    const rewards = [template.rewardPrimary, template.rewardBonus].filter(Boolean);
+    return `
+      <div class="journal-template">
+        ${template.narrative ? `<p><strong>Description:</strong> ${escapeHtml(template.narrative)}</p>` : ''}
+        ${
+          objectives.length
+            ? `<div class="journal-template-block"><strong>Objective:</strong><ul>${objectives
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join('')}</ul></div>`
+            : ''
+        }
+        ${template.difficulty ? `<p><strong>Difficulty:</strong> ${escapeHtml(template.difficulty)}</p>` : ''}
+        ${
+          rewards.length
+            ? `<div class="journal-template-block"><strong>Rewards:</strong><ul>${rewards
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join('')}</ul></div>`
+            : ''
+        }
+        ${template.failureCondition ? `<p><strong>Failure:</strong> ${escapeHtml(template.failureCondition)}</p>` : ''}
+      </div>
+    `;
+  }
+  if (category === 'achievement' && Object.keys(template).length) {
+    return `
+      <div class="journal-template">
+        ${template.requirement ? `<p><strong>Requirement:</strong> ${escapeHtml(template.requirement)}</p>` : ''}
+        ${template.reward ? `<p><strong>Reward:</strong> ${escapeHtml(template.reward)}</p>` : ''}
+        ${template.flavor ? `<p><strong>Description:</strong> ${escapeHtml(template.flavor)}</p>` : ''}
+      </div>
+    `;
+  }
+  return entry.description ? `<p>${escapeHtml(entry.description)}</p>` : '';
+}
+
+function buildJournalPayloadFromForm(form, category) {
+  const formData = new FormData(form);
+  const title = String(formData.get('title') || '').trim();
+  if (!title) {
+    return { error: 'Title is required.' };
+  }
+  if (category === 'quest') {
+    const template = {
+      narrative: String(formData.get('narrative') || '').trim(),
+      objectivePrimary: String(formData.get('objectivePrimary') || '').trim(),
+      objectiveSecondary: String(formData.get('objectiveSecondary') || '').trim(),
+      difficulty: String(formData.get('difficulty') || '').trim(),
+      rewardPrimary: String(formData.get('rewardPrimary') || '').trim(),
+      rewardBonus: String(formData.get('rewardBonus') || '').trim(),
+      failureCondition: String(formData.get('failureCondition') || '').trim()
+    };
+    return {
+      title,
+      description: buildJournalDescriptionFromTemplate('quest', template),
+      template
+    };
+  }
+  const template = {
+    requirement: String(formData.get('requirement') || '').trim(),
+    reward: String(formData.get('reward') || '').trim(),
+    flavor: String(formData.get('flavor') || '').trim()
+  };
+  return {
+    title,
+    description: buildJournalDescriptionFromTemplate('achievement', template),
+    template,
+    automation: {}
+  };
+}
+
+function buildJournalDescriptionFromTemplate(category, template) {
+  if (category === 'quest') {
+    const objectives = [template.objectivePrimary, template.objectiveSecondary].filter(Boolean);
+    const rewards = [template.rewardPrimary, template.rewardBonus].filter(Boolean);
+    const parts = [];
+    if (template.narrative) parts.push(`Description: ${template.narrative}`);
+    if (objectives.length) parts.push(`Objectives: ${objectives.join(' | ')}`);
+    if (template.difficulty) parts.push(`Difficulty: ${template.difficulty}`);
+    if (rewards.length) parts.push(`Rewards: ${rewards.join(' | ')}`);
+    if (template.failureCondition) parts.push(`Failure: ${template.failureCondition}`);
+    return parts.join('\n');
+  }
+  const parts = [];
+  if (template.requirement) parts.push(`Requirement: ${template.requirement}`);
+  if (template.reward) parts.push(`Reward: ${template.reward}`);
+  if (template.flavor) parts.push(`Description: ${template.flavor}`);
+  return parts.join('\n');
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function renderDamageTypeOptions(includePlaceholder = false) {
@@ -1159,20 +1314,17 @@ function wireDetailEvents(participant) {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const category = form.dataset.journalForm;
-      const formData = new FormData(form);
-      const title = String(formData.get('title') || '').trim();
-      if (!title) {
-        notify('Journal title is required.');
+      const payload = buildJournalPayloadFromForm(form, category);
+      if (payload.error) {
+        notify(payload.error);
         return;
       }
-      const description = String(formData.get('description') || '').trim();
       try {
         await api('/api/journal/entry', 'POST', {
           target: 'participant',
           participantId: participant.id,
           category,
-          title,
-          description
+          ...payload
         });
         form.reset();
         fetchState();
@@ -1187,19 +1339,16 @@ function wireDetailEvents(participant) {
       const category = button.dataset.journalAddAll;
       const form = button.closest('form[data-journal-form]');
       if (!form) return;
-      const formData = new FormData(form);
-      const title = String(formData.get('title') || '').trim();
-      if (!title) {
-        notify('Journal title is required.');
+      const payload = buildJournalPayloadFromForm(form, category);
+      if (payload.error) {
+        notify(payload.error);
         return;
       }
-      const description = String(formData.get('description') || '').trim();
       try {
         await api('/api/journal/entry', 'POST', {
           target: 'all',
           category,
-          title,
-          description
+          ...payload
         });
         form.reset();
         fetchState();

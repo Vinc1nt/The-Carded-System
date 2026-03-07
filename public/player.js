@@ -682,20 +682,20 @@ function renderJournal() {
     <div class="journal-manager-group">
       <h4>Quests</h4>
       <div class="journal-list">
-        ${renderPlayerJournalEntries(quests, 'No quests yet.')}
+        ${renderPlayerJournalEntries(quests, 'No quests yet.', 'quest')}
       </div>
     </div>
     <div class="journal-manager-group">
       <h4>Achievements</h4>
       <div class="journal-list">
-        ${renderPlayerJournalEntries(achievements, 'No achievements yet.')}
+        ${renderPlayerJournalEntries(achievements, 'No achievements yet.', 'achievement')}
       </div>
     </div>
   `;
   renderJournalPopup(participant);
 }
 
-function renderPlayerJournalEntries(entries, emptyText) {
+function renderPlayerJournalEntries(entries, emptyText, category) {
   if (!entries.length) {
     return `<p class="muted">${emptyText}</p>`;
   }
@@ -703,11 +703,51 @@ function renderPlayerJournalEntries(entries, emptyText) {
     .map(
       (entry) => `
       <article class="journal-entry">
-        <strong>${entry.title || 'Entry'}</strong>
-        ${entry.description ? `<p>${entry.description}</p>` : ''}
+        <strong>${escapeHtml(entry.title || 'Entry')}</strong>
+        ${renderPlayerJournalDetails(entry, category)}
       </article>`
     )
     .join('');
+}
+
+function renderPlayerJournalDetails(entry, category, options = {}) {
+  const template = entry?.template || {};
+  const popup = Boolean(options.popup);
+  if (category === 'quest' && Object.keys(template).length) {
+    const objectives = [template.objectivePrimary, template.objectiveSecondary].filter(Boolean);
+    const rewards = [template.rewardPrimary, template.rewardBonus].filter(Boolean);
+    return `
+      <div class="journal-template ${popup ? 'journal-template-terminal' : ''}">
+        ${template.narrative ? `<p><strong>Description:</strong> ${escapeHtml(template.narrative)}</p>` : ''}
+        ${
+          objectives.length
+            ? `<div class="journal-template-block"><strong>Objective:</strong><ul>${objectives
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join('')}</ul></div>`
+            : ''
+        }
+        ${template.difficulty ? `<p><strong>Difficulty:</strong> ${escapeHtml(template.difficulty)}</p>` : ''}
+        ${
+          rewards.length
+            ? `<div class="journal-template-block"><strong>Rewards:</strong><ul>${rewards
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join('')}</ul></div>`
+            : ''
+        }
+        ${template.failureCondition ? `<p><strong>Failure:</strong> ${escapeHtml(template.failureCondition)}</p>` : ''}
+      </div>
+    `;
+  }
+  if (category === 'achievement' && Object.keys(template).length) {
+    return `
+      <div class="journal-template ${popup ? 'journal-template-terminal' : ''}">
+        ${template.requirement ? `<p><strong>Requirement:</strong> ${escapeHtml(template.requirement)}</p>` : ''}
+        ${template.reward ? `<p><strong>Reward:</strong> ${escapeHtml(template.reward)}</p>` : ''}
+        ${template.flavor ? `<p><strong>Description:</strong> ${escapeHtml(template.flavor)}</p>` : ''}
+      </div>
+    `;
+  }
+  return entry.description ? `<p>${escapeHtml(entry.description)}</p>` : '';
 }
 
 function getPendingJournalEntry(participant) {
@@ -732,11 +772,13 @@ function renderJournalPopup(participant) {
   }
   popup.innerHTML = `
     <div class="journal-popup-card">
-      <h3>New ${pending.category === 'achievement' ? 'Achievement' : 'Quest'}</h3>
-      <h4>${pending.title || 'Untitled'}</h4>
-      ${pending.description ? `<p>${pending.description}</p>` : ''}
+      <h3>${pending.category === 'achievement' ? 'ACHIEVEMENT EARNED' : 'QUEST FOUND'}</h3>
+      <h4>${escapeHtml(pending.title || 'Untitled')}</h4>
+      ${renderPlayerJournalDetails(pending, pending.category, { popup: true })}
       <div class="card-actions">
-        <button type="button" data-journal-ack="${pending.id}" data-journal-category="${pending.category}" class="primary">Acknowledge</button>
+        <button type="button" data-journal-ack="${pending.id}" data-journal-category="${pending.category}" class="primary">
+          ${pending.category === 'achievement' ? 'Log Achievement' : 'Accept Quest'}
+        </button>
       </div>
     </div>
   `;
@@ -1997,6 +2039,15 @@ function dedupeTypes(list = []) {
     }
   }
   return normalized;
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function renderDamageTypeOptions(includePlaceholder = false) {

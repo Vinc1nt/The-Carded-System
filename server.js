@@ -1413,20 +1413,99 @@ function normalizeJournalEntries(list, category) {
   return Array.from(deduped.values());
 }
 
+function normalizeJournalTemplate(template, category) {
+  if (!template || typeof template !== 'object') return null;
+  if (category === 'quest') {
+    const normalized = {
+      narrative: String(template.narrative || template.hook || '').trim(),
+      objectivePrimary: String(template.objectivePrimary || template.primaryObjective || '').trim(),
+      objectiveSecondary: String(template.objectiveSecondary || template.secondaryObjective || '').trim(),
+      difficulty: String(template.difficulty || '').trim(),
+      rewardPrimary: String(template.rewardPrimary || template.primaryReward || '').trim(),
+      rewardBonus: String(template.rewardBonus || template.bonusReward || '').trim(),
+      failureCondition: String(template.failureCondition || '').trim()
+    };
+    if (Object.values(normalized).some(Boolean)) {
+      return normalized;
+    }
+    return null;
+  }
+  if (category === 'achievement') {
+    const normalized = {
+      requirement: String(template.requirement || '').trim(),
+      reward: String(template.reward || template.rewardPrimary || '').trim(),
+      flavor: String(template.flavor || template.description || '').trim()
+    };
+    if (Object.values(normalized).some(Boolean)) {
+      return normalized;
+    }
+    return null;
+  }
+  return null;
+}
+
+function buildJournalTemplateDescription(template, category) {
+  if (!template || !category) return '';
+  if (category === 'quest') {
+    const lines = [];
+    if (template.narrative) {
+      lines.push(`Description: ${template.narrative}`);
+    }
+    const objectives = [template.objectivePrimary, template.objectiveSecondary].filter(Boolean);
+    if (objectives.length) {
+      lines.push(`Objectives: ${objectives.join(' | ')}`);
+    }
+    if (template.difficulty) {
+      lines.push(`Difficulty: ${template.difficulty}`);
+    }
+    const rewards = [template.rewardPrimary, template.rewardBonus].filter(Boolean);
+    if (rewards.length) {
+      lines.push(`Rewards: ${rewards.join(' | ')}`);
+    }
+    if (template.failureCondition) {
+      lines.push(`Failure: ${template.failureCondition}`);
+    }
+    return lines.join('\n');
+  }
+  if (category === 'achievement') {
+    const lines = [];
+    if (template.requirement) {
+      lines.push(`Requirement: ${template.requirement}`);
+    }
+    if (template.reward) {
+      lines.push(`Reward: ${template.reward}`);
+    }
+    if (template.flavor) {
+      lines.push(`Description: ${template.flavor}`);
+    }
+    return lines.join('\n');
+  }
+  return '';
+}
+
 function createJournalEntry(body = {}, category, forcedId = null, fallbackIndex = 0) {
   const normalizedCategory = normalizeJournalCategory(category);
-  const titleRaw = body.title ?? body.name ?? `${normalizedCategory === 'quest' ? 'Quest' : 'Achievement'} ${fallbackIndex + 1}`;
+  const titleRaw =
+    body.title ?? body.name ?? `${normalizedCategory === 'quest' ? 'Quest' : 'Achievement'} ${fallbackIndex + 1}`;
+  const title =
+    String(titleRaw).trim() || `${normalizedCategory === 'quest' ? 'Quest' : 'Achievement'} ${fallbackIndex + 1}`;
+  const template = normalizeJournalTemplate(body.template, normalizedCategory);
   const descriptionRaw = body.description ?? body.text ?? body.details ?? '';
+  const description =
+    String(descriptionRaw).trim() || (template ? buildJournalTemplateDescription(template, normalizedCategory) : '');
   const acknowledged = Boolean(body.acknowledged);
   const createdAt = body.createdAt || new Date().toISOString();
   const base = {
     id: forcedId || body.id || randomUUID(),
-    title: String(titleRaw).trim() || `${normalizedCategory === 'quest' ? 'Quest' : 'Achievement'} ${fallbackIndex + 1}`,
-    description: String(descriptionRaw).trim(),
+    title,
+    description,
     createdAt,
     acknowledged,
     acknowledgedAt: acknowledged ? body.acknowledgedAt || new Date().toISOString() : null
   };
+  if (template) {
+    base.template = template;
+  }
   if (normalizedCategory === 'achievement') {
     base.automation = body.automation && typeof body.automation === 'object' ? body.automation : {};
   }
