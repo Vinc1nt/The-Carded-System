@@ -1,3 +1,19 @@
+const DAMAGE_TYPES = [
+  'Acid',
+  'Bludgeoning',
+  'Cold',
+  'Fire',
+  'Force',
+  'Lightning',
+  'Necrotic',
+  'Piercing',
+  'Poison',
+  'Psychic',
+  'Radiant',
+  'Slashing',
+  'Thunder'
+];
+
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
   reference: { standardActions: [], sets: [], statuses: [] },
@@ -474,7 +490,7 @@ function renderMitigationSection(participant) {
       <div class="collapsible-body">
         ${renderMitigationGroup('Resistances', participant.resistances, 'resistance')}
         ${renderMitigationGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
-        <p class="muted small-note">Resistances halve incoming damage of that type; vulnerabilities double it.</p>
+        <p class="muted small-note">Resistances halve incoming damage; vulnerabilities double it. Recover (1 AP) removes 1 stack of Bleeding, Poisoned, or Burning.</p>
       </div>
     </details>
   `;
@@ -500,13 +516,23 @@ function renderMitigationGroup(label, values = [], key) {
         ${list || '<span class="muted">None</span>'}
       </div>
       <form data-form="${key}">
-        <div class="dual-inputs">
-          <input type="text" name="${key}" placeholder="e.g., fire" />
-          <button type="submit">Add</button>
-        </div>
+        <label class="compact-label">Add ${label.slice(0, -1)}
+          <select name="${key}">
+            ${renderDamageTypeOptions(true)}
+          </select>
+        </label>
+        <button type="submit">Add</button>
       </form>
     </div>
   `;
+}
+
+function renderDamageTypeOptions(includePlaceholder = false) {
+  const options = includePlaceholder ? '<option value="">Select type…</option>' : '';
+  return (
+    options +
+    DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')
+  );
 }
 
 function renderBaseStatsPanel(participant) {
@@ -1384,7 +1410,7 @@ async function handleMitigationSubmit(event, participant, field, inputName) {
   const formData = new FormData(event.target);
   const value = String(formData.get(inputName) || '').trim();
   if (!value) {
-    notify('Enter a damage type.');
+    notify('Select a damage type.');
     return;
   }
   try {
@@ -1402,7 +1428,8 @@ async function handleMitigationSubmit(event, participant, field, inputName) {
       updateParticipantInState(response.participant);
     }
     fetchState();
-    event.target.reset();
+    const select = event.target.querySelector('select');
+    if (select) select.value = '';
   } catch (err) {
     notify(err.message);
   }

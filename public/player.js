@@ -1,3 +1,19 @@
+const DAMAGE_TYPES = [
+  'Acid',
+  'Bludgeoning',
+  'Cold',
+  'Fire',
+  'Force',
+  'Lightning',
+  'Necrotic',
+  'Piercing',
+  'Poison',
+  'Psychic',
+  'Radiant',
+  'Slashing',
+  'Thunder'
+];
+
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
   reference: { standardActions: [], sets: [], statuses: [] },
@@ -314,11 +330,17 @@ function renderCharacterCreator() {
               </label>`
           ).join('')}
         </div>
-        <label>Resistances (comma separated)
-          <input type="text" name="resistances" placeholder="fire, poison" />
+        <label>Resistances
+          <select name="resistances" multiple size="6">
+            ${renderDamageTypeOptions(false)}
+          </select>
+          <small class="muted">Use Cmd/Ctrl-click to select multiple.</small>
         </label>
-        <label>Vulnerabilities (comma separated)
-          <input type="text" name="vulnerabilities" placeholder="lightning" />
+        <label>Vulnerabilities
+          <select name="vulnerabilities" multiple size="6">
+            ${renderDamageTypeOptions(false)}
+          </select>
+          <small class="muted">Use Cmd/Ctrl-click to select multiple.</small>
         </label>
         <label>Notes
           <textarea name="notes" rows="2" placeholder="Backstory, reminders, etc."></textarea>
@@ -406,6 +428,8 @@ function buildParticipantFromCreateForm(formData) {
   const maxHp = Number(formData.get('maxHp') || 0);
   const maxShield = Number(formData.get('maxShield') || 0);
   const apMax = Number(formData.get('apMax') || 0);
+  const resistances = dedupeTypes(formData.getAll('resistances'));
+  const vulnerabilities = dedupeTypes(formData.getAll('vulnerabilities'));
   return {
     name: formData.get('name')?.trim() || 'New Character',
     setFocus: formData.get('setFocus') || '',
@@ -419,8 +443,8 @@ function buildParticipantFromCreateForm(formData) {
     initiative,
     stats,
     notes: formData.get('notes') || '',
-    resistances: parseTypeList(formData.get('resistances')),
-    vulnerabilities: parseTypeList(formData.get('vulnerabilities'))
+    resistances,
+    vulnerabilities
   };
 }
 
@@ -522,7 +546,7 @@ function renderPlayerDamageSection(participant) {
       <div class="collapsible-body">
         ${renderPlayerDamageGroup('Resistances', participant.resistances, 'resistance')}
         ${renderPlayerDamageGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
-        <p class="muted">Resistances halve incoming damage of that type; vulnerabilities double it.</p>
+        <p class="muted">Resistances halve incoming damage; vulnerabilities double it. Recover (1 AP) removes 1 stack of Bleeding/Poisoned/Burning.</p>
       </div>
     </details>
   `;
@@ -547,10 +571,12 @@ function renderPlayerDamageGroup(label, values = [], key) {
         ${list || '<span class="muted">None</span>'}
       </div>
       <form data-${key}-form>
-        <div class="dual-inputs">
-          <input type="text" name="${key}" placeholder="e.g., fire" />
-          <button type="submit">Add</button>
-        </div>
+        <label class="compact-label">Add ${label.slice(0, -1)}
+          <select name="${key}">
+            ${renderDamageTypeOptions(true)}
+          </select>
+        </label>
+        <button type="submit">Add</button>
       </form>
     </div>
   `;
@@ -724,7 +750,7 @@ async function handlePlayerDamageForm(event, participant, field, inputName) {
   const formData = new FormData(event.target);
   const value = String(formData.get(inputName) || '').trim();
   if (!value) {
-    notify('Enter a damage type.');
+    notify('Select a damage type.');
     return;
   }
   try {
@@ -738,7 +764,8 @@ async function handlePlayerDamageForm(event, participant, field, inputName) {
     }
     await patchParticipant(participant.id, { [field]: [...existing, value] });
     fetchState();
-    event.target.reset();
+    const select = event.target.querySelector('select');
+    if (select) select.value = '';
   } catch (err) {
     notify(err.message);
   }
@@ -1613,12 +1640,26 @@ function notify(message) {
   }
 }
 
-function parseTypeList(raw = '') {
-  if (!raw) return [];
-  return String(raw)
-    .split(/,|\n/)
-    .map((value) => value.trim())
-    .filter(Boolean);
+function dedupeTypes(list = []) {
+  const values = Array.isArray(list) ? list : [list];
+  const normalized = [];
+  for (const value of values) {
+    if (!value) continue;
+    const trimmed = String(value).trim();
+    if (!trimmed) continue;
+    if (!normalized.find((entry) => entry.toLowerCase() === trimmed.toLowerCase())) {
+      normalized.push(trimmed);
+    }
+  }
+  return normalized;
+}
+
+function renderDamageTypeOptions(includePlaceholder = false) {
+  const options = includePlaceholder ? '<option value="">Select type…</option>' : '';
+  return (
+    options +
+    DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')
+  );
 }
 
 function downloadJson(data, filename) {

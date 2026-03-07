@@ -398,6 +398,17 @@ button.danger {
   font-size: 0.85em;
 }
 
+.damage-group form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.damage-group form button {
+  align-self: flex-start;
+}
+
 .relic-grid {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
@@ -453,6 +464,14 @@ label {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.compact-label select {
+  width: 100%;
+}
+
+.small-note {
+  font-size: 0.8rem;
 }
 
 input,

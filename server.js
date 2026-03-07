@@ -64,6 +64,13 @@ const STANDARD_ACTIONS = {
     apCost: 2,
     logText: 'guards and restores shield.'
   },
+  recover: {
+    id: 'recover',
+    label: 'Recover',
+    summary: '1 AP: Remove 1 stack of Bleeding/Poisoned/Burning.',
+    apCost: 1,
+    logText: 'recovers to reduce damaging stacks.'
+  },
   manual_swap: {
     id: 'manual_swap',
     label: 'Manual Swap',
@@ -112,39 +119,43 @@ const STATUS_LIBRARY = [
     name: 'Bleeding',
     severity: 'moderate',
     defaultStacks: 1,
-    description: 'Start of turn: take 1 HP damage per stack (bypasses Shield); clamp to 4 stacks after damage. Remove via 2 AP Medicine DC 12 or Cleanse.',
-    tags: ['DoT']
+    description:
+      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks. If 5+ stacks remain after damage, gain Weakened 1 and reset Bleeding to 1. Recover (1 AP) removes 1 stack.',
+    tags: ['Damaging']
   },
   {
     id: 'poisoned',
     name: 'Poisoned',
     severity: 'moderate',
     defaultStacks: 1,
-    description: 'Start of turn: take 1 HP damage per stack (bypasses Shield); clamp to 4 after damage. Cleanse or 3 AP CON Resist DC 16 (GM discretion).',
-    tags: ['DoT']
+    description:
+      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks. If 5+ stacks remain after damage, gain Fatigued 1 and reset Poisoned to 1. Recover (1 AP) removes 1 stack.',
+    tags: ['Damaging']
   },
   {
     id: 'burning',
     name: 'Burning',
     severity: 'moderate',
     defaultStacks: 1,
-    description: 'Start of turn: take 1 damage per stack (hits Shield first); clamp to 4 after damage. 1 AP Stop/Drop/Roll removes 1 stack; Cleanse removes all.',
-    tags: ['DoT']
+    description:
+      'Damaging (hits Shield first). Start of turn: take damage equal to stacks. Burn does not escalate. Recover (1 AP) removes 1 stack.',
+    tags: ['Damaging']
   },
   {
     id: 'blinded',
     name: 'Blinded',
     severity: 'minor',
     defaultStacks: 1,
-    description: 'Cannot target beyond 5 ft; your attacks deal -2 damage. Auto-decay end of next turn or spend 1 AP to end early.',
-    tags: ['Accuracy']
+    description:
+      'Debuff. Cannot target beyond 5 ft; attacks deal -2 damage. Auto-decays end of next turn or spend 1 AP to clear.',
+    tags: ['Debuff']
   },
   {
     id: 'weakened',
     name: 'Weakened',
     severity: 'minor',
     defaultStacks: 1,
-    description: 'Attacks deal -2 damage (min 0). Auto-decay end of next turn or 1 AP to clear.',
+    description: 'Debuff. Your attacks deal -2 damage (min 0). Clears at end of next turn or spend 1 AP.',
     tags: ['Debuff']
   },
   {
@@ -152,55 +163,25 @@ const STATUS_LIBRARY = [
     name: 'Fatigued',
     severity: 'minor',
     defaultStacks: 1,
-    description: 'Lose 1 AP on your next turn (min 1). Automatically clears at end of that turn or spend 1 AP to remove pre-emptively.',
-    tags: ['AP']
+    description: 'Debuff. -1 AP on your next turn (min 1). Clears at end of that turn or spend 1 AP.',
+    tags: ['Debuff']
   },
   {
     id: 'rooted',
     name: 'Rooted',
     severity: 'moderate',
     defaultStacks: 1,
-    description: 'Speed becomes 0 but you can still act. Clear with 2 AP STR Resist (DC 12/14/16) or Cleanse.',
+    description:
+      'Control. Speed becomes 0 but you can act. If Rooted reaches 5 stacks it upgrades to Restrained. Remove via 2 AP STR Resist (DC 12/14/16) or Cleanse.',
     tags: ['Control']
   },
   {
     id: 'restrained',
     name: 'Restrained',
-    severity: 'moderate',
+    severity: 'severe',
     defaultStacks: 1,
-    description: 'Speed 0; attacks against you deal +2 damage. At 2+ stacks also deal -2 damage (treated as Severe). Remove with 2 AP STR Resist (Moderate) or 3 AP Resist DC 16 when Severe, or Cleanse.',
-    tags: ['Control']
-  },
-  {
-    id: 'prone',
-    name: 'Prone',
-    severity: 'minor',
-    defaultStacks: 1,
-    description: 'Standing up costs 1 AP; melee attacks vs you deal +2 damage and your ranged attacks -2 until you stand. Clears when you stand or end of next turn.',
-    tags: ['Position']
-  },
-  {
-    id: 'frightened',
-    name: 'Frightened',
-    severity: 'moderate',
-    defaultStacks: 1,
-    description: 'Cannot move closer to the source; attacks vs the source deal -2 damage. Remove with 2 AP WIS Resist (DC 12/14/16) or Cleanse.',
-    tags: ['Control']
-  },
-  {
-    id: 'charmed',
-    name: 'Charmed',
-    severity: 'moderate',
-    defaultStacks: 1,
-    description: 'Cannot target the charmer with hostile actions. Remove with 2 AP CHA/WIS Resist (DC 12/14/16) or Cleanse.',
-    tags: ['Control']
-  },
-  {
-    id: 'silenced',
-    name: 'Silenced',
-    severity: 'moderate',
-    defaultStacks: 1,
-    description: 'Cannot use cards/abilities with the Verbal tag. Remove with 2 AP CON/CHA Resist (DC 12/14/16) or Cleanse.',
+    description:
+      'Control. Speed 0; attacks against you deal +2 damage. Replaces Rooted and upgrades to Stunned if a stronger effect applies. Remove via 3 AP Resist (DC 16) or Cleanse.',
     tags: ['Control']
   },
   {
@@ -208,40 +189,9 @@ const STATUS_LIBRARY = [
     name: 'Stunned',
     severity: 'severe',
     defaultStacks: 1,
-    description: 'Lose your next turn and drop Guard immediately. Remove with 3 AP CON Resist (DC 16) at end of skipped turn or Cleanse.',
-    tags: ['Severe']
-  },
-  {
-    id: 'suppressed',
-    name: 'Suppressed',
-    severity: 'severe',
-    defaultStacks: 1,
-    description: 'Cannot play cards (except Cleanse/Resist); passives remain. Remove with 3 AP WIS Resist (DC 16) or Cleanse.',
-    tags: ['Severe']
-  },
-  {
-    id: 'paralysed',
-    name: 'Paralysed',
-    severity: 'severe',
-    defaultStacks: 1,
-    description: 'Cannot move or take actions; attacks against you deal +2 damage. Remove with 3 AP CON Resist (DC 16) or Cleanse.',
-    tags: ['Severe']
-  },
-  {
-    id: 'petrified',
-    name: 'Petrified',
-    severity: 'exceptional',
-    defaultStacks: 1,
-    description: 'Become stone/incapacitated. Only specific cards/items end it (e.g., Greater Cleanse).',
-    tags: ['Exceptional']
-  },
-  {
-    id: 'unconscious',
-    name: 'Unconscious',
-    severity: 'exceptional',
-    defaultStacks: 1,
-    description: 'Drop to 0 HP and fall prone, unaware. Ends per system stabilization/healing rules.',
-    tags: ['Exceptional']
+    description:
+      'Control. You lose your next turn. Replaces Rooted/Restrained. Remove with 3 AP CON Resist (DC 16) or Cleanse.',
+    tags: ['Control']
   }
 ];
 
@@ -526,6 +476,16 @@ function executeStandardAction(body) {
       `${participant.name} guards (${before} → ${participant.shield} Shield, +${restoreAmount}).`,
       participant.id
     );
+  } else if (action.id === 'recover') {
+    const recovered = applyRecoverAction(participant);
+    if (recovered) {
+      pushLog(
+        `${participant.name} recovers and reduces ${recovered} by 1 stack.`,
+        participant.id
+      );
+    } else {
+      pushLog(`${participant.name} attempts to recover but has no eligible stacks.`, participant.id);
+    }
   } else {
     const text = `${participant.name} ${action.logText}`;
     pushLog(text, participant.id);
@@ -807,6 +767,27 @@ function applyLongRest(participant) {
   participant.apCurrent = participant.apMax;
   participant.guardUsedThisTurn = false;
   pushLog(`${participant.name} takes a long rest and is fully restored.`, participant.id);
+}
+
+function applyRecoverAction(participant) {
+  if (!Array.isArray(participant.statuses)) {
+    participant.statuses = [];
+  }
+  const recoverable = ['bleeding', 'poisoned', 'burning'];
+  const matchIndex = participant.statuses.findIndex((status) => {
+    const id = String(status.id || '').toLowerCase();
+    const name = String(status.name || '').toLowerCase();
+    return recoverable.includes(id) || recoverable.includes(name);
+  });
+  if (matchIndex === -1) return null;
+  const status = participant.statuses[matchIndex];
+  const nextStacks = Math.max(0, Number(status.stacks || 1) - 1);
+  if (nextStacks <= 0) {
+    participant.statuses.splice(matchIndex, 1);
+  } else {
+    status.stacks = nextStacks;
+  }
+  return status.name || status.id || 'a condition';
 }
 
 async function readBody(req) {
