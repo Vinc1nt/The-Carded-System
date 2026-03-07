@@ -845,6 +845,18 @@ function statusDisplayName(type) {
   return labels[type] || type;
 }
 
+const KNOWN_STATUS_TYPES = [
+  'bleeding',
+  'poisoned',
+  'burning',
+  'blinded',
+  'weakened',
+  'fatigued',
+  'rooted',
+  'restrained',
+  'stunned'
+];
+
 function buildStatusMergeKey(status, fallbackIndex = 0) {
   const type = detectStatusType(status);
   if (type) return `type:${type}`;
@@ -956,60 +968,85 @@ function applyStatusDamage(participant, type, damage) {
 function applyStartOfTurnStatusEffects(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const events = [];
-  const startingTypes = new Set(
-    participant.statuses
-      .map((status) => detectStatusType(status))
-      .filter(Boolean)
-  );
+  const startingStacks = {};
+  KNOWN_STATUS_TYPES.forEach((type) => {
+    startingStacks[type] = getStatusStacks(participant, type);
+  });
 
-  // Debuffs that specifically trigger on "your next turn" apply first, then clear.
-  if (startingTypes.has('fatigued')) {
-    const penalty = Math.max(1, getStatusStacks(participant, 'fatigued'));
+  // Apply hierarchy to the starting snapshot before resolving this turn.
+  if (startingStacks.stunned > 0) {
+    startingStacks.restrained = 0;
+    startingStacks.rooted = 0;
+  } else if (startingStacks.restrained > 0) {
+    startingStacks.rooted = 0;
+  }
+
+  // Start-of-turn damage from damaging statuses.
+  ['bleeding', 'poisoned', 'burning'].forEach((type) => {
+    const stacks = startingStacks[type] || 0;
+    if (stacks <= 0) return;
+    applyStatusDamage(participant, type, stacks);
+    events.push(`takes ${stacks} ${statusDisplayName(type)} damage at start of turn.`);
+  });
+
+  // Start-of-turn AP impact from Fatigued.
+  if (startingStacks.fatigued > 0) {
+    const penalty = Math.max(1, startingStacks.fatigued);
     const before = participant.apCurrent;
     participant.apCurrent = Math.max(1, participant.apCurrent - penalty);
-    setStatusStacks(participant, 'fatigued', 0);
     events.push(`loses ${before - participant.apCurrent} AP from Fatigued.`);
   }
 
-  const escalationTriggered = new Set();
-  ['bleeding', 'poisoned', 'burning'].forEach((type) => {
-    const stacks = getStatusStacks(participant, type);
-    if (stacks <= 0) return;
-    applyStatusDamage(participant, type, stacks);
-    let nextStacks = Math.max(0, stacks - 1);
-    events.push(`takes ${stacks} ${statusDisplayName(type)} damage at start of turn.`);
-    if (type === 'bleeding' && stacks >= 5 && !escalationTriggered.has(type)) {
-      escalationTriggered.add(type);
-      addStatusStacks(participant, 'weakened', 1);
-      nextStacks = 1;
-      events.push('Bleeding escalates: gains Weakened 1 and Bleeding resets to 1.');
-    }
-    if (type === 'poisoned' && stacks >= 5 && !escalationTriggered.has(type)) {
-      escalationTriggered.add(type);
-      addStatusStacks(participant, 'fatigued', 1);
-      nextStacks = 1;
-      events.push('Poisoned escalates: gains Fatigued 1 and Poisoned resets to 1.');
-    }
-    setStatusStacks(participant, type, nextStacks);
-  });
-
-  if (startingTypes.has('rooted')) {
-    const rootedStacks = getStatusStacks(participant, 'rooted');
-    if (rootedStacks >= 5 && !escalationTriggered.has('rooted')) {
-      escalationTriggered.add('rooted');
-      setStatusStacks(participant, 'rooted', 0);
-      addStatusStacks(participant, 'restrained', 1);
-      events.push('Rooted escalates to Restrained.');
-    }
-  }
-
-  enforceControlHierarchy(participant);
-
-  if (startingTypes.has('stunned') && getStatusStacks(participant, 'stunned') > 0) {
+  // Stunned: lose this turn.
+  if (startingStacks.stunned > 0) {
     participant.apCurrent = 0;
-    setStatusStacks(participant, 'stunned', Math.max(0, getStatusStacks(participant, 'stunned') - 1));
     events.push('is Stunned and loses this turn.');
   }
+
+  const escalatedThisTurn = new Set();
+  const nextStacks = {};
+  KNOWN_STATUS_TYPES.forEach((type) => {
+    nextStacks[type] = Math.max(0, (startingStacks[type] || 0) - 1);
+  });
+
+  // Escalations (checked after damage/effects resolve, from starting stacks).
+  if (startingStacks.bleeding >= 5 && !escalatedThisTurn.has('bleeding')) {
+    escalatedThisTurn.add('bleeding');
+    nextStacks.bleeding = 1;
+    nextStacks.weakened += 1;
+    events.push('Bleeding escalates: gains Weakened 1 and Bleeding resets to 1.');
+  }
+
+  if (startingStacks.poisoned >= 5 && !escalatedThisTurn.has('poisoned')) {
+    escalatedThisTurn.add('poisoned');
+    nextStacks.poisoned = 1;
+    nextStacks.fatigued += 1;
+    events.push('Poisoned escalates: gains Fatigued 1 and Poisoned resets to 1.');
+  }
+
+  if (startingStacks.rooted >= 5 && !escalatedThisTurn.has('rooted')) {
+    escalatedThisTurn.add('rooted');
+    nextStacks.rooted = 0;
+    nextStacks.restrained += 1;
+    events.push('Rooted escalates to Restrained.');
+  }
+
+  KNOWN_STATUS_TYPES.forEach((type) => {
+    setStatusStacks(participant, type, nextStacks[type] || 0);
+  });
+
+  // Also decay custom/unknown statuses by 1 stack.
+  participant.statuses = participant.statuses
+    .map((status) => {
+      if (detectStatusType(status)) return status;
+      const stacks = Math.max(0, Number(status.stacks || 1) - 1);
+      if (stacks <= 0) return null;
+      return { ...status, stacks };
+    })
+    .filter(Boolean);
+
+  // Re-apply hierarchy after all mutations.
+  enforceControlHierarchy(participant);
 
   clampParticipant(participant);
   return events;
