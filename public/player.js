@@ -6,6 +6,7 @@ const state = {
 
 const params = new URLSearchParams(window.location.search);
 let focusId = params.get('id');
+let createMode = params.get('create') === '1';
 let eventSource;
 
 const els = {
@@ -47,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function wireSelect() {
   els.select.addEventListener('change', () => {
     focusId = els.select.value || null;
+    createMode = false;
     updateUrl();
     render();
   });
@@ -169,19 +171,36 @@ function applyState(nextState) {
 
 function render() {
   renderSelectOptions();
+  const creating = createMode && !focusId;
   renderStats();
-  renderCards();
+  if (!creating) {
+    renderCards();
+  }
   renderLog();
   renderTurnInfo();
 }
 
 function renderSelectOptions() {
   const participants = state.encounter.participants || [];
-  els.select.innerHTML = participants
-    .map((participant) => `<option value="${participant.id}" ${participant.id === focusId ? 'selected' : ''}>${participant.name}</option>`)
+  const options = [];
+  if (createMode && !focusId) {
+    options.push('<option value="">Character Creator</option>');
+  }
+  options.push(
+    ...participants.map(
+      (participant) =>
+        `<option value="${participant.id}" ${participant.id === focusId ? 'selected' : ''}>${participant.name}</option>`
+    )
+  );
+  els.select.innerHTML = options
     .join('');
   if (!participants.length) {
     els.select.innerHTML = '<option value="">No combatants</option>';
+  }
+  if (createMode && !focusId) {
+    els.select.value = '';
+  } else if (focusId) {
+    els.select.value = focusId;
   }
 }
 
@@ -189,13 +208,17 @@ function renderStats() {
   const participant = getFocusedParticipant();
   if (!participant) {
     const hasCombatants = (state.encounter.participants || []).length > 0;
-    els.stats.innerHTML = `
-      <div class="player-empty">
-        <h2>${hasCombatants ? 'Select Your Character' : 'Waiting for the GM'}</h2>
-        <p>${hasCombatants ? 'Pick a combatant from the dropdown or import your saved character.' : 'The GM has not added any combatants yet.'}</p>
-        <button type="button" data-player-open-menu>Import Character</button>
-      </div>`;
-    els.stats.querySelector('[data-player-open-menu]')?.addEventListener('click', openPlayerMenu);
+    if (createMode) {
+      renderCharacterCreator();
+    } else {
+      els.stats.innerHTML = `
+        <div class="player-empty">
+          <h2>${hasCombatants ? 'Select Your Character' : 'Waiting for the GM'}</h2>
+          <p>${hasCombatants ? 'Pick a combatant from the dropdown or import your saved character.' : 'The GM has not added any combatants yet.'}</p>
+          <button type="button" data-player-open-menu>Import Character</button>
+        </div>`;
+      els.stats.querySelector('[data-player-open-menu]')?.addEventListener('click', openPlayerMenu);
+    }
     return;
   }
   const stats = participant.stats || {};
@@ -249,6 +272,64 @@ function renderStats() {
   wirePlayerSheetEvents(participant);
 }
 
+function renderCharacterCreator() {
+  els.stats.innerHTML = `
+    <div class="panel player-sheet">
+      <div class="panel-header">
+        <div>
+          <h2>Create Character</h2>
+          <p class="muted">Fill out the base stats to add this character to the encounter.</p>
+        </div>
+      </div>
+      <form id="playerCreateForm" class="stacked-form">
+        <div class="form-row">
+          <label>Name
+            <input type="text" name="name" placeholder="New Character" required />
+          </label>
+          <label>Set Focus
+            <input type="text" name="setFocus" placeholder="Machine, Elemental..." />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Max HP
+            <input type="number" name="maxHp" value="20" />
+          </label>
+          <label>Max Shield
+            <input type="number" name="maxShield" value="0" />
+          </label>
+          <label>Max AP
+            <input type="number" name="apMax" value="6" />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Proficiency Bonus
+            <input type="number" name="proficiencyBonus" value="2" />
+          </label>
+        </div>
+        <div class="ability-input-grid">
+          ${ABILITIES.map(
+            ({ key, label }) => `
+              <label>${label}
+                <input type="number" name="${key}" value="10" />
+              </label>`
+          ).join('')}
+        </div>
+        <label>Resistances (comma separated)
+          <input type="text" name="resistances" placeholder="fire, poison" />
+        </label>
+        <label>Vulnerabilities (comma separated)
+          <input type="text" name="vulnerabilities" placeholder="lightning" />
+        </label>
+        <label>Notes
+          <textarea name="notes" rows="2" placeholder="Backstory, reminders, etc."></textarea>
+        </label>
+        <button type="submit" class="primary">Create Character</button>
+      </form>
+    </div>
+  `;
+  wireCharacterCreator();
+}
+
 function renderPlayerVital(label, value, max, key) {
   if (typeof max === 'number') {
     return `
@@ -290,6 +371,57 @@ function renderPlayerTurnTrack() {
         .join('')}
     </div>
   `;
+}
+
+function wireCharacterCreator() {
+  const form = document.getElementById('playerCreateForm');
+  if (!form) return;
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const payload = buildParticipantFromCreateForm(formData);
+    try {
+      const result = await api('/api/import/participant', 'POST', { participant: payload });
+      if (result?.participant?.id) {
+        focusId = result.participant.id;
+        createMode = false;
+        updateUrl({ create: false });
+        fetchState();
+        notify('Character created.');
+      }
+    } catch (err) {
+      notify(`Creation failed: ${err.message}`);
+    }
+  };
+}
+
+function buildParticipantFromCreateForm(formData) {
+  const stats = {};
+  ABILITIES.forEach(({ key }) => {
+    stats[key] = Number(formData.get(key) || 0);
+  });
+  const proficiencyBonus = Number(formData.get('proficiencyBonus') || 0);
+  const dex = stats.dexterity || 0;
+  const initiative = dex + proficiencyBonus;
+  const maxHp = Number(formData.get('maxHp') || 0);
+  const maxShield = Number(formData.get('maxShield') || 0);
+  const apMax = Number(formData.get('apMax') || 0);
+  return {
+    name: formData.get('name')?.trim() || 'New Character',
+    setFocus: formData.get('setFocus') || '',
+    maxHp,
+    hp: maxHp,
+    maxShield,
+    shield: maxShield,
+    apMax,
+    apCurrent: apMax,
+    proficiencyBonus,
+    initiative,
+    stats,
+    notes: formData.get('notes') || '',
+    resistances: parseTypeList(formData.get('resistances')),
+    vulnerabilities: parseTypeList(formData.get('vulnerabilities'))
+  };
 }
 
 function renderPlayerCardsSection() {
@@ -597,7 +729,8 @@ async function handlePlayerDamageForm(event, participant, field, inputName) {
   }
   try {
     const latest = (await fetchParticipantFromServer(participant.id)) || participant;
-    const existing = Array.isArray(latest?.[field]) ? [...latest[field]] : [];
+    const source = Array.isArray(latest?.[field]) ? latest[field] : [];
+    const existing = [...source];
     const duplicate = existing.find((entry) => entry.toLowerCase() === value.toLowerCase());
     if (duplicate) {
       notify('Already listed.');
@@ -615,7 +748,8 @@ async function handlePlayerDamageRemove(participant, field, index) {
   if (index < 0 || Number.isNaN(index)) return;
   try {
     const latest = (await fetchParticipantFromServer(participant.id)) || participant;
-    const existing = Array.isArray(latest?.[field]) ? [...latest[field]] : [];
+    const source = Array.isArray(latest?.[field]) ? latest[field] : [];
+    const existing = [...source];
     if (index >= existing.length) return;
     existing.splice(index, 1);
     await patchParticipant(participant.id, { [field]: existing });
@@ -907,7 +1041,9 @@ function renderRelics(participant) {
 function renderLog() {
   const participant = getFocusedParticipant();
   if (!participant) {
-    els.logList.innerHTML = '<p class="empty-state">No log entries.</p>';
+    els.logList.innerHTML = createMode
+      ? '<p class="empty-state">Create a character to start tracking actions.</p>'
+      : '<p class="empty-state">No log entries.</p>';
     return;
   }
   const relevant = (state.encounter.log || []).filter((entry) => entry.participantId === participant.id);
@@ -1003,7 +1139,13 @@ function wirePlayerSheetEvents(participant) {
     input.onchange = async () => {
       const ability = input.dataset.abilityInput;
       const value = Number(input.value || 0);
-      await patchParticipant(participant.id, { stats: { [ability]: value } });
+      participant.stats = participant.stats || {};
+      participant.stats[ability] = value;
+      const payload = { stats: { [ability]: value } };
+      if (ability === 'dexterity') {
+        payload.initiative = value + (participant.proficiencyBonus || 0);
+      }
+      await patchParticipant(participant.id, payload);
       fetchState();
     };
   });
@@ -1011,7 +1153,11 @@ function wirePlayerSheetEvents(participant) {
   if (profInput) {
     profInput.onchange = async () => {
       const value = Number(profInput.value || 0);
-      await patchParticipant(participant.id, { proficiencyBonus: value });
+      participant.proficiencyBonus = value;
+      await patchParticipant(participant.id, {
+        proficiencyBonus: value,
+        initiative: (participant.stats?.dexterity || 0) + value
+      });
       fetchState();
     };
   }
@@ -1139,12 +1285,20 @@ function getCurrentParticipant() {
   return state.encounter.participants?.[index] ?? null;
 }
 
-function updateUrl() {
+function updateUrl(options = {}) {
+  if (typeof options.create === 'boolean') {
+    createMode = options.create;
+  }
   const url = new URL(window.location.href);
   if (focusId) {
     url.searchParams.set('id', focusId);
   } else {
     url.searchParams.delete('id');
+  }
+  if (createMode) {
+    url.searchParams.set('create', '1');
+  } else {
+    url.searchParams.delete('create');
   }
   window.history.replaceState(null, '', url);
 }
@@ -1307,7 +1461,8 @@ async function handleCharacterImport(event) {
     const result = await api('/api/import/participant', 'POST', { participant: participantData });
     if (result?.participant?.id) {
       focusId = result.participant.id;
-      updateUrl();
+      createMode = false;
+      updateUrl({ create: false });
       notify('Character imported.');
     }
     fetchState();
@@ -1456,6 +1611,14 @@ function notify(message) {
   if (message) {
     console.warn(message);
   }
+}
+
+function parseTypeList(raw = '') {
+  if (!raw) return [];
+  return String(raw)
+    .split(/,|\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function downloadJson(data, filename) {

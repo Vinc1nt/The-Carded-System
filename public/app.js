@@ -474,6 +474,7 @@ function renderMitigationSection(participant) {
       <div class="collapsible-body">
         ${renderMitigationGroup('Resistances', participant.resistances, 'resistance')}
         ${renderMitigationGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
+        <p class="muted small-note">Resistances halve incoming damage of that type; vulnerabilities double it.</p>
       </div>
     </details>
   `;
