@@ -36,9 +36,7 @@ const STAT_FIELD_MAP = {
 
 document.addEventListener('DOMContentLoaded', () => {
   wireSelect();
-  wirePlayerCardForm();
   wirePlayerMenu();
-  wirePlayerRelicTools();
   wireTopButtons();
   subscribe();
   fetchState();
@@ -53,9 +51,9 @@ function wireSelect() {
 }
 
 function wirePlayerCardForm() {
-  const form = els.cardForm;
+  const form = document.getElementById('playerCardForm');
   if (!form) return;
-  form.addEventListener('submit', async (event) => {
+  form.onsubmit = async (event) => {
     event.preventDefault();
     const participant = getFocusedParticipant();
     if (!participant) {
@@ -69,7 +67,18 @@ function wirePlayerCardForm() {
     await patchParticipant(participant.id, { cards: updatedCards });
     form.reset();
     fetchState();
-  });
+  };
+}
+
+function wirePlayerCardImports() {
+  const single = document.getElementById('playerImportCard');
+  const deck = document.getElementById('playerImportDeck');
+  if (single) {
+    single.onchange = (event) => handlePlayerCardFile(event, 'card');
+  }
+  if (deck) {
+    deck.onchange = (event) => handlePlayerCardFile(event, 'deck');
+  }
 }
 
 function wirePlayerMenu() {
@@ -85,8 +94,6 @@ function wirePlayerMenu() {
   });
   els.downloadCharacter?.addEventListener('click', handleCharacterDownload);
   els.uploadCharacter?.addEventListener('change', handleCharacterImport);
-  els.importCardFile?.addEventListener('change', (event) => handlePlayerCardFile(event, 'card'));
-  els.importDeckFile?.addEventListener('change', (event) => handlePlayerCardFile(event, 'deck'));
   els.baseToggle?.addEventListener('click', () => {
     if (!els.baseForm) return;
     const participant = getFocusedParticipant();
@@ -98,10 +105,6 @@ function wirePlayerMenu() {
     els.baseForm.classList.toggle('hidden');
   });
   els.baseForm?.addEventListener('submit', handlePlayerBaseSubmit);
-}
-
-function wirePlayerRelicTools() {
-  els.importRelicFile?.addEventListener('change', handlePlayerRelicFile);
 }
 
 function wireTopButtons() {
@@ -209,6 +212,82 @@ function renderStats() {
         ${renderPlayerVital('Guard Restore', participant.guardRestore || 3)}
         ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
       </div>
+      <section class="player-section">
+        <h3>Cards & Loadout</h3>
+        <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
+        <details id="playerCardDrawer">
+          <summary>Card Tools</summary>
+          <div class="card-import">
+            <label class="file-upload">
+              Import Card
+              <input type="file" id="playerImportCard" accept="application/json" />
+            </label>
+            <label class="file-upload">
+              Import Card Deck
+              <input type="file" id="playerImportDeck" accept="application/json" />
+            </label>
+            <p class="muted help-text">Upload single cards or a {"cards": []} deck file.</p>
+          </div>
+          <form id="playerCardForm" class="stacked-form">
+            <div class="form-row">
+              <label>Name
+                <input type="text" name="name" required />
+              </label>
+              <label>Set
+                <input type="text" name="set" placeholder="Machine" />
+              </label>
+              <label>Type
+                <input type="text" name="type" placeholder="Attack" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>AP Cost
+                <input type="number" name="apCost" value="2" />
+              </label>
+              <label>Range
+                <input type="number" name="range" value="5" />
+              </label>
+              <label>Health Bonus
+                <input type="number" name="healthBonus" value="0" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Max HP Bonus
+                <input type="number" name="modMaxHp" value="0" />
+              </label>
+              <label>Max Shield Bonus
+                <input type="number" name="modMaxShield" value="0" />
+              </label>
+              <label>AP Max Bonus
+                <input type="number" name="modApMax" value="0" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Guard Bonus
+                <input type="number" name="modGuard" value="0" />
+              </label>
+              <label>Damage Bonus
+                <input type="number" name="modDamage" value="0" />
+              </label>
+            </div>
+            <label>Tags
+              <input type="text" name="tags" placeholder="Melee, Shield" />
+            </label>
+            <label>Effect
+              <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
+            </label>
+            <button type="submit">Add Card</button>
+          </form>
+        </details>
+      </section>
+      <section class="player-section">
+        <div class="section-header">
+          <h3>Statuses</h3>
+          <button type="button" data-player-toggle-status>Manage</button>
+        </div>
+        <div class="status-list">${renderStatuses(participant)}</div>
+        ${renderPlayerStatusForm()}
+      </section>
       <details class="player-collapsible" data-player-section="abilities">
         <summary><strong>Ability Scores</strong></summary>
         <div class="collapsible-body">
@@ -235,12 +314,39 @@ function renderStats() {
         ${renderSetTracker(participant)}
       </section>
       <section class="player-section">
-        <div class="section-header">
-          <h3>Statuses</h3>
-          <button type="button" data-player-toggle-status>Manage</button>
-        </div>
-        <div class="status-list">${renderStatuses(participant)}</div>
-        ${renderPlayerStatusForm()}
+        <h3>Relics & Artifacts</h3>
+        <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
+        <details id="playerRelicDrawer">
+          <summary>Relic Tools</summary>
+          <div class="card-import">
+            <label class="file-upload">
+              Import Relics
+              <input type="file" id="playerImportRelic" accept="application/json" />
+            </label>
+          </div>
+          <form id="playerRelicForm" class="stacked-form">
+            <div class="form-row">
+              <label>Name
+                <input type="text" name="name" required />
+              </label>
+              <label>HP Bonus
+                <input type="number" name="hp" value="0" />
+              </label>
+              <label>AP Bonus
+                <input type="number" name="ap" value="0" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Ability Focus
+                <input type="text" name="ability" placeholder="Machine, Shield, etc." />
+              </label>
+              <label>Description
+                <input type="text" name="description" placeholder="What does it do?" />
+              </label>
+            </div>
+            <button type="submit">Add Relic</button>
+          </form>
+        </details>
       </section>
       <section class="player-section">
         <div class="section-header">
@@ -251,6 +357,7 @@ function renderStats() {
       </section>
     </div>
   `;
+  cachePlayerSectionRefs();
   wirePlayerSheetEvents(participant);
 }
 
@@ -268,6 +375,15 @@ function renderPlayerVital(label, value, max, key) {
       <h4>${label}</h4>
       <div class="value">${value}</div>
     </div>`;
+}
+
+function cachePlayerSectionRefs() {
+  els.cardList = document.getElementById('playerCardList');
+  els.cardForm = document.getElementById('playerCardForm');
+  els.cardDrawer = document.getElementById('playerCardDrawer');
+  els.importCardFile = document.getElementById('playerImportCard');
+  els.importDeckFile = document.getElementById('playerImportDeck');
+  els.importRelicFile = document.getElementById('playerImportRelic');
 }
 
 function renderPlayerTurnTrack() {
@@ -531,14 +647,16 @@ function renderStatusPresetOptions() {
 }
 
 function renderCards() {
+  const listEl = document.getElementById('playerCardList');
+  if (!listEl) return;
   const participant = getFocusedParticipant();
   const cards = participant?.cards || [];
   if (!participant || !cards.length) {
-    els.cardList.classList.add('empty-state');
-    els.cardList.innerHTML = '<p class="empty-state">No cards tracked for this combatant.</p>';
+    listEl.classList.add('empty-state');
+    listEl.innerHTML = '<p class="empty-state">No cards tracked for this combatant.</p>';
   } else {
-    els.cardList.classList.remove('empty-state');
-    els.cardList.innerHTML = cards
+    listEl.classList.remove('empty-state');
+    listEl.innerHTML = cards
       .map(
         (card) => `
           <article class="card-item">
@@ -559,12 +677,16 @@ function renderCards() {
       .join('');
   }
   renderRelics(participant);
+  wirePlayerCardForm();
+  wirePlayerCardImports();
   wirePlayerCardExports(participant);
 }
 
 function wirePlayerCardExports(participant) {
   if (!participant) return;
-  els.cardList.querySelectorAll('[data-player-export-card]').forEach((button) => {
+  const listEl = document.getElementById('playerCardList');
+  if (!listEl) return;
+  listEl.querySelectorAll('[data-player-export-card]').forEach((button) => {
     button.onclick = () => {
       const cards = participant?.cards || [];
       const card = cards.find((entry) => entry.id === button.dataset.playerExportCard);
@@ -580,6 +702,10 @@ function wirePlayerCardExports(participant) {
 function renderRelics(participant) {
   const listEl = document.getElementById('playerRelicList');
   const formEl = document.getElementById('playerRelicForm');
+  const importInput = document.getElementById('playerImportRelic');
+  if (importInput) {
+    importInput.onchange = handlePlayerRelicFile;
+  }
   if (!listEl) return;
   if (!participant) {
     listEl.classList.add('empty-state');
