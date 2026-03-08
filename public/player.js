@@ -1419,7 +1419,8 @@ function renderCards() {
       .map(
         (card, index) => `
           <article class="card-item">
-            <h4>${card.name} <small>${card.tier || ''} ${card.type || ''}</small></h4>
+            <h4>${card.name}</h4>
+            <p>• ${card.type || '—'} · ${card.tier || '—'}</p>
             <p>Set: <strong>${card.set || '—'}</strong></p>
             <p>AP ${card.apCost || 0} · Range ${card.range || 0} ft · HP +${card.healthBonus || 0}</p>
             <p>Damage: ${getCardDisplayDamage(card)} ${card.damageType || ''}</p>

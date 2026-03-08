@@ -1865,7 +1865,8 @@ function renderCards(participant) {
     .map(
       (card, index) => `
       <article class="card-item" data-card="${card.id}">
-        <h4>${card.name} <small>${card.tier || ''} · ${card.type || ''}</small></h4>
+        <h4>${card.name}</h4>
+        <p>• ${card.type || '—'} · ${card.tier || '—'}</p>
         <p>Set: <strong>${card.set || '—'}</strong> · AP ${card.apCost || 0}</p>
         <p>Damage: ${getCardDisplayDamage(card)} ${card.damageType || ''}</p>
         <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
