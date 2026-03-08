@@ -122,6 +122,11 @@ const SET_LIBRARY = {
   Human: []
 };
 
+const SET_NAME_LOOKUP = Object.keys(SET_LIBRARY).reduce((acc, key) => {
+  acc[String(key).toLowerCase()] = key;
+  return acc;
+}, {});
+
 const STATUS_LIBRARY = [
   {
     id: 'bleeding',
@@ -1613,7 +1618,7 @@ function normalizeCards(list = []) {
         ...card,
         id: card.id || randomUUID(),
         name: String(card.name || `Card ${index + 1}`).trim(),
-        set: String(card.set || '').trim(),
+        set: canonicalSetName(card.set),
         type: String(card.type || 'Attack').trim(),
         tier: String(card.tier || 'Common').trim(),
         apCost: Number.isFinite(Number(card.apCost)) ? Number(card.apCost) : 0,
@@ -1919,6 +1924,12 @@ function normalizeSetRuntime(runtime = {}) {
   };
 }
 
+function canonicalSetName(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return SET_NAME_LOOKUP[raw.toLowerCase()] || raw;
+}
+
 function ensureSetRuntime(participant) {
   participant.setRuntime = normalizeSetRuntime(participant.setRuntime);
   return participant.setRuntime;
@@ -1929,8 +1940,9 @@ function getMachineSetRuntime(participant) {
 }
 
 function getSetCardCount(participant, setName) {
+  const canonicalTarget = canonicalSetName(setName).toLowerCase();
   return (participant.cards || []).reduce((count, card) => {
-    if (String(card?.set || '').toLowerCase() !== String(setName).toLowerCase()) return count;
+    if (canonicalSetName(card?.set).toLowerCase() !== canonicalTarget) return count;
     return count + 1;
   }, 0);
 }
@@ -2029,8 +2041,9 @@ function addModifierTotals(target, addition) {
 function computeSetBonuses(participant) {
   const counts = {};
   for (const card of participant.cards || []) {
-    if (!card.set) continue;
-    counts[card.set] = (counts[card.set] || 0) + 1;
+    const setName = canonicalSetName(card.set);
+    if (!setName) continue;
+    counts[setName] = (counts[setName] || 0) + 1;
   }
   const appliedBonuses = [];
   const totals = createZeroModifier();
@@ -2077,6 +2090,10 @@ function recalculateParticipant(participant) {
   participant.relics = normalizeRelics(participant.relics);
   for (const card of participant.cards || []) {
     const modifiers = normalizeModifiers(card.modifiers);
+    const healthBonus = Number(card.healthBonus ?? 0);
+    if (Number.isFinite(healthBonus) && healthBonus !== 0) {
+      modifiers.maxHp += healthBonus;
+    }
     if (hasModifierValue(modifiers)) {
       cardModifiers.push({
         cardId: card.id,
