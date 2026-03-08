@@ -900,7 +900,7 @@ function renderAutomationSection(participant) {
         <div>
           <strong>Set bonuses</strong>
           <ul>
-            ${renderAutomationSetList(automation.setBonuses)}
+            ${renderAutomationSetList(automation.setBonuses, participant)}
           </ul>
         </div>
       </div>
@@ -983,15 +983,57 @@ function renderAutomationList(entries = []) {
     .join('');
 }
 
-function renderAutomationSetList(entries = []) {
+function renderAutomationSetList(entries = [], participant) {
   if (!entries.length) {
     return '<li class="muted">No set bonuses active.</li>';
   }
   return entries
-    .map(
-      (entry) => `<li>${entry.set} (${entry.pieces}+ pcs): ${entry.effect || summarizeModifiers(entry.modifiers)}</li>`
-    )
+    .map((entry) => {
+      const effect = entry.effect || summarizeModifiers(entry.modifiers);
+      const status = renderSetBonusStatus(entry, participant);
+      const activation = renderSetActivationButton(entry, participant, 'data-activate-set');
+      return `<li>${entry.set} (${entry.pieces}+ pcs): ${effect}${status}${activation}</li>`;
+    })
     .join('');
+}
+
+function renderSetBonusStatus(entry, participant) {
+  const machine = participant?.setRuntime?.machine || {};
+  if (entry.id === 'machine_5_servo_stride') {
+    return ` <small class="muted">[${machine.servoStrideUsedTurn ? 'Used this turn' : 'Ready'}]</small>`;
+  }
+  if (entry.id === 'machine_7_auto_loader') {
+    if (machine.autoLoaderPrimed) {
+      return ' <small class="muted">[Primed]</small>';
+    }
+    return ` <small class="muted">[${machine.autoLoaderTriggeredTurn ? 'Triggered this turn' : 'Ready'}]</small>`;
+  }
+  if (entry.id === 'machine_10_overclock_protocol') {
+    if (machine.overclockUsedCombat) {
+      return ' <small class="muted">[Used this combat]</small>';
+    }
+    if (machine.overclockActiveTurn) {
+      return ' <small class="muted">[Active this turn]</small>';
+    }
+    return ` <small class="muted">[${machine.overclockWindowOpen ? 'Ready (start of turn)' : 'Not ready'}]</small>`;
+  }
+  return '';
+}
+
+function renderSetActivationButton(entry, participant, attrName) {
+  if (!entry?.activatable?.id) return '';
+  const canActivate = canActivateSetBonus(entry, participant);
+  const label = entry.activatable.id === 'overclock_protocol' ? 'Activate' : 'Use';
+  const disabled = canActivate ? '' : ' disabled';
+  return ` <button type="button" ${attrName}="${entry.activatable.id}"${disabled}>${label}</button>`;
+}
+
+function canActivateSetBonus(entry, participant) {
+  if (!entry?.activatable?.id || !participant) return false;
+  if (entry.activatable.id !== 'overclock_protocol') return false;
+  const machine = participant.setRuntime?.machine || {};
+  const isCurrent = participant.id === state.encounter.participants?.[state.encounter.currentIndex]?.id;
+  return isCurrent && !machine.overclockUsedCombat && machine.overclockWindowOpen && !(participant.turnActionCount > 0);
 }
 
 function renderSetOptions() {
@@ -1054,6 +1096,22 @@ function wireDetailEvents(participant) {
 
   panel.querySelectorAll('[data-standard]').forEach((button) => {
     button.addEventListener('click', () => handleStandardAction(button.dataset.standard));
+  });
+
+  panel.querySelectorAll('[data-activate-set]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (button.disabled) return;
+      try {
+        await api('/api/set/activate', 'POST', {
+          participantId: participant.id,
+          set: 'Machine',
+          abilityId: button.dataset.activateSet
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
   });
 
   const basePanel = panel.querySelector('[data-base-panel]');
@@ -1235,6 +1293,21 @@ function wireDetailEvents(participant) {
         if (response?.participant) {
           updateParticipantInState(response.participant);
         }
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelectorAll('[data-use-card]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const cardId = button.dataset.useCard;
+      if (!cardId) return;
+      try {
+        await api('/api/actions/card', 'POST', {
+          participantId: participant.id,
+          cardId
+        });
         fetchState();
       } catch (err) {
         notify(err.message);
@@ -1605,6 +1678,7 @@ function renderCards(participant) {
         ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
         <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
         <div class="card-actions">
+          <button type="button" data-use-card="${card.id || ''}">Use</button>
           <button type="button" data-export-card="${card.id || ''}">Export</button>
           <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove</button>
         </div>

@@ -757,6 +757,12 @@ textarea {
   color: var(--accent);
 }
 
+.set-list li button {
+  margin-left: 0.45rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+}
+
 .relic-list {
   display: flex;
   flex-direction: column;

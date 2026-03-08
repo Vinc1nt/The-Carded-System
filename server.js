@@ -84,28 +84,37 @@ const DEFAULT_GUARD_RESTORE = 3;
 const SET_LIBRARY = {
   Machine: [
     {
+      id: 'machine_3_hardened_plating',
       pieces: 3,
       effect:
         'Hardened Plating — +1 Max Shield. Guard restores +1 additional Shield (still capped).',
       modifiers: { maxShield: 1, guardRestore: 1 }
     },
     {
+      id: 'machine_5_servo_stride',
       pieces: 5,
       effect:
         'Servo Stride — Once per turn, your first 10 ft of movement costs 0 AP (first 5 ft in Difficult Terrain).',
       modifiers: {}
     },
     {
+      id: 'machine_7_auto_loader',
       pieces: 7,
       effect:
         'Auto-Loader — After you play a Machine card, your next Machine Attack this turn costs 1 less AP (min 1).',
       modifiers: {}
     },
     {
+      id: 'machine_10_overclock_protocol',
       pieces: 10,
       effect:
         'Overclock Protocol (1/combat) — Gain +2 AP and +1 damage to Machine Attacks this turn; end of turn become Weakened 1.',
-      modifiers: { apMax: 0 }
+      modifiers: {},
+      activatable: {
+        id: 'overclock_protocol',
+        limit: 'once_per_combat',
+        timing: 'start_of_turn'
+      }
     }
   ],
   Elemental: [],
@@ -376,12 +385,33 @@ async function handleApi(req, res, pathname, method) {
       return sendJson(res, result);
     }
 
+    if (method === 'POST' && pathname === '/api/actions/card') {
+      const body = await readBody(req);
+      const result = executeCardAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/set/activate') {
+      const body = await readBody(req);
+      const result = activateSetBonusAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
     if (method === 'POST' && pathname === '/api/actions/custom') {
       const body = await readBody(req);
       const participant = resolveActor(body.actorId);
       const text = body.text?.trim();
       if (!text) {
         return sendJson(res, { error: 'Missing text' }, 400);
+      }
+      if (participant) {
+        markTurnActionTaken(participant);
       }
       pushLog(text, participant?.id || null);
       touchState();
@@ -526,6 +556,10 @@ async function handleApi(req, res, pathname, method) {
 function startEncounter(startingRound = 1) {
   trackerState.encounter.round = Number(startingRound) || 1;
   trackerState.encounter.started = true;
+  trackerState.encounter.participants.forEach((participant) => {
+    resetSetCombatState(participant);
+    participant.turnActionCount = 0;
+  });
   ensureCurrentIndex();
   const actor = getCurrentParticipant();
   if (actor) {
@@ -549,10 +583,18 @@ function executeStandardAction(body) {
   if (action.id === 'guard' && participant.guardUsedThisTurn) {
     return { error: 'Guard already used this turn' };
   }
-  if (participant.apCurrent < action.apCost) {
+  let apCost = action.apCost;
+  const machine = getMachineSetRuntime(participant);
+  if ((action.id === 'move' || action.id === 'move_difficult') && hasSetBonus(participant, 'Machine', 5)) {
+    if (!machine.servoStrideUsedTurn) {
+      apCost = 0;
+      machine.servoStrideUsedTurn = true;
+    }
+  }
+  if (participant.apCurrent < apCost) {
     return { error: 'Not enough AP' };
   }
-  participant.apCurrent = Math.max(0, participant.apCurrent - action.apCost);
+  participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
   if (action.id === 'guard') {
     const before = participant.shield;
     const restoreAmount = participant.guardRestore ?? DEFAULT_GUARD_RESTORE;
@@ -578,12 +620,113 @@ function executeStandardAction(body) {
       pushLog(`${participant.name} attempts to recover but has no eligible stacks.`, participant.id);
     }
   } else {
-    const text = `${participant.name} ${action.logText}`;
+    const extra =
+      (action.id === 'move' || action.id === 'move_difficult') && apCost === 0
+        ? ' (Servo Stride: free movement)'
+        : '';
+    const text = `${participant.name} ${action.logText}${extra}`;
     pushLog(text, participant.id);
   }
+  markTurnActionTaken(participant);
   touchState();
   broadcastState('standard_action');
-  return { participant, action };
+  return { participant, action: { ...action, appliedApCost: apCost } };
+}
+
+function executeCardAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const cardId = String(body.cardId || '').trim();
+  if (!cardId) {
+    return { error: 'cardId is required' };
+  }
+  const card = (participant.cards || []).find((entry) => String(entry.id) === cardId);
+  if (!card) {
+    return { error: 'Card not found' };
+  }
+  const baseCost = Math.max(0, Number(card.apCost || 0));
+  let apCost = baseCost;
+  const machine = getMachineSetRuntime(participant);
+  const notes = [];
+
+  if (hasSetBonus(participant, 'Machine', 7) && machine.autoLoaderPrimed && isMachineAttackCard(card)) {
+    const discounted = Math.max(1, apCost - 1);
+    if (discounted < apCost) {
+      apCost = discounted;
+      machine.autoLoaderPrimed = false;
+      machine.autoLoaderDiscountUsedTurn = true;
+      notes.push('Auto-Loader discount applied (-1 AP).');
+    }
+  }
+
+  if (participant.apCurrent < apCost) {
+    return { error: 'Not enough AP' };
+  }
+  participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
+
+  let machineAttackBonus = 0;
+  if (machine.overclockActiveTurn && isMachineAttackCard(card)) {
+    machineAttackBonus = 1;
+    notes.push('Overclock Protocol adds +1 Machine Attack damage this turn.');
+  }
+
+  if (hasSetBonus(participant, 'Machine', 7) && isMachineCard(card) && !machine.autoLoaderTriggeredTurn) {
+    machine.autoLoaderPrimed = true;
+    machine.autoLoaderTriggeredTurn = true;
+    notes.push('Auto-Loader primed for your next Machine Attack this turn.');
+  }
+
+  markTurnActionTaken(participant);
+  const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+  const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+  pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+    cardId: card.id,
+    apCost,
+    baseCost,
+    machineAttackBonus
+  });
+  touchState();
+  broadcastState('card_action');
+  return { participant, card, apCost, baseCost, machineAttackBonus };
+}
+
+function activateSetBonusAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const setName = String(body.set || '').trim().toLowerCase();
+  const abilityId = String(body.abilityId || '').trim().toLowerCase();
+  if (setName !== 'machine' || abilityId !== 'overclock_protocol') {
+    return { error: 'Unsupported set ability' };
+  }
+  if (!hasSetBonus(participant, 'Machine', 10)) {
+    return { error: 'Machine 10-piece bonus is not active' };
+  }
+  const current = getCurrentParticipant();
+  if (!current || current.id !== participant.id) {
+    return { error: 'Overclock Protocol can only be activated on your turn' };
+  }
+  const machine = getMachineSetRuntime(participant);
+  if (machine.overclockUsedCombat) {
+    return { error: 'Overclock Protocol already used this combat' };
+  }
+  if (!machine.overclockWindowOpen || Number(participant.turnActionCount || 0) > 0) {
+    return { error: 'Overclock Protocol must be activated at the start of turn' };
+  }
+  machine.overclockUsedCombat = true;
+  machine.overclockActiveTurn = true;
+  machine.overclockWindowOpen = false;
+  participant.apCurrent += 2;
+  pushLog(
+    `${participant.name} activates Overclock Protocol (+2 AP, Machine Attacks +1 damage this turn).`,
+    participant.id
+  );
+  touchState();
+  broadcastState('set_bonus_activated');
+  return { participant };
 }
 
 function applyAdjustment(participant, adjustment) {
@@ -690,6 +833,9 @@ function sanitizeParticipantUpdate(body, current) {
   if (Array.isArray(body.vulnerabilities)) {
     update.vulnerabilities = normalizeDamageTypes(body.vulnerabilities);
   }
+  if (body.setRuntime && typeof body.setRuntime === 'object') {
+    update.setRuntime = normalizeSetRuntime(body.setRuntime);
+  }
   return update;
 }
 
@@ -740,6 +886,8 @@ function createParticipant(body = {}) {
     savingThrows: normalizeSavingThrows(body.savingThrows),
     skills: normalizeSkills(body.skills),
     relics: normalizeRelics(body.relics),
+    turnActionCount: Number.isFinite(Number(body.turnActionCount)) ? Math.max(0, Number(body.turnActionCount)) : 0,
+    setRuntime: normalizeSetRuntime(body.setRuntime),
     guardUsedThisTurn: false,
     guardRestore: baseStats.guardRestore,
     damageBonus: baseStats.damageBonus,
@@ -783,6 +931,11 @@ function advanceTurn(direction = 1) {
   const list = trackerState.encounter.participants;
   if (!list.length) return;
   const previousIndex = trackerState.encounter.currentIndex;
+  if (direction > 0 && previousIndex >= 0 && previousIndex < list.length) {
+    const previousActor = list[previousIndex];
+    const endEvents = applyEndOfTurnSetEffects(previousActor);
+    endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+  }
   if (previousIndex === -1) {
     trackerState.encounter.currentIndex = 0;
   } else {
@@ -809,6 +962,8 @@ function advanceTurn(direction = 1) {
 function resetTurn(participant, options = {}) {
   participant.apCurrent = participant.apMax;
   participant.guardUsedThisTurn = false;
+  participant.turnActionCount = 0;
+  resetSetTurnState(participant);
   if (options.applyStatusTick) {
     return applyStartOfTurnStatusEffects(participant);
   }
@@ -1562,6 +1717,95 @@ function resolveJournalTargets(body = {}) {
   return participant ? [participant] : [];
 }
 
+function normalizeSetRuntime(runtime = {}) {
+  const source = runtime && typeof runtime === 'object' ? runtime : {};
+  const machine = source.machine && typeof source.machine === 'object' ? source.machine : {};
+  return {
+    machine: {
+      servoStrideUsedTurn: Boolean(machine.servoStrideUsedTurn),
+      autoLoaderPrimed: Boolean(machine.autoLoaderPrimed),
+      autoLoaderTriggeredTurn: Boolean(machine.autoLoaderTriggeredTurn),
+      autoLoaderDiscountUsedTurn: Boolean(machine.autoLoaderDiscountUsedTurn),
+      overclockUsedCombat: Boolean(machine.overclockUsedCombat),
+      overclockActiveTurn: Boolean(machine.overclockActiveTurn),
+      overclockWindowOpen: Boolean(machine.overclockWindowOpen)
+    }
+  };
+}
+
+function ensureSetRuntime(participant) {
+  participant.setRuntime = normalizeSetRuntime(participant.setRuntime);
+  return participant.setRuntime;
+}
+
+function getMachineSetRuntime(participant) {
+  return ensureSetRuntime(participant).machine;
+}
+
+function getSetCardCount(participant, setName) {
+  return (participant.cards || []).reduce((count, card) => {
+    if (String(card?.set || '').toLowerCase() !== String(setName).toLowerCase()) return count;
+    return count + 1;
+  }, 0);
+}
+
+function hasSetBonus(participant, setName, pieces) {
+  return getSetCardCount(participant, setName) >= pieces;
+}
+
+function isMachineCard(card) {
+  return String(card?.set || '').toLowerCase() === 'machine';
+}
+
+function isMachineAttackCard(card) {
+  if (!isMachineCard(card)) return false;
+  const type = String(card?.type || '').toLowerCase();
+  if (type.includes('attack')) return true;
+  const tags = Array.isArray(card?.tags)
+    ? card.tags.map((tag) => String(tag).toLowerCase())
+    : [];
+  return tags.includes('attack') || tags.includes('melee') || tags.includes('ranged');
+}
+
+function resetSetTurnState(participant) {
+  const machine = getMachineSetRuntime(participant);
+  machine.servoStrideUsedTurn = false;
+  machine.autoLoaderPrimed = false;
+  machine.autoLoaderTriggeredTurn = false;
+  machine.autoLoaderDiscountUsedTurn = false;
+  machine.overclockActiveTurn = false;
+  machine.overclockWindowOpen = hasSetBonus(participant, 'Machine', 10) && !machine.overclockUsedCombat;
+}
+
+function resetSetCombatState(participant) {
+  const machine = getMachineSetRuntime(participant);
+  machine.overclockUsedCombat = false;
+  machine.overclockActiveTurn = false;
+  machine.overclockWindowOpen = false;
+  machine.servoStrideUsedTurn = false;
+  machine.autoLoaderPrimed = false;
+  machine.autoLoaderTriggeredTurn = false;
+  machine.autoLoaderDiscountUsedTurn = false;
+}
+
+function markTurnActionTaken(participant) {
+  participant.turnActionCount = Math.max(0, Number(participant.turnActionCount || 0)) + 1;
+  const machine = getMachineSetRuntime(participant);
+  machine.overclockWindowOpen = false;
+}
+
+function applyEndOfTurnSetEffects(participant) {
+  const events = [];
+  const machine = getMachineSetRuntime(participant);
+  if (machine.overclockActiveTurn) {
+    machine.overclockActiveTurn = false;
+    addStatusStacks(participant, 'weakened', 1);
+    events.push('overclock ends and gains Weakened 1.');
+  }
+  machine.overclockWindowOpen = false;
+  return events;
+}
+
 function ensureBaseStats(participant) {
   if (!participant.baseStats) {
     participant.baseStats = {
@@ -1611,10 +1855,12 @@ function computeSetBonuses(participant) {
       if (count >= bonus.pieces) {
         const modifiers = normalizeModifiers(bonus.modifiers);
         appliedBonuses.push({
+          id: bonus.id || `${setName.toLowerCase()}_${bonus.pieces}`,
           set: setName,
           pieces: bonus.pieces,
           effect: bonus.effect,
-          modifiers
+          modifiers,
+          activatable: bonus.activatable || null
         });
         addModifierTotals(totals, modifiers);
       }
@@ -1625,6 +1871,7 @@ function computeSetBonuses(participant) {
 
 function recalculateParticipant(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
+  const setRuntime = ensureSetRuntime(participant);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
   participant.inventory = normalizeInventoryEntries(participant.inventory);
   participant.quests = normalizeJournalEntries(participant.quests, 'quest');
@@ -1664,6 +1911,20 @@ function recalculateParticipant(participant) {
   }
   const { appliedBonuses, setTotals } = computeSetBonuses(participant);
   addModifierTotals(totals, setTotals);
+
+  if (!hasSetBonus(participant, 'Machine', 5)) {
+    setRuntime.machine.servoStrideUsedTurn = false;
+  }
+  if (!hasSetBonus(participant, 'Machine', 7)) {
+    setRuntime.machine.autoLoaderPrimed = false;
+    setRuntime.machine.autoLoaderTriggeredTurn = false;
+    setRuntime.machine.autoLoaderDiscountUsedTurn = false;
+  }
+  if (!hasSetBonus(participant, 'Machine', 10)) {
+    setRuntime.machine.overclockUsedCombat = false;
+    setRuntime.machine.overclockActiveTurn = false;
+    setRuntime.machine.overclockWindowOpen = false;
+  }
 
   participant.apMax = Math.max(1, Math.round((base.apMax ?? 0) + totals.apMax));
   participant.apCurrent = clampNumber(

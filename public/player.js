@@ -1251,6 +1251,8 @@ function renderSetTracker(participant) {
           (bonus) => `
             <li class="${count >= bonus.pieces ? 'active' : ''}">
               ${bonus.pieces} pcs — ${bonus.effect || summarizeModifiers(bonus.modifiers || {})}
+              ${count >= bonus.pieces ? renderPlayerSetBonusStatus(setName, bonus, participant) : ''}
+              ${count >= bonus.pieces ? renderPlayerSetActivationButton(setName, bonus, participant) : ''}
             </li>`
         )
         .join('');
@@ -1264,6 +1266,46 @@ function renderSetTracker(participant) {
         </div>`;
     })
     .join('');
+}
+
+function renderPlayerSetBonusStatus(setName, bonus, participant) {
+  if (String(setName).toLowerCase() !== 'machine') return '';
+  const machine = participant.setRuntime?.machine || {};
+  if (bonus.id === 'machine_5_servo_stride') {
+    return ` <small class="muted">[${machine.servoStrideUsedTurn ? 'Used this turn' : 'Ready'}]</small>`;
+  }
+  if (bonus.id === 'machine_7_auto_loader') {
+    if (machine.autoLoaderPrimed) {
+      return ' <small class="muted">[Primed]</small>';
+    }
+    return ` <small class="muted">[${machine.autoLoaderTriggeredTurn ? 'Triggered this turn' : 'Ready'}]</small>`;
+  }
+  if (bonus.id === 'machine_10_overclock_protocol') {
+    if (machine.overclockUsedCombat) {
+      return ' <small class="muted">[Used this combat]</small>';
+    }
+    if (machine.overclockActiveTurn) {
+      return ' <small class="muted">[Active this turn]</small>';
+    }
+    return ` <small class="muted">[${machine.overclockWindowOpen ? 'Ready (start of turn)' : 'Not ready'}]</small>`;
+  }
+  return '';
+}
+
+function renderPlayerSetActivationButton(setName, bonus, participant) {
+  if (!bonus?.activatable?.id) return '';
+  if (String(setName).toLowerCase() !== 'machine') return '';
+  const canActivate = canPlayerActivateSetBonus(bonus, participant);
+  const disabled = canActivate ? '' : ' disabled';
+  return ` <button type="button" data-player-activate-set="${bonus.activatable.id}"${disabled}>Activate</button>`;
+}
+
+function canPlayerActivateSetBonus(bonus, participant) {
+  if (!bonus?.activatable?.id || bonus.activatable.id !== 'overclock_protocol') return false;
+  const machine = participant.setRuntime?.machine || {};
+  const current = getCurrentParticipant();
+  const isCurrent = current?.id === participant.id;
+  return isCurrent && !machine.overclockUsedCombat && machine.overclockWindowOpen && !(participant.turnActionCount > 0);
 }
 
 function renderPlayerStatusForm() {
@@ -1321,6 +1363,7 @@ function renderCards() {
             ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
             <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
             <div class="card-actions">
+              <button type="button" data-player-use-card="${card.id}">Use</button>
               <button type="button" data-player-export-card="${card.id}">Export Card</button>
             </div>
           </article>`
@@ -1331,6 +1374,7 @@ function renderCards() {
   renderInventory(participant);
   wirePlayerCardForm();
   wirePlayerCardImports();
+  wirePlayerCardUses(participant);
   wirePlayerCardExports(participant);
 }
 
@@ -1347,6 +1391,27 @@ function wirePlayerCardExports(participant) {
         return;
       }
       downloadJson(card, `${slugify(participant?.name || 'card')}-${slugify(card.name)}.json`);
+    };
+  });
+}
+
+function wirePlayerCardUses(participant) {
+  if (!participant) return;
+  const listEl = document.getElementById('playerCardList');
+  if (!listEl) return;
+  listEl.querySelectorAll('[data-player-use-card]').forEach((button) => {
+    button.onclick = async () => {
+      const cardId = button.dataset.playerUseCard;
+      if (!cardId) return;
+      try {
+        await api('/api/actions/card', 'POST', {
+          participantId: participant.id,
+          cardId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
     };
   });
 }
@@ -1570,6 +1635,21 @@ function wirePlayerSheetEvents(participant) {
   const panel = els.stats;
   panel.querySelectorAll('[data-player-standard]').forEach((button) => {
     button.onclick = () => handlePlayerStandardAction(button.dataset.playerStandard);
+  });
+  panel.querySelectorAll('[data-player-activate-set]').forEach((button) => {
+    button.onclick = async () => {
+      if (button.disabled) return;
+      try {
+        await api('/api/set/activate', 'POST', {
+          participantId: participant.id,
+          set: 'Machine',
+          abilityId: button.dataset.playerActivateSet
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    };
   });
   panel.querySelectorAll('[data-inline-adjust]').forEach((button) => {
     button.onclick = () => {
