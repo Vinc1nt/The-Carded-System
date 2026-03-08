@@ -1869,7 +1869,7 @@ function renderCards(participant) {
         <p>Set: <strong>${card.set || '—'}</strong> · AP ${card.apCost || 0}</p>
         <p>Damage: ${getCardDisplayDamage(card)} ${card.damageType || ''}</p>
         <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
-        <p>${card.effect || ''}</p>
+        ${renderCardEffectLine(card)}
         ${card.mastery?.length ? `<p>Mastery: ${card.mastery.join(' / ')}</p>` : ''}
         ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
         <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
@@ -1902,6 +1902,22 @@ function renderParticipantTargetOptions(actorId) {
     .filter((entry) => entry.id !== actorId)
     .map((entry) => `<option value="${entry.id}">${entry.name}</option>`)
     .join('');
+}
+
+function renderCardEffectLine(card = {}) {
+  const effect = String(card.effect || '').trim();
+  if (!effect) return '';
+  if (isRedundantDamageEffect(card, effect)) return '';
+  return `<p>${effect}</p>`;
+}
+
+function isRedundantDamageEffect(card = {}, effectText = '') {
+  const normalized = effectText.toLowerCase().replace(/\s+/g, ' ').trim();
+  const plainDamagePattern = /^deal\s+\d*\s*[a-z]+\s+damage\.?$/;
+  if (!plainDamagePattern.test(normalized)) return false;
+  const damageType = String(card.damageType || '').toLowerCase().trim();
+  if (!damageType) return false;
+  return normalized.includes(damageType);
 }
 
 function getCardDisplayDamage(card = {}) {
