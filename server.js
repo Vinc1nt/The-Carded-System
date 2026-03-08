@@ -642,10 +642,11 @@ function executeCardAction(body) {
   if (!cardId) {
     return { error: 'cardId is required' };
   }
-  const card = (participant.cards || []).find((entry) => String(entry.id) === cardId);
-  if (!card) {
+  const cardIndex = (participant.cards || []).findIndex((entry) => String(entry.id) === cardId);
+  if (cardIndex === -1) {
     return { error: 'Card not found' };
   }
+  const card = participant.cards[cardIndex];
   const baseCost = Math.max(0, Number(card.apCost || 0));
   let apCost = baseCost;
   const machine = getMachineSetRuntime(participant);
@@ -664,12 +665,31 @@ function executeCardAction(body) {
   if (participant.apCurrent < apCost) {
     return { error: 'Not enough AP' };
   }
-  participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   let machineAttackBonus = 0;
   if (machine.overclockActiveTurn && isMachineAttackCard(card)) {
     machineAttackBonus = 1;
-    notes.push('Overclock Protocol adds +1 Machine Attack damage this turn.');
+    notes.push('Overclock +1 Machine Attack damage.');
+  }
+
+  const damageType = String(card.damageType || '').trim();
+  const baseDamage = getCardDamageAtCurrentMastery(card);
+  const rawDamage = Math.max(0, baseDamage + (participant.damageBonus || 0) + machineAttackBonus);
+
+  const targetId = String(body.targetId || '').trim();
+  const target = targetId ? findParticipant(targetId) : null;
+  if (rawDamage > 0 && !target) {
+    return { error: 'Target is required for damaging cards' };
+  }
+  if (targetId && !target) {
+    return { error: 'Target not found' };
+  }
+
+  participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
+
+  let damageResult = null;
+  if (target && rawDamage > 0) {
+    damageResult = applyCardDamageWithType(target, rawDamage, damageType);
   }
 
   if (hasSetBonus(participant, 'Machine', 7) && isMachineCard(card) && !machine.autoLoaderTriggeredTurn) {
@@ -678,18 +698,52 @@ function executeCardAction(body) {
     notes.push('Auto-Loader primed for your next Machine Attack this turn.');
   }
 
+  card.masteryUses = Math.max(0, Number(card.masteryUses || 0)) + 1;
+  const thresholds = normalizeCardThresholds(card.masteryThresholds);
+  const beforeLevel = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  let afterLevel = beforeLevel;
+  if (card.masteryUses >= thresholds.level2) {
+    afterLevel = Math.max(afterLevel, 2);
+  }
+  if (card.masteryUses >= thresholds.level3) {
+    afterLevel = Math.max(afterLevel, 3);
+  }
+  card.masteryLevel = Math.max(1, Math.min(3, afterLevel));
+  if (afterLevel > beforeLevel) {
+    notes.push(`Mastery increased to Level ${afterLevel}.`);
+  }
+
   markTurnActionTaken(participant);
   const noteText = notes.length ? ` ${notes.join(' ')}` : '';
   const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
-  pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+  const targetText = damageResult
+    ? ` ${target.name} takes ${damageResult.finalDamage} ${damageType || 'damage'} (${damageResult.shieldDamage} Shield, ${damageResult.hpDamage} HP).`
+    : '';
+  const mitigationText = damageResult
+    ? ` ${damageResult.resisted && !damageResult.vulnerable ? '[Resisted]' : ''}${damageResult.vulnerable && !damageResult.resisted ? '[Vulnerable]' : ''}`.trim()
+    : '';
+  const mitigationSuffix = mitigationText ? ` ${mitigationText}` : '';
+  pushLog(`${participant.name} plays ${card.name} (${costText}).${targetText}${mitigationSuffix}${noteText}`, participant.id, {
     cardId: card.id,
     apCost,
     baseCost,
-    machineAttackBonus
+    machineAttackBonus,
+    targetId: target?.id || null,
+    damageType,
+    rawDamage,
+    finalDamage: damageResult?.finalDamage ?? 0
   });
   touchState();
   broadcastState('card_action');
-  return { participant, card, apCost, baseCost, machineAttackBonus };
+  return {
+    participant,
+    card,
+    apCost,
+    baseCost,
+    machineAttackBonus,
+    target,
+    damageResult
+  };
 }
 
 function activateSetBonusAction(body) {
@@ -791,7 +845,7 @@ function sanitizeParticipantUpdate(body, current) {
   if (typeof body.name === 'string') update.name = body.name;
   if (typeof body.setFocus === 'string') update.setFocus = body.setFocus;
   if (typeof body.notes === 'string') update.notes = body.notes;
-  if (Array.isArray(body.cards)) update.cards = body.cards;
+  if (Array.isArray(body.cards)) update.cards = normalizeCards(body.cards);
   if (Array.isArray(body.tags)) update.tags = body.tags;
   if (Array.isArray(body.statuses)) update.statuses = body.statuses;
   if (Array.isArray(body.abilities)) {
@@ -862,7 +916,7 @@ function createParticipant(body = {}) {
     shield: typeof body.shield === 'number' ? body.shield : maxShield,
     maxShield,
     mastery: typeof body.mastery === 'number' ? body.mastery : 1,
-    cards: Array.isArray(body.cards) ? body.cards : [],
+    cards: normalizeCards(body.cards),
     tags: Array.isArray(body.tags) ? body.tags : [],
     statuses: Array.isArray(body.statuses) ? body.statuses : [],
     abilities: normalizeAbilityEntries(body.abilities),
@@ -1501,6 +1555,138 @@ function normalizeRelics(list) {
   }));
 }
 
+function normalizeCardThresholds(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const level2Raw = Number(source.level2 ?? source.to2 ?? 25);
+  const level2 = Number.isFinite(level2Raw) ? Math.max(1, Math.round(level2Raw)) : 25;
+  const level3Raw = Number(source.level3 ?? source.to3 ?? 55);
+  const level3Candidate = Number.isFinite(level3Raw) ? Math.round(level3Raw) : 55;
+  const level3 = Math.max(level2 + 1, level3Candidate);
+  return { level2, level3 };
+}
+
+function normalizeCardDamageByLevel(value, fallbackDamage = 0) {
+  const base = Math.max(0, Number(fallbackDamage || 0));
+  const source = value && typeof value === 'object' ? value : {};
+  const level1 = Number.isFinite(Number(source[1] ?? source.level1))
+    ? Math.max(0, Number(source[1] ?? source.level1))
+    : base;
+  const level2 = Number.isFinite(Number(source[2] ?? source.level2))
+    ? Math.max(0, Number(source[2] ?? source.level2))
+    : level1;
+  const level3 = Number.isFinite(Number(source[3] ?? source.level3))
+    ? Math.max(0, Number(source[3] ?? source.level3))
+    : level2;
+  return { 1: level1, 2: level2, 3: level3 };
+}
+
+function autoCardDamageType(card = {}) {
+  if (card.damageType) return String(card.damageType).trim();
+  const tags = Array.isArray(card.tags) ? card.tags : [];
+  const candidates = ['Acid', 'Bludgeoning', 'Cold', 'Fire', 'Force', 'Lightning', 'Necrotic', 'Piercing', 'Poison', 'Psychic', 'Radiant', 'Slashing', 'Thunder'];
+  for (const candidate of candidates) {
+    if (tags.find((tag) => String(tag).toLowerCase() === candidate.toLowerCase())) {
+      return candidate;
+    }
+  }
+  return '';
+}
+
+function normalizeCards(list = []) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((card, index) => {
+      if (!card || typeof card !== 'object') return null;
+      const thresholds = normalizeCardThresholds(card.masteryThresholds);
+      const masteryUsesRaw = Number(card.masteryUses ?? card.uses ?? 0);
+      const masteryUses = Number.isFinite(masteryUsesRaw) ? Math.max(0, Math.round(masteryUsesRaw)) : 0;
+      const masteryLevelRaw = Number(card.masteryLevel ?? card.level ?? 1);
+      let masteryLevel = Number.isFinite(masteryLevelRaw) ? Math.max(1, Math.min(3, Math.round(masteryLevelRaw))) : 1;
+      const impliedLevel = masteryUses >= thresholds.level3 ? 3 : masteryUses >= thresholds.level2 ? 2 : 1;
+      masteryLevel = Math.max(masteryLevel, impliedLevel);
+
+      const damageRaw = Number(card.damage ?? card.baseDamage ?? 0);
+      const damage = Number.isFinite(damageRaw) ? Math.max(0, Math.round(damageRaw)) : 0;
+      const damageByLevel = normalizeCardDamageByLevel(card.masteryDamageByLevel, damage);
+
+      return {
+        ...card,
+        id: card.id || randomUUID(),
+        name: String(card.name || `Card ${index + 1}`).trim(),
+        set: String(card.set || '').trim(),
+        type: String(card.type || 'Attack').trim(),
+        tier: String(card.tier || 'Common').trim(),
+        apCost: Number.isFinite(Number(card.apCost)) ? Number(card.apCost) : 0,
+        range: Number.isFinite(Number(card.range)) ? Number(card.range) : 0,
+        healthBonus: Number.isFinite(Number(card.healthBonus)) ? Number(card.healthBonus) : 0,
+        tags: Array.isArray(card.tags)
+          ? card.tags.map((tag) => String(tag).trim()).filter(Boolean)
+          : String(card.tags || '')
+              .split(',')
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+        effect: String(card.effect || '').trim(),
+        mastery: Array.isArray(card.mastery)
+          ? card.mastery.map((line) => String(line).trim()).filter(Boolean)
+          : String(card.mastery || '')
+              .split(/\n|,/)
+              .map((line) => line.trim())
+              .filter(Boolean),
+        fusion: String(card.fusion || '').trim(),
+        modifiers: normalizeModifiers(card.modifiers || {}),
+        damage,
+        damageType: autoCardDamageType(card),
+        masteryLevel,
+        masteryUses,
+        masteryThresholds: thresholds,
+        masteryDamageByLevel: damageByLevel
+      };
+    })
+    .filter(Boolean);
+}
+
+function getCardDamageAtCurrentMastery(card) {
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const byLevel = normalizeCardDamageByLevel(card.masteryDamageByLevel, card.damage || 0);
+  if (level >= 3) return byLevel[3];
+  if (level >= 2) return byLevel[2];
+  return byLevel[1];
+}
+
+function hasDamageTypeEntry(list = [], type = '') {
+  const target = String(type || '').trim().toLowerCase();
+  if (!target) return false;
+  return (list || []).some((entry) => String(entry || '').trim().toLowerCase() === target);
+}
+
+function applyCardDamageWithType(target, rawDamage, damageType = '') {
+  const baseDamage = Math.max(0, Number(rawDamage || 0));
+  const resisted = hasDamageTypeEntry(target.resistances, damageType);
+  const vulnerable = hasDamageTypeEntry(target.vulnerabilities, damageType);
+  let finalDamage = baseDamage;
+  if (resisted && !vulnerable) {
+    finalDamage = Math.floor(baseDamage / 2);
+  } else if (vulnerable && !resisted) {
+    finalDamage = baseDamage * 2;
+  }
+  const shieldBefore = target.shield;
+  const hpBefore = target.hp;
+  const shieldDamage = Math.min(target.shield, finalDamage);
+  target.shield = Math.max(0, target.shield - shieldDamage);
+  const hpDamage = Math.max(0, finalDamage - shieldDamage);
+  target.hp = Math.max(0, target.hp - hpDamage);
+  return {
+    baseDamage,
+    finalDamage,
+    shieldDamage,
+    hpDamage,
+    resisted,
+    vulnerable,
+    shieldBefore,
+    hpBefore
+  };
+}
+
 function normalizeDamageTypes(list = []) {
   if (!Array.isArray(list)) return [];
   const normalized = [];
@@ -1872,6 +2058,7 @@ function computeSetBonuses(participant) {
 function recalculateParticipant(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const setRuntime = ensureSetRuntime(participant);
+  participant.cards = normalizeCards(participant.cards);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
   participant.inventory = normalizeInventoryEntries(participant.inventory);
   participant.quests = normalizeJournalEntries(participant.quests, 'quest');

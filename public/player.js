@@ -75,6 +75,18 @@ function wireSelect() {
 
 function wirePlayerCardForm() {
   const form = document.getElementById('playerCardForm');
+  const autoHammerButton = document.getElementById('playerAddAutoHammer');
+  autoHammerButton && (autoHammerButton.onclick = async () => {
+    const participant = getFocusedParticipant();
+    if (!participant) {
+      notify('Select a combatant first.');
+      return;
+    }
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const updatedCards = [...(latest?.cards || []), buildAutoHammerCard()];
+    await patchParticipant(participant.id, { cards: updatedCards });
+    fetchState();
+  });
   if (!form) return;
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -509,6 +521,7 @@ function renderPlayerCardsSection() {
             </label>
             <p class="muted help-text">Upload single cards or a {"cards": []} deck file.</p>
           </div>
+          <button type="button" id="playerAddAutoHammer">Add Auto Hammer</button>
           <form id="playerCardForm" class="stacked-form">
             <div class="form-row">
               <label>Name
@@ -530,6 +543,14 @@ function renderPlayerCardsSection() {
               </label>
               <label>Health Bonus
                 <input type="number" name="healthBonus" value="0" />
+              </label>
+              <label>Damage
+                <input type="number" name="damage" value="0" />
+              </label>
+              <label>Damage Type
+                <select name="damageType">
+                  ${renderDamageTypeOptions(true)}
+                </select>
               </label>
             </div>
             <div class="form-row">
@@ -557,6 +578,14 @@ function renderPlayerCardsSection() {
             <label>Effect
               <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
             </label>
+            <div class="form-row">
+              <label>Mastery to L2 uses
+                <input type="number" name="masteryTo2" value="25" min="1" />
+              </label>
+              <label>Mastery to L3 uses
+                <input type="number" name="masteryTo3" value="55" min="2" />
+              </label>
+            </div>
             <button type="submit">Add Card</button>
           </form>
         </details>
@@ -1356,12 +1385,27 @@ function renderCards() {
             <h4>${card.name} <small>${card.tier || ''} ${card.type || ''}</small></h4>
             <p>Set: <strong>${card.set || '—'}</strong></p>
             <p>AP ${card.apCost || 0} · Range ${card.range || 0} ft · HP +${card.healthBonus || 0}</p>
+            <p>Damage: ${getCardDisplayDamage(card)} ${card.damageType || ''}</p>
             <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
             <p>${card.effect || ''}</p>
             ${card.mastery?.length ? `<p>Mastery: ${card.mastery.join(' / ')}</p>` : ''}
             ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
             ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
+            <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
             <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
+            <label>Target
+              <select data-player-card-target="${card.id}">
+                <option value="">Select target…</option>
+                ${renderPlayerTargetOptions(participant.id)}
+              </select>
+            </label>
+            <label>Set Mastery
+              <select data-player-card-mastery="${card.id}" data-player-card-index="${index}">
+                <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
+                <option value="2" ${Number(card.masteryLevel || 1) === 2 ? 'selected' : ''}>Level 2</option>
+                <option value="3" ${Number(card.masteryLevel || 1) >= 3 ? 'selected' : ''}>Level 3</option>
+              </select>
+            </label>
             <div class="card-actions">
               <button type="button" data-player-use-card="${card.id}">Use</button>
               <button type="button" data-player-export-card="${card.id}">Export Card</button>
@@ -1376,6 +1420,26 @@ function renderCards() {
   wirePlayerCardImports();
   wirePlayerCardUses(participant);
   wirePlayerCardExports(participant);
+}
+
+function renderPlayerTargetOptions(actorId) {
+  return (state.encounter.participants || [])
+    .filter((entry) => entry.id !== actorId)
+    .map((entry) => `<option value="${entry.id}">${entry.name}</option>`)
+    .join('');
+}
+
+function getCardDisplayDamage(card = {}) {
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const byLevel = card.masteryDamageByLevel || {};
+  const base = Number(card.damage || 0);
+  const levelDamage = Number(
+    byLevel[level] ??
+      byLevel[`level${level}`] ??
+      (level >= 3 ? byLevel[3] ?? byLevel.level3 : level >= 2 ? byLevel[2] ?? byLevel.level2 : byLevel[1] ?? byLevel.level1) ??
+      base
+  );
+  return Number.isFinite(levelDamage) ? Math.max(0, Math.round(levelDamage)) : Math.max(0, Math.round(base));
 }
 
 function wirePlayerCardExports(participant) {
@@ -1403,15 +1467,33 @@ function wirePlayerCardUses(participant) {
     button.onclick = async () => {
       const cardId = button.dataset.playerUseCard;
       if (!cardId) return;
+      const article = button.closest('.card-item');
+      const targetId = article?.querySelector(`[data-player-card-target="${cardId}"]`)?.value || '';
       try {
         await api('/api/actions/card', 'POST', {
           participantId: participant.id,
-          cardId
+          cardId,
+          targetId
         });
         fetchState();
       } catch (err) {
         notify(err.message);
       }
+    };
+  });
+  listEl.querySelectorAll('[data-player-card-mastery]').forEach((select) => {
+    select.onchange = async () => {
+      const cardId = select.dataset.playerCardMastery;
+      const fallbackIndex = Number(select.dataset.playerCardIndex);
+      const level = Number(select.value || 1);
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const cards = [...(latest?.cards || participant.cards || [])];
+      let idx = cards.findIndex((entry) => cardId && entry.id === cardId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= cards.length) return;
+      cards[idx] = applyManualMastery(cards[idx], level);
+      await patchParticipant(participant.id, { cards });
+      fetchState();
     };
   });
 }
@@ -1932,9 +2014,15 @@ function buildPlayerCardFromForm(formData) {
     tier: formData.get('tier') || 'Common',
     apCost: formData.get('apCost'),
     range: formData.get('range'),
+    damage: formData.get('damage'),
+    damageType: formData.get('damageType'),
     tags: formData.get('tags') || '',
     effect: formData.get('effect') || '',
     healthBonus: formData.get('healthBonus'),
+    masteryThresholds: {
+      level2: formData.get('masteryTo2'),
+      level3: formData.get('masteryTo3')
+    },
     modifiers: {
       maxHp: formData.get('modMaxHp'),
       maxShield: formData.get('modMaxShield'),
@@ -1944,6 +2032,41 @@ function buildPlayerCardFromForm(formData) {
     }
   };
   return normalizeCardPayload(card);
+}
+
+function buildAutoHammerCard() {
+  return normalizeCardPayload({
+    name: 'Auto Hammer',
+    set: 'Machine',
+    type: 'Attack',
+    tier: 'Common',
+    healthBonus: 1,
+    apCost: 2,
+    range: 5,
+    tags: ['Bludgeoning'],
+    effect: 'Deal Bludgeoning damage.',
+    damage: 8,
+    damageType: 'Bludgeoning',
+    mastery: ['Level 1: Base', 'Level 2: Damage increases to 9', 'Level 3: Unlocks fusion eligibility'],
+    masteryThresholds: { level2: 25, level3: 55 },
+    masteryDamageByLevel: { 1: 8, 2: 9, 3: 9 }
+  });
+}
+
+function applyManualMastery(card, level) {
+  const next = { ...(card || {}) };
+  const selected = Math.max(1, Math.min(3, Number(level || 1)));
+  const thresholds = next.masteryThresholds || {};
+  const to2 = Math.max(1, Number(thresholds.level2 || 25));
+  const to3 = Math.max(to2 + 1, Number(thresholds.level3 || 55));
+  let uses = Math.max(0, Number(next.masteryUses || 0));
+  if (selected === 1) uses = Math.min(uses, to2 - 1);
+  if (selected === 2) uses = Math.max(to2, Math.min(uses, to3 - 1));
+  if (selected === 3) uses = Math.max(uses, to3);
+  next.masteryLevel = selected;
+  next.masteryUses = uses;
+  next.masteryThresholds = { level2: to2, level3: to3 };
+  return next;
 }
 
 function buildStatusFromForm(formData) {
@@ -1957,6 +2080,15 @@ function buildStatusFromForm(formData) {
 }
 
 function normalizeCardPayload(raw = {}) {
+  const masteryThresholds = {
+    level2: toNumber(raw.masteryThresholds?.level2 ?? raw.masteryTo2 ?? 25, 25),
+    level3: toNumber(raw.masteryThresholds?.level3 ?? raw.masteryTo3 ?? 55, 55)
+  };
+  masteryThresholds.level2 = Math.max(1, Math.round(masteryThresholds.level2));
+  masteryThresholds.level3 = Math.max(masteryThresholds.level2 + 1, Math.round(masteryThresholds.level3));
+  const masteryLevel = Math.max(1, Math.min(3, Math.round(toNumber(raw.masteryLevel ?? 1, 1))));
+  const masteryUses = Math.max(0, Math.round(toNumber(raw.masteryUses ?? 0, 0)));
+  const baseDamage = Math.max(0, Math.round(toNumber(raw.damage ?? raw.baseDamage ?? 0, 0)));
   return {
     id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
     name: (raw.name || 'Imported Card').trim(),
@@ -1966,6 +2098,16 @@ function normalizeCardPayload(raw = {}) {
     apCost: toNumber(raw.apCost ?? raw.ap ?? 0),
     range: toNumber(raw.range ?? 0),
     healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
+    damage: baseDamage,
+    damageType: raw.damageType || raw.damage_type || '',
+    masteryLevel,
+    masteryUses,
+    masteryThresholds,
+    masteryDamageByLevel: {
+      1: toNumber(raw.masteryDamageByLevel?.[1] ?? raw.masteryDamageByLevel?.level1 ?? raw.damageLevel1 ?? baseDamage, baseDamage),
+      2: toNumber(raw.masteryDamageByLevel?.[2] ?? raw.masteryDamageByLevel?.level2 ?? raw.damageLevel2 ?? baseDamage, baseDamage),
+      3: toNumber(raw.masteryDamageByLevel?.[3] ?? raw.masteryDamageByLevel?.level3 ?? raw.damageLevel3 ?? baseDamage, baseDamage)
+    },
     tags: normalizeTagList(raw.tags),
     effect: raw.effect || '',
     mastery: normalizeMasteryInput(raw.mastery),
