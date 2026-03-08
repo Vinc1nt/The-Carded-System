@@ -1870,7 +1870,7 @@ function renderCards(participant) {
         <p>Damage: ${getCardDisplayDamage(card)} ${card.damageType || ''}</p>
         <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
         ${renderCardEffectLine(card)}
-        ${card.mastery?.length ? `<p>Mastery: ${card.mastery.join(' / ')}</p>` : ''}
+        ${renderMasteryLines(card)}
         ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
         <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
         <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
@@ -1918,6 +1918,23 @@ function isRedundantDamageEffect(card = {}, effectText = '') {
   const damageType = String(card.damageType || '').toLowerCase().trim();
   if (!damageType) return false;
   return normalized.includes(damageType);
+}
+
+function renderMasteryLines(card = {}) {
+  const lines = Array.isArray(card.mastery) ? card.mastery : [];
+  if (!lines.length) return '';
+  const items = lines
+    .map((line) => String(line || '').trim())
+    .filter(Boolean)
+    .map((line) => `<li>${escapeHtml(line)}</li>`)
+    .join('');
+  if (!items) return '';
+  return `
+    <div class="mastery-block">
+      <strong>Mastery</strong>
+      <ul class="mastery-list">${items}</ul>
+    </div>
+  `;
 }
 
 function getCardDisplayDamage(card = {}) {
