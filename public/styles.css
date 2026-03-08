@@ -473,6 +473,16 @@ form {
   min-width: 0;
 }
 
+.preset-row {
+  align-items: flex-end;
+}
+
+.preset-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 label {
   font-size: 0.85rem;
   color: var(--muted);

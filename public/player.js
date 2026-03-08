@@ -75,18 +75,6 @@ function wireSelect() {
 
 function wirePlayerCardForm() {
   const form = document.getElementById('playerCardForm');
-  const autoHammerButton = document.getElementById('playerAddAutoHammer');
-  autoHammerButton && (autoHammerButton.onclick = async () => {
-    const participant = getFocusedParticipant();
-    if (!participant) {
-      notify('Select a combatant first.');
-      return;
-    }
-    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
-    const updatedCards = [...(latest?.cards || []), buildAutoHammerCard()];
-    await patchParticipant(participant.id, { cards: updatedCards });
-    fetchState();
-  });
   if (!form) return;
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -521,7 +509,6 @@ function renderPlayerCardsSection() {
             </label>
             <p class="muted help-text">Upload single cards or a {"cards": []} deck file.</p>
           </div>
-          <button type="button" id="playerAddAutoHammer">Add Auto Hammer</button>
           <form id="playerCardForm" class="stacked-form">
             <div class="form-row">
               <label>Name
@@ -1380,7 +1367,7 @@ function renderCards() {
     listEl.classList.remove('empty-state');
     listEl.innerHTML = cards
       .map(
-        (card) => `
+        (card, index) => `
           <article class="card-item">
             <h4>${card.name} <small>${card.tier || ''} ${card.type || ''}</small></h4>
             <p>Set: <strong>${card.set || '—'}</strong></p>
@@ -2032,25 +2019,6 @@ function buildPlayerCardFromForm(formData) {
     }
   };
   return normalizeCardPayload(card);
-}
-
-function buildAutoHammerCard() {
-  return normalizeCardPayload({
-    name: 'Auto Hammer',
-    set: 'Machine',
-    type: 'Attack',
-    tier: 'Common',
-    healthBonus: 1,
-    apCost: 2,
-    range: 5,
-    tags: ['Bludgeoning'],
-    effect: 'Deal Bludgeoning damage.',
-    damage: 8,
-    damageType: 'Bludgeoning',
-    mastery: ['Level 1: Base', 'Level 2: Damage increases to 9', 'Level 3: Unlocks fusion eligibility'],
-    masteryThresholds: { level2: 25, level3: 55 },
-    masteryDamageByLevel: { 1: 8, 2: 9, 3: 9 }
-  });
 }
 
 function applyManualMastery(card, level) {
