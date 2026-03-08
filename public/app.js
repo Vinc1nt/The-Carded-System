@@ -44,6 +44,7 @@ const state = {
 };
 
 const detailSectionState = new Map();
+const detailDrawerState = new Map();
 
 let selectedParticipantId = null;
 let eventSource;
@@ -246,6 +247,7 @@ function renderDetailPanel() {
   els.detailPanel.classList.remove('empty-state');
   const automation = participant.derivedBonuses || {};
   const base = automation.base || participant.baseStats || {};
+  const drawers = getDrawerState(participant.id);
 
   els.detailPanel.innerHTML = `
     <div class="active-header">
@@ -271,10 +273,11 @@ function renderDetailPanel() {
     ${renderMitigationSection(participant)}
     ${renderAbilitiesSection(participant)}
     ${renderActionsSection(participant)}
+    ${renderSetTrackerSection(participant)}
     ${renderJournalSection(participant)}
-    ${renderCardsSection(participant)}
-    ${renderRelicSection(participant)}
-    ${renderInventorySection(participant)}
+    ${renderCardsSection(participant, drawers)}
+    ${renderRelicSection(participant, drawers)}
+    ${renderInventorySection(participant, drawers)}
     ${renderAutomationSection(participant)}
     ${renderAdvancedSection(participant, base)}
   `;
@@ -364,8 +367,9 @@ function renderActionsSection(participant) {
   `;
 }
 
-function renderCardsSection(participant) {
+function renderCardsSection(participant, drawers = {}) {
   const cards = participant.cards || [];
+  const toolingClass = drawers.card ? 'card-tooling' : 'card-tooling hidden';
   return `
     <details class="collapsible-block" data-section="cards">
       <summary>
@@ -376,7 +380,7 @@ function renderCardsSection(participant) {
         <div class="cards-grid">
           ${renderCards(participant)}
         </div>
-        <div class="card-tooling hidden" data-card-tooling>
+        <div class="${toolingClass}" data-card-tooling>
           <div class="card-import">
             <label class="file-upload">
               Import cards (.json)
@@ -479,8 +483,9 @@ function renderCardsSection(participant) {
   `;
 }
 
-function renderRelicSection(participant) {
+function renderRelicSection(participant, drawers = {}) {
   const relics = participant.relics || [];
+  const toolingClass = drawers.relic ? 'card-tooling' : 'card-tooling hidden';
   return `
     <details class="collapsible-block" data-section="relics">
       <summary>
@@ -491,7 +496,7 @@ function renderRelicSection(participant) {
         <div class="cards-grid relic-grid">
           ${renderRelicCards(participant)}
         </div>
-        <div class="card-tooling hidden" data-relic-tooling>
+        <div class="${toolingClass}" data-relic-tooling>
           <div class="card-import">
             <label class="file-upload">
               Import relics (.json)
@@ -541,8 +546,9 @@ function renderMitigationSection(participant) {
   `;
 }
 
-function renderInventorySection(participant) {
+function renderInventorySection(participant, drawers = {}) {
   const items = participant.inventory || [];
+  const toolingClass = drawers.inventory ? 'card-tooling' : 'card-tooling hidden';
   return `
     <details class="collapsible-block" data-section="inventory">
       <summary>
@@ -553,7 +559,7 @@ function renderInventorySection(participant) {
         <div class="ability-list">
           ${renderInventoryEntries(participant)}
         </div>
-        <div class="card-tooling hidden" data-inventory-tooling>
+        <div class="${toolingClass}" data-inventory-tooling>
           <form data-form="inventory" class="stacked-form">
             <div class="form-row">
               <label>Item
@@ -626,6 +632,49 @@ function renderMitigationGroup(label, values = [], key) {
         <button type="submit">Add</button>
       </form>
     </div>
+  `;
+}
+
+function renderSetTrackerSection(participant) {
+  const cards = participant.cards || [];
+  const counts = {};
+  cards.forEach((card) => {
+    const setName = String(card.set || '').trim();
+    if (!setName) return;
+    counts[setName] = (counts[setName] || 0) + 1;
+  });
+  const setEntries = state.reference?.sets || [];
+  const rows = setEntries
+    .map((setEntry) => {
+      const count = counts[setEntry.name] || 0;
+      if (!count) return null;
+      const bonuses = (setEntry.bonuses || [])
+        .map((bonus) => {
+          const isActive = count >= bonus.pieces;
+          const status = isActive ? renderSetBonusStatus(bonus, participant) : '';
+          const activation = isActive ? renderSetActivationButton(bonus, participant, 'data-activate-set') : '';
+          return `<li class="${isActive ? 'active' : ''}">${bonus.pieces} pcs — ${bonus.effect || summarizeModifiers(bonus.modifiers || {})}${status}${activation}</li>`;
+        })
+        .join('');
+      return `
+        <div class="set-block">
+          <div class="set-header">
+            <strong>${setEntry.name}</strong>
+            <span>${count} card${count === 1 ? '' : 's'}</span>
+          </div>
+          <ul class="set-list">${bonuses || '<li class="muted">No bonuses configured.</li>'}</ul>
+        </div>`;
+    })
+    .filter(Boolean)
+    .join('');
+
+  return `
+    <details class="collapsible-block" data-section="setTracker">
+      <summary><strong>Set Tracker</strong></summary>
+      <div class="collapsible-body">
+        ${rows || '<p class="muted">No set bonuses equipped.</p>'}
+      </div>
+    </details>
   `;
 }
 
@@ -1092,6 +1141,24 @@ function renderSetOptions() {
     .join('');
 }
 
+function getDrawerState(participantId) {
+  if (!participantId) {
+    return { card: false, relic: false, inventory: false };
+  }
+  const existing = detailDrawerState.get(participantId);
+  if (existing) return existing;
+  const initial = { card: false, relic: false, inventory: false };
+  detailDrawerState.set(participantId, initial);
+  return initial;
+}
+
+function setDrawerState(participantId, key, isOpen) {
+  if (!participantId) return;
+  const current = getDrawerState(participantId);
+  const next = { ...current, [key]: Boolean(isOpen) };
+  detailDrawerState.set(participantId, next);
+}
+
 function renderCardPresetOptions() {
   const options = CARD_PRESETS.map(
     (preset) => `<option value="${preset.id}">${preset.name}</option>`
@@ -1225,7 +1292,9 @@ function wireDetailEvents(participant) {
   });
 
   const statusForm = panel.querySelector('[data-form="status"]');
-  panel.querySelector('[data-toggle-status-form]')?.addEventListener('click', () => {
+  panel.querySelector('[data-toggle-status-form]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     statusForm?.classList.toggle('hidden');
   });
   statusForm?.querySelector('[data-status-preset]')?.addEventListener('change', (event) => {
@@ -1307,8 +1376,12 @@ function wireDetailEvents(participant) {
 
   const cardTools = panel.querySelector('[data-card-tooling]');
   const cardForm = cardTools?.querySelector('[data-form="card"]');
-  panel.querySelector('[data-toggle-card-form]')?.addEventListener('click', () => {
+  panel.querySelector('[data-toggle-card-form]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const isOpening = cardTools?.classList.contains('hidden');
     cardTools?.classList.toggle('hidden');
+    setDrawerState(participant.id, 'card', isOpening);
   });
   cardTools?.querySelector('[data-card-import]')?.addEventListener('change', (event) => {
     importCardsFromFile(event.currentTarget, participant.id);
@@ -1364,7 +1437,7 @@ function wireDetailEvents(participant) {
       }
       fetchState();
       event.target.reset();
-      cardTools?.classList.add('hidden');
+      setDrawerState(participant.id, 'card', true);
     } catch (err) {
       notify(err.message);
     }
@@ -1444,8 +1517,12 @@ function wireDetailEvents(participant) {
 
   const relicTools = panel.querySelector('[data-relic-tooling]');
   const relicForm = relicTools?.querySelector('[data-form="relic"]');
-  panel.querySelector('[data-toggle-relic-form]')?.addEventListener('click', () => {
+  panel.querySelector('[data-toggle-relic-form]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const isOpening = relicTools?.classList.contains('hidden');
     relicTools?.classList.toggle('hidden');
+    setDrawerState(participant.id, 'relic', isOpening);
   });
   relicTools?.querySelector('[data-relic-import]')?.addEventListener('change', (event) => {
     importRelicsFromFile(event.currentTarget, participant.id);
@@ -1465,7 +1542,7 @@ function wireDetailEvents(participant) {
       }
       fetchState();
       event.target.reset();
-      relicTools?.classList.add('hidden');
+      setDrawerState(participant.id, 'relic', true);
     } catch (err) {
       notify(err.message);
     }
@@ -1498,7 +1575,9 @@ function wireDetailEvents(participant) {
   panel.querySelector('[data-toggle-inventory-form]')?.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
+    const isOpening = inventoryTooling?.classList.contains('hidden');
     inventoryTooling?.classList.toggle('hidden');
+    setDrawerState(participant.id, 'inventory', isOpening);
   });
   inventoryForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1523,6 +1602,7 @@ function wireDetailEvents(participant) {
       const existing = latest?.inventory || participant.inventory || [];
       await api(`/api/participants/${participant.id}`, 'PATCH', { inventory: [...existing, newItem] });
       event.target.reset();
+      setDrawerState(participant.id, 'inventory', true);
       fetchState();
     } catch (err) {
       notify(err.message);

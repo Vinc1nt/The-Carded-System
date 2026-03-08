@@ -24,6 +24,8 @@ const params = new URLSearchParams(window.location.search);
 let focusId = params.get('id');
 let createMode = params.get('create') === '1';
 let eventSource;
+const playerSectionState = new Map();
+const playerJournalState = new Map();
 
 const els = {
   select: document.getElementById('playerSelect'),
@@ -225,6 +227,7 @@ function renderSelectOptions() {
 }
 
 function renderStats() {
+  rememberPlayerSections();
   const participant = getFocusedParticipant();
   if (!participant) {
     const hasCombatants = (state.encounter.participants || []).length > 0;
@@ -293,6 +296,7 @@ function renderStats() {
   `;
   cachePlayerSectionRefs();
   wirePlayerSheetEvents(participant);
+  restorePlayerSections(participant.id);
 }
 
 function renderCharacterCreator() {
@@ -686,6 +690,7 @@ function journalFieldName(category) {
 }
 
 function renderJournal() {
+  rememberPlayerJournalSections();
   if (!els.journal || !els.journalContent) return;
   const participant = getFocusedParticipant();
   if (!participant || (createMode && !focusId)) {
@@ -700,6 +705,51 @@ function renderJournal() {
     ${renderPlayerJournalGroup('Achievements', achievements, 'No achievements yet.', 'achievement')}
   `;
   renderJournalPopup(participant);
+  restorePlayerJournalSections(participant.id);
+}
+
+function rememberPlayerSections() {
+  const current = getFocusedParticipant();
+  if (!current || !els.stats) return;
+  const snapshot = {};
+  els.stats.querySelectorAll('details[data-player-section]').forEach((node) => {
+    snapshot[node.dataset.playerSection] = node.open;
+  });
+  playerSectionState.set(current.id, snapshot);
+}
+
+function restorePlayerSections(participantId) {
+  if (!participantId || !els.stats) return;
+  const snapshot = playerSectionState.get(participantId);
+  if (!snapshot) return;
+  els.stats.querySelectorAll('details[data-player-section]').forEach((node) => {
+    const key = node.dataset.playerSection;
+    if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+      node.open = Boolean(snapshot[key]);
+    }
+  });
+}
+
+function rememberPlayerJournalSections() {
+  const current = getFocusedParticipant();
+  if (!current || !els.journalContent) return;
+  const snapshot = {};
+  els.journalContent.querySelectorAll('details[data-journal-section]').forEach((node) => {
+    snapshot[node.dataset.journalSection] = node.open;
+  });
+  playerJournalState.set(current.id, snapshot);
+}
+
+function restorePlayerJournalSections(participantId) {
+  if (!participantId || !els.journalContent) return;
+  const snapshot = playerJournalState.get(participantId);
+  if (!snapshot) return;
+  els.journalContent.querySelectorAll('details[data-journal-section]').forEach((node) => {
+    const key = node.dataset.journalSection;
+    if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+      node.open = Boolean(snapshot[key]);
+    }
+  });
 }
 
 function renderPlayerJournalGroup(label, entries, emptyText, category) {
