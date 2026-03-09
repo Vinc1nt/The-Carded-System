@@ -274,6 +274,7 @@ function renderDetailPanel() {
     ${renderAbilitiesSection(participant)}
     ${renderActionsSection(participant)}
     ${renderSetTrackerSection(participant)}
+    ${renderConstructSection(participant)}
     ${renderJournalSection(participant)}
     ${renderCardsSection(participant, drawers)}
     ${renderRelicSection(participant, drawers)}
@@ -434,6 +435,28 @@ function renderCardsSection(participant, drawers = {}) {
               <select name="damageType">
                 ${renderDamageTypeOptions(true)}
               </select>
+            </label>
+            <label>Construct Duration
+              <input type="number" name="constructDurationTurns" value="1" min="1" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Construct Mode
+              <select name="constructMode">
+                <option value="">Auto</option>
+                <option value="damage">Damage</option>
+                <option value="status">Status</option>
+                <option value="utility">Utility</option>
+              </select>
+            </label>
+            <label>Construct Status
+              <select name="constructStatusId">
+                <option value="">None</option>
+                ${renderStatusOptions()}
+              </select>
+            </label>
+            <label>Status Stacks
+              <input type="number" name="constructStatusStacks" value="1" min="1" />
             </label>
           </div>
           <div class="form-row">
@@ -676,6 +699,73 @@ function renderSetTrackerSection(participant) {
       </div>
     </details>
   `;
+}
+
+function renderConstructSection(participant) {
+  const constructs = participant.constructs || [];
+  const summary = participant.derivedBonuses?.machineConstructs || {};
+  const cap = Number(summary.maxActive || 1);
+  return `
+    <details class="collapsible-block" data-section="constructs">
+      <summary>
+        <strong>Constructs (${constructs.length}/${cap})</strong>
+      </summary>
+      <div class="collapsible-body">
+        <p class="muted small-note">Machine construct bonuses: +${summary.damageBonus || 0} damage, +${summary.durationBonusTurns || 0} turn duration.</p>
+        <div class="cards-grid construct-grid">
+          ${renderConstructCards(participant)}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderConstructCards(participant) {
+  const constructs = participant.constructs || [];
+  if (!constructs.length) {
+    return '<p class="muted">No active constructs.</p>';
+  }
+  return constructs
+    .map(
+      (construct) => `
+        <article class="card-item construct-item">
+          <h4>${escapeHtml(construct.name || 'Construct')}</h4>
+          <p>${escapeHtml(renderConstructCardSummary(construct))}</p>
+          <p>Turns Remaining: ${Number(construct.remainingTurns || 0)}</p>
+          <label>Target
+            <select data-construct-target="${construct.id || ''}">
+              <option value="">Select target…</option>
+              ${(state.encounter.participants || [])
+                .filter((entry) => entry.id !== participant.id)
+                .map(
+                  (entry) =>
+                    `<option value="${entry.id}" ${entry.id === construct.targetId ? 'selected' : ''}>${entry.name}</option>`
+                )
+                .join('')}
+            </select>
+          </label>
+          <div class="card-actions">
+            <button type="button" data-remove-construct="${construct.id || ''}">Remove</button>
+          </div>
+        </article>`
+    )
+    .join('');
+}
+
+function renderConstructCardSummary(construct = {}) {
+  const mode = String(construct.mode || '').toLowerCase();
+  if (mode === 'status') {
+    const statusLabel = construct.statusName || construct.statusId || 'Status';
+    const stacks = Math.max(1, Number(construct.statusStacks || 1));
+    const force = Number(construct.damage || 0);
+    return force > 0
+      ? `Applies ${statusLabel} x${stacks} + ${force} Force`
+      : `Applies ${statusLabel} x${stacks}`;
+  }
+  if (mode === 'utility') {
+    return 'Utility construct';
+  }
+  return `Damage: ${Number(construct.damage || 0)} ${construct.damageType || ''}`.trim();
 }
 
 function renderAbilitiesSection(participant) {
@@ -981,12 +1071,13 @@ function renderBaseStatsPanel(participant) {
 
 function renderAutomationSection(participant) {
   const automation = participant.derivedBonuses || {};
+  const construct = automation.machineConstructs || {};
   return `
     <details class="collapsible-block" data-section="automation">
       <summary>
         <div>
           <strong>Automation</strong>
-          <span class="muted">Guard +${participant.guardRestore || 3}, Damage +${participant.damageBonus || 0}</span>
+          <span class="muted">Guard +${participant.guardRestore || 3}, Damage +${participant.damageBonus || 0}, Constructs ${construct.maxActive || 1}</span>
         </div>
       </summary>
       <div class="collapsible-body automation-summary">
@@ -1000,6 +1091,14 @@ function renderAutomationSection(participant) {
           <strong>Set bonuses</strong>
           <ul>
             ${renderAutomationSetList(automation.setBonuses, participant)}
+          </ul>
+        </div>
+        <div>
+          <strong>Construct runtime</strong>
+          <ul>
+            <li>Max active: ${construct.maxActive || 1}</li>
+            <li>Damage bonus: +${construct.damageBonus || 0}</li>
+            <li>Duration bonus: +${construct.durationBonusTurns || 0} turn(s)</li>
           </ul>
         </div>
       </div>
@@ -1098,23 +1197,11 @@ function renderAutomationSetList(entries = [], participant) {
 
 function renderSetBonusStatus(entry, participant) {
   const machine = participant?.setRuntime?.machine || {};
-  if (entry.id === 'machine_5_servo_stride') {
-    return ` <small class="muted">[${machine.servoStrideUsedTurn ? 'Used this turn' : 'Ready'}]</small>`;
-  }
-  if (entry.id === 'machine_7_auto_loader') {
+  if (entry.id === 'machine_5_auto_loader') {
     if (machine.autoLoaderPrimed) {
       return ' <small class="muted">[Primed]</small>';
     }
     return ` <small class="muted">[${machine.autoLoaderTriggeredTurn ? 'Triggered this turn' : 'Ready'}]</small>`;
-  }
-  if (entry.id === 'machine_10_overclock_protocol') {
-    if (machine.overclockUsedCombat) {
-      return ' <small class="muted">[Used this combat]</small>';
-    }
-    if (machine.overclockActiveTurn) {
-      return ' <small class="muted">[Active this turn]</small>';
-    }
-    return ` <small class="muted">[${machine.overclockWindowOpen ? 'Ready (start of turn)' : 'Not ready'}]</small>`;
   }
   return '';
 }
@@ -1122,17 +1209,15 @@ function renderSetBonusStatus(entry, participant) {
 function renderSetActivationButton(entry, participant, attrName) {
   if (!entry?.activatable?.id) return '';
   const canActivate = canActivateSetBonus(entry, participant);
-  const label = entry.activatable.id === 'overclock_protocol' ? 'Activate' : 'Use';
+  const label = 'Activate';
   const disabled = canActivate ? '' : ' disabled';
   return ` <button type="button" ${attrName}="${entry.activatable.id}"${disabled}>${label}</button>`;
 }
 
 function canActivateSetBonus(entry, participant) {
-  if (!entry?.activatable?.id || !participant) return false;
-  if (entry.activatable.id !== 'overclock_protocol') return false;
-  const machine = participant.setRuntime?.machine || {};
-  const isCurrent = participant.id === state.encounter.participants?.[state.encounter.currentIndex]?.id;
-  return isCurrent && !machine.overclockUsedCombat && machine.overclockWindowOpen && !(participant.turnActionCount > 0);
+  void entry;
+  void participant;
+  return false;
 }
 
 function renderSetOptions() {
@@ -1230,6 +1315,40 @@ function wireDetailEvents(participant) {
           participantId: participant.id,
           set: 'Machine',
           abilityId: button.dataset.activateSet
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-construct-target]').forEach((select) => {
+    select.addEventListener('change', async () => {
+      const constructId = select.dataset.constructTarget;
+      const targetId = select.value || '';
+      if (!constructId || !targetId) return;
+      try {
+        await api('/api/constructs/target', 'POST', {
+          participantId: participant.id,
+          constructId,
+          targetId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-remove-construct]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const constructId = button.dataset.removeConstruct;
+      if (!constructId) return;
+      try {
+        await api('/api/constructs/remove', 'POST', {
+          participantId: participant.id,
+          constructId
         });
         fetchState();
       } catch (err) {
@@ -1868,8 +1987,9 @@ function renderCards(participant) {
         <h4>${card.name}</h4>
         <p>• ${card.type || '—'} · ${card.tier || '—'}</p>
         <p>Set: <strong>${card.set || '—'}</strong> · AP ${card.apCost || 0}</p>
-        <p>Damage: ${getCardDisplayDamage(card)} ${card.damageType || ''}</p>
+        ${renderCardDamageLine(card, participant)}
         <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
+        ${renderConstructMetaLine(card, participant)}
         ${renderCardEffectLine(card)}
         ${renderMasteryLines(card)}
         ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
@@ -1910,6 +2030,75 @@ function renderCardEffectLine(card = {}) {
   if (!effect) return '';
   if (isRedundantDamageEffect(card, effect)) return '';
   return `<p>${effect}</p>`;
+}
+
+function isConstructCard(card = {}) {
+  const type = String(card?.type || '').toLowerCase();
+  if (type.includes('construct') || type.includes('turret')) return true;
+  const mode = String(card?.constructMode || '').toLowerCase();
+  if (mode === 'damage' || mode === 'status' || mode === 'utility') return true;
+  const tags = Array.isArray(card?.tags) ? card.tags : [];
+  return tags.some((tag) => {
+    const token = String(tag || '').trim().toLowerCase();
+    return token === 'construct' || token === 'turret';
+  });
+}
+
+function detectConstructMode(card = {}) {
+  const explicit = String(card?.constructMode || '').trim().toLowerCase();
+  if (explicit === 'damage' || explicit === 'status' || explicit === 'utility') return explicit;
+  if (card?.constructStatusId || card?.constructStatusName) return 'status';
+  return Number(card?.damage || 0) > 0 ? 'damage' : 'utility';
+}
+
+function getConstructSetBonus(participant = {}) {
+  const summary = participant?.derivedBonuses?.machineConstructs || {};
+  const damageBonus = Number(summary.damageBonus || 0);
+  const durationBonusTurns = Number(summary.durationBonusTurns || 0);
+  return {
+    damageBonus: Number.isFinite(damageBonus) ? Math.max(0, Math.round(damageBonus)) : 0,
+    durationBonusTurns: Number.isFinite(durationBonusTurns) ? Math.max(0, Math.round(durationBonusTurns)) : 0
+  };
+}
+
+function renderCardDamageLine(card = {}, participant = {}) {
+  const baseDamage = getCardDisplayDamage(card);
+  const typeText = card.damageType || '';
+  if (!isConstructCard(card)) {
+    return `<p>Damage: ${baseDamage} ${typeText}</p>`;
+  }
+  const mode = detectConstructMode(card);
+  const constructBonus = getConstructSetBonus(participant).damageBonus;
+  if (mode === 'utility') {
+    return '<p>Damage: —</p>';
+  }
+  if (mode === 'status') {
+    return `<p>Damage: ${constructBonus > 0 ? `+${constructBonus} Force` : '—'}</p>`;
+  }
+  if (!constructBonus) {
+    return `<p>Damage: ${baseDamage} ${typeText}</p>`;
+  }
+  const boosted = Math.max(0, baseDamage + constructBonus);
+  return `<p>Damage: ${baseDamage} ${typeText} <span class="muted">(Construct +${constructBonus} => ${boosted})</span></p>`;
+}
+
+function renderConstructMetaLine(card = {}, participant = {}) {
+  if (!isConstructCard(card)) return '';
+  const mode = detectConstructMode(card);
+  const baseDuration = Math.max(1, Number(card.constructDurationTurns || 1));
+  const durationBonus = getConstructSetBonus(participant).durationBonusTurns;
+  const effective = Math.max(1, baseDuration + durationBonus);
+  const detail = durationBonus ? `${baseDuration} (+${durationBonus})` : `${baseDuration}`;
+  const statusId = String(card.constructStatusId || '').trim();
+  const statusName = String(card.constructStatusName || '').trim();
+  const statusLabel = statusName || statusId;
+  const stacks = Math.max(1, Number(card.constructStatusStacks || 1));
+  const modeText = mode === 'status'
+    ? `Status: ${statusLabel || 'Unknown'} x${stacks}`
+    : mode === 'utility'
+      ? 'Utility construct'
+      : 'Damage construct';
+  return `<p>Construct: ${modeText} • Duration ${detail} turn${effective === 1 ? '' : 's'} (effective ${effective})</p>`;
 }
 
 function isRedundantDamageEffect(card = {}, effectText = '') {
@@ -2182,6 +2371,10 @@ function buildCardFromForm(formData) {
     healthBonus: formData.get('healthBonus'),
     damage: formData.get('damage'),
     damageType: formData.get('damageType'),
+    constructDurationTurns: formData.get('constructDurationTurns') || 1,
+    constructMode: formData.get('constructMode') || '',
+    constructStatusId: formData.get('constructStatusId') || '',
+    constructStatusStacks: formData.get('constructStatusStacks') || 1,
     tags: formData.get('tags') || '',
     effect: formData.get('effect') || '',
     mastery: masteryRaw,
@@ -2282,6 +2475,17 @@ function normalizeCardPayload(raw = {}) {
     healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
     damage: baseDamage,
     damageType: raw.damageType || raw.damage_type || '',
+    constructDurationTurns: Math.max(
+      1,
+      Math.round(toNumber(raw.constructDurationTurns ?? raw.constructDuration ?? raw.durationTurns ?? 1, 1))
+    ),
+    constructMode: String(raw.constructMode || raw.mode || '').trim().toLowerCase(),
+    constructStatusId: String(raw.constructStatusId ?? raw.statusId ?? '').trim(),
+    constructStatusName: String(raw.constructStatusName ?? raw.statusName ?? '').trim(),
+    constructStatusStacks: Math.max(
+      1,
+      Math.round(toNumber(raw.constructStatusStacks ?? raw.statusStacks ?? 1, 1))
+    ),
     masteryLevel,
     masteryUses,
     masteryThresholds,

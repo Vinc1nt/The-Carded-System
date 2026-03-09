@@ -84,37 +84,31 @@ const DEFAULT_GUARD_RESTORE = 3;
 const SET_LIBRARY = {
   Machine: [
     {
-      id: 'machine_3_hardened_plating',
+      id: 'machine_3_reinforced_restore',
       pieces: 3,
       effect:
-        'Hardened Plating — +1 Max Shield. Guard restores +1 additional Shield (still capped).',
-      modifiers: { maxShield: 1, guardRestore: 1 }
+        'When you restore Shield, restore +2 additional Shield.',
+      modifiers: { guardRestore: 2 }
     },
     {
-      id: 'machine_5_servo_stride',
+      id: 'machine_5_auto_loader',
       pieces: 5,
       effect:
-        'Servo Stride — Once per turn, your first 10 ft of movement costs 0 AP (first 5 ft in Difficult Terrain).',
+        'Once per turn, after you play a Machine card, your next Machine Attack this turn costs 1 less AP (min 1). You may also have 2 constructs active at the same time.',
       modifiers: {}
     },
     {
-      id: 'machine_7_auto_loader',
+      id: 'machine_7_construct_boost',
       pieces: 7,
       effect:
-        'Auto-Loader — After you play a Machine card, your next Machine Attack this turn costs 1 less AP (min 1).',
+        'Constructs and turrets you deploy gain +2 damage and last 1 turn longer.',
       modifiers: {}
     },
     {
-      id: 'machine_10_overclock_protocol',
+      id: 'machine_10_construct_cap',
       pieces: 10,
-      effect:
-        'Overclock Protocol (1/combat) — Gain +2 AP and +1 damage to Machine Attacks this turn; end of turn become Weakened 1.',
-      modifiers: {},
-      activatable: {
-        id: 'overclock_protocol',
-        limit: 'once_per_combat',
-        timing: 'start_of_turn'
-      }
+      effect: 'You may have 3 constructs active at the same time.',
+      modifiers: {}
     }
   ],
   Elemental: [],
@@ -399,6 +393,24 @@ async function handleApi(req, res, pathname, method) {
       return sendJson(res, result);
     }
 
+    if (method === 'POST' && pathname === '/api/constructs/remove') {
+      const body = await readBody(req);
+      const result = executeRemoveConstructAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/constructs/target') {
+      const body = await readBody(req);
+      const result = executeRetargetConstructAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
     if (method === 'POST' && pathname === '/api/set/activate') {
       const body = await readBody(req);
       const result = activateSetBonusAction(body);
@@ -589,13 +601,6 @@ function executeStandardAction(body) {
     return { error: 'Guard already used this turn' };
   }
   let apCost = action.apCost;
-  const machine = getMachineSetRuntime(participant);
-  if ((action.id === 'move' || action.id === 'move_difficult') && hasSetBonus(participant, 'Machine', 5)) {
-    if (!machine.servoStrideUsedTurn) {
-      apCost = 0;
-      machine.servoStrideUsedTurn = true;
-    }
-  }
   if (participant.apCurrent < apCost) {
     return { error: 'Not enough AP' };
   }
@@ -625,11 +630,7 @@ function executeStandardAction(body) {
       pushLog(`${participant.name} attempts to recover but has no eligible stacks.`, participant.id);
     }
   } else {
-    const extra =
-      (action.id === 'move' || action.id === 'move_difficult') && apCost === 0
-        ? ' (Servo Stride: free movement)'
-        : '';
-    const text = `${participant.name} ${action.logText}${extra}`;
+    const text = `${participant.name} ${action.logText}`;
     pushLog(text, participant.id);
   }
   markTurnActionTaken(participant);
@@ -657,7 +658,7 @@ function executeCardAction(body) {
   const machine = getMachineSetRuntime(participant);
   const notes = [];
 
-  if (hasSetBonus(participant, 'Machine', 7) && machine.autoLoaderPrimed && isMachineAttackCard(card)) {
+  if (hasSetBonus(participant, 'Machine', 5) && machine.autoLoaderPrimed && isMachineAttackCard(card)) {
     const discounted = Math.max(1, apCost - 1);
     if (discounted < apCost) {
       apCost = discounted;
@@ -671,20 +672,30 @@ function executeCardAction(body) {
     return { error: 'Not enough AP' };
   }
 
-  let machineAttackBonus = 0;
-  if (machine.overclockActiveTurn && isMachineAttackCard(card)) {
-    machineAttackBonus = 1;
-    notes.push('Overclock +1 Machine Attack damage.');
-  }
-
   const damageType = String(card.damageType || '').trim();
   const baseDamage = getCardDamageAtCurrentMastery(card);
-  const rawDamage = Math.max(0, baseDamage + (participant.damageBonus || 0) + machineAttackBonus);
+  const isConstruct = isConstructCard(card);
+  const constructDamageBonus = getMachineConstructDamageBonus(participant);
+  const constructDurationBonus = getMachineConstructDurationBonus(participant);
+  const constructMode = detectConstructMode(card);
+  const constructStatusId = String(card.constructStatusId || '').trim();
+  const constructStatusName = String(card.constructStatusName || '').trim();
+  const constructStatusStacks = Math.max(1, Number(card.constructStatusStacks || 1));
+  const rawDamage = isConstruct
+    ? 0
+    : Math.max(0, baseDamage + (participant.damageBonus || 0));
 
   const targetId = String(body.targetId || '').trim();
   const target = targetId ? findParticipant(targetId) : null;
-  if (rawDamage > 0 && !target) {
+  if (!isConstruct && rawDamage > 0 && !target) {
     return { error: 'Target is required for damaging cards' };
+  }
+  if (
+    isConstruct &&
+    (constructMode === 'damage' || constructMode === 'status') &&
+    !target
+  ) {
+    return { error: 'Target is required to deploy this construct' };
   }
   if (targetId && !target) {
     return { error: 'Target not found' };
@@ -693,11 +704,31 @@ function executeCardAction(body) {
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   let damageResult = null;
-  if (target && rawDamage > 0) {
+  let constructDeployResult = null;
+  if (isConstruct) {
+    constructDeployResult = deployConstructFromCard(participant, card, {
+      targetId: target?.id || null,
+      baseDamage,
+      damageType,
+      bonusDamage: constructDamageBonus,
+      durationBonusTurns: constructDurationBonus,
+      mode: constructMode,
+      statusId: constructStatusId,
+      statusName: constructStatusName,
+      statusStacks: constructStatusStacks
+    });
+    notes.push(
+      `Deploys ${constructDeployResult.construct.name} (${describeConstructSummary(constructDeployResult.construct)}, ${constructDeployResult.construct.remainingTurns} turn${constructDeployResult.construct.remainingTurns === 1 ? '' : 's'}).`
+    );
+    if (constructDeployResult.displaced.length) {
+      const displacedNames = constructDeployResult.displaced.map((entry) => entry.name).join(', ');
+      notes.push(`Replaced construct slot: ${displacedNames}.`);
+    }
+  } else if (target && rawDamage > 0) {
     damageResult = applyCardDamageWithType(target, rawDamage, damageType);
   }
 
-  if (hasSetBonus(participant, 'Machine', 7) && isMachineCard(card) && !machine.autoLoaderTriggeredTurn) {
+  if (hasSetBonus(participant, 'Machine', 5) && isMachineCard(card) && !machine.autoLoaderTriggeredTurn) {
     machine.autoLoaderPrimed = true;
     machine.autoLoaderTriggeredTurn = true;
     notes.push('Auto-Loader primed for your next Machine Attack this turn.');
@@ -732,11 +763,11 @@ function executeCardAction(body) {
     cardId: card.id,
     apCost,
     baseCost,
-    machineAttackBonus,
     targetId: target?.id || null,
     damageType,
     rawDamage,
-    finalDamage: damageResult?.finalDamage ?? 0
+    finalDamage: damageResult?.finalDamage ?? 0,
+    construct: constructDeployResult?.construct || null
   });
   touchState();
   broadcastState('card_action');
@@ -745,47 +776,66 @@ function executeCardAction(body) {
     card,
     apCost,
     baseCost,
-    machineAttackBonus,
     target,
-    damageResult
+    damageResult,
+    construct: constructDeployResult?.construct || null
   };
 }
 
-function activateSetBonusAction(body) {
+function executeRemoveConstructAction(body) {
   const participant = resolveActor(body.participantId);
   if (!participant) {
     return { error: 'Participant required' };
   }
-  const setName = String(body.set || '').trim().toLowerCase();
-  const abilityId = String(body.abilityId || '').trim().toLowerCase();
-  if (setName !== 'machine' || abilityId !== 'overclock_protocol') {
-    return { error: 'Unsupported set ability' };
+  const constructId = String(body.constructId || '').trim();
+  if (!constructId) {
+    return { error: 'constructId is required' };
   }
-  if (!hasSetBonus(participant, 'Machine', 10)) {
-    return { error: 'Machine 10-piece bonus is not active' };
+  const list = Array.isArray(participant.constructs) ? participant.constructs : [];
+  const idx = list.findIndex((entry) => String(entry.id || '') === constructId);
+  if (idx < 0) {
+    return { error: 'Construct not found' };
   }
-  const current = getCurrentParticipant();
-  if (!current || current.id !== participant.id) {
-    return { error: 'Overclock Protocol can only be activated on your turn' };
-  }
-  const machine = getMachineSetRuntime(participant);
-  if (machine.overclockUsedCombat) {
-    return { error: 'Overclock Protocol already used this combat' };
-  }
-  if (!machine.overclockWindowOpen || Number(participant.turnActionCount || 0) > 0) {
-    return { error: 'Overclock Protocol must be activated at the start of turn' };
-  }
-  machine.overclockUsedCombat = true;
-  machine.overclockActiveTurn = true;
-  machine.overclockWindowOpen = false;
-  participant.apCurrent += 2;
-  pushLog(
-    `${participant.name} activates Overclock Protocol (+2 AP, Machine Attacks +1 damage this turn).`,
-    participant.id
-  );
+  const [removed] = list.splice(idx, 1);
+  participant.constructs = list;
+  pushLog(`${participant.name} removes construct ${removed.name}.`, participant.id);
   touchState();
-  broadcastState('set_bonus_activated');
-  return { participant };
+  broadcastState('construct_removed');
+  return { participant, removed };
+}
+
+function executeRetargetConstructAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const constructId = String(body.constructId || '').trim();
+  if (!constructId) {
+    return { error: 'constructId is required' };
+  }
+  const targetId = String(body.targetId || '').trim();
+  if (!targetId) {
+    return { error: 'targetId is required' };
+  }
+  const target = findParticipant(targetId);
+  if (!target) {
+    return { error: 'Target not found' };
+  }
+  const list = Array.isArray(participant.constructs) ? participant.constructs : [];
+  const construct = list.find((entry) => String(entry.id || '') === constructId);
+  if (!construct) {
+    return { error: 'Construct not found' };
+  }
+  construct.targetId = target.id;
+  pushLog(`${participant.name} retargets ${construct.name} to ${target.name}.`, participant.id);
+  touchState();
+  broadcastState('construct_retargeted');
+  return { participant, construct };
+}
+
+function activateSetBonusAction(body) {
+  void body;
+  return { error: 'No active set abilities are currently configured.' };
 }
 
 function applyAdjustment(participant, adjustment) {
@@ -851,6 +901,7 @@ function sanitizeParticipantUpdate(body, current) {
   if (typeof body.setFocus === 'string') update.setFocus = body.setFocus;
   if (typeof body.notes === 'string') update.notes = body.notes;
   if (Array.isArray(body.cards)) update.cards = normalizeCards(body.cards);
+  if (Array.isArray(body.constructs)) update.constructs = normalizeConstructs(body.constructs, current.id);
   if (Array.isArray(body.tags)) update.tags = body.tags;
   if (Array.isArray(body.statuses)) update.statuses = body.statuses;
   if (Array.isArray(body.abilities)) {
@@ -922,6 +973,7 @@ function createParticipant(body = {}) {
     maxShield,
     mastery: typeof body.mastery === 'number' ? body.mastery : 1,
     cards: normalizeCards(body.cards),
+    constructs: normalizeConstructs(body.constructs, id),
     tags: Array.isArray(body.tags) ? body.tags : [],
     statuses: Array.isArray(body.statuses) ? body.statuses : [],
     abilities: normalizeAbilityEntries(body.abilities),
@@ -955,7 +1007,12 @@ function createParticipant(body = {}) {
       base: baseStats,
       totals: createZeroModifier(),
       cardModifiers: [],
-      setBonuses: []
+      setBonuses: [],
+      machineConstructs: {
+        maxActive: 1,
+        damageBonus: 0,
+        durationBonusTurns: 0
+      }
     }
   };
   recalculateParticipant(participant);
@@ -1024,7 +1081,9 @@ function resetTurn(participant, options = {}) {
   participant.turnActionCount = 0;
   resetSetTurnState(participant);
   if (options.applyStatusTick) {
-    return applyStartOfTurnStatusEffects(participant);
+    const statusEvents = applyStartOfTurnStatusEffects(participant);
+    const constructEvents = applyConstructStartOfTurnEffects(participant);
+    return [...statusEvents, ...constructEvents];
   }
   return [];
 }
@@ -1105,6 +1164,7 @@ function applyLongRest(participant) {
   participant.hp = participant.maxHp;
   participant.shield = participant.maxShield;
   participant.statuses = [];
+  participant.constructs = [];
   participant.apCurrent = participant.apMax;
   participant.guardUsedThisTurn = false;
   pushLog(`${participant.name} takes a long rest and is fully restored.`, participant.id);
@@ -1376,6 +1436,80 @@ function applyStartOfTurnStatusEffects(participant) {
   return events;
 }
 
+function applyConstructStartOfTurnEffects(participant) {
+  participant.constructs = normalizeConstructs(participant.constructs, participant.id);
+  if (!participant.constructs.length) return [];
+  const events = [];
+  const nextConstructs = [];
+  for (const construct of participant.constructs) {
+    const mode = normalizeConstructMode(construct.mode || construct.constructMode) || 'damage';
+    const target = construct.targetId ? findParticipant(construct.targetId) : null;
+    if ((mode === 'damage' || mode === 'status') && !target) {
+      events.push(`${construct.name} has no valid target this turn.`);
+    } else if (mode === 'status' && target) {
+      const stacks = Math.max(1, Number(construct.statusStacks || 1));
+      const statusType = detectStatusType({
+        presetId: construct.statusId,
+        name: construct.statusName
+      });
+      if (statusType) {
+        addStatusStacks(target, statusType, stacks);
+        events.push(
+          `${construct.name} applies ${statusDisplayName(statusType)} x${stacks} to ${target.name}.`
+        );
+      } else {
+        const statusName = String(construct.statusName || construct.statusId || 'Status').trim();
+        target.statuses = normalizeStatuses([...(target.statuses || []), {
+          id: randomUUID(),
+          presetId: String(construct.statusId || '').trim(),
+          name: statusName,
+          stacks,
+          notes: 'Applied by construct.'
+        }]);
+        events.push(`${construct.name} applies ${statusName} x${stacks} to ${target.name}.`);
+      }
+      const forceDamage = Math.max(0, Number(construct.damage || 0));
+      if (forceDamage > 0) {
+        const result = applyCardDamageWithType(target, forceDamage, 'Force');
+        const mitigation =
+          result.resisted && !result.vulnerable
+            ? ' [Resisted]'
+            : result.vulnerable && !result.resisted
+              ? ' [Vulnerable]'
+              : '';
+        events.push(
+          `${construct.name} deals ${result.finalDamage} Force to ${target.name} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+        );
+      }
+    } else if (mode === 'damage' && target) {
+      const damage = Math.max(0, Number(construct.damage || 0));
+      const damageType = String(construct.damageType || '').trim();
+      if (damage > 0) {
+        const result = applyCardDamageWithType(target, damage, damageType);
+        const mitigation =
+          result.resisted && !result.vulnerable
+            ? ' [Resisted]'
+            : result.vulnerable && !result.resisted
+              ? ' [Vulnerable]'
+              : '';
+        events.push(
+          `${construct.name} hits ${target.name} for ${result.finalDamage} ${damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+        );
+      }
+    } else if (mode === 'utility') {
+      events.push(`${construct.name} remains active.`);
+    }
+    const remainingTurns = Math.max(0, Number(construct.remainingTurns || 0) - 1);
+    if (remainingTurns > 0) {
+      nextConstructs.push({ ...construct, remainingTurns });
+    } else {
+      events.push(`${construct.name} expires.`);
+    }
+  }
+  participant.constructs = nextConstructs;
+  return events;
+}
+
 function applyRecoverAction(participant, target = {}) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const recoverable = getRecoverableStatuses(participant.statuses);
@@ -1597,6 +1731,84 @@ function autoCardDamageType(card = {}) {
   return '';
 }
 
+function isConstructCard(card = {}) {
+  const type = String(card?.type || '').toLowerCase();
+  if (type.includes('construct') || type.includes('turret')) return true;
+  const tags = Array.isArray(card?.tags) ? card.tags : [];
+  return tags.some((tag) => {
+    const token = String(tag || '').trim().toLowerCase();
+    return token === 'construct' || token === 'turret';
+  });
+}
+
+function normalizeConstructMode(value = '') {
+  const token = String(value || '').trim().toLowerCase();
+  if (token === 'damage' || token === 'status' || token === 'utility') return token;
+  return '';
+}
+
+function detectConstructMode(card = {}) {
+  const explicit = normalizeConstructMode(card.constructMode);
+  if (explicit) return explicit;
+  const statusId = String(card.constructStatusId || '').trim();
+  if (statusId) return 'status';
+  const statusName = String(card.constructStatusName || '').trim();
+  if (statusName) return 'status';
+  const damage = Number(card.damage || card.baseDamage || 0);
+  if (Number.isFinite(damage) && damage > 0) return 'damage';
+  return 'utility';
+}
+
+function normalizeConstructs(list = [], ownerId = '') {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const name = String(entry.name || entry.title || '').trim();
+      if (!name) return null;
+      const damage = Number(entry.damage ?? entry.baseDamage ?? 0);
+      const remainingTurns = Number(entry.remainingTurns ?? entry.turns ?? entry.duration ?? 1);
+      const mode =
+        normalizeConstructMode(entry.mode || entry.constructMode) ||
+        (String(entry.statusId || entry.constructStatusId || entry.statusName || entry.constructStatusName || '').trim()
+          ? 'status'
+          : Number(entry.damage ?? entry.baseDamage ?? 0) > 0
+            ? 'damage'
+            : 'utility');
+      const statusStacksRaw = Number(entry.statusStacks ?? entry.constructStatusStacks ?? 1);
+      return {
+        id: entry.id || randomUUID(),
+        ownerId: String(entry.ownerId || ownerId || '').trim(),
+        sourceCardId: entry.sourceCardId || '',
+        name,
+        damage: Number.isFinite(damage) ? Math.max(0, Math.round(damage)) : 0,
+        baseDamage: Number.isFinite(Number(entry.baseDamage))
+          ? Math.max(0, Math.round(Number(entry.baseDamage)))
+          : Number.isFinite(damage)
+            ? Math.max(0, Math.round(damage))
+            : 0,
+        damageBonus: Number.isFinite(Number(entry.damageBonus))
+          ? Math.max(0, Math.round(Number(entry.damageBonus)))
+          : 0,
+        damageType: String(entry.damageType || '').trim(),
+        remainingTurns: Number.isFinite(remainingTurns) ? Math.max(1, Math.round(remainingTurns)) : 1,
+        targetId: String(entry.targetId || '').trim(),
+        mode,
+        statusId: String(entry.statusId || entry.constructStatusId || '').trim(),
+        statusName: String(entry.statusName || entry.constructStatusName || '').trim(),
+        statusStacks: Number.isFinite(statusStacksRaw) ? Math.max(1, Math.round(statusStacksRaw)) : 1,
+        tags: Array.isArray(entry.tags)
+          ? entry.tags.map((tag) => String(tag).trim()).filter(Boolean)
+          : [],
+        createdAt: entry.createdAt || new Date().toISOString(),
+        createdOrder: Number.isFinite(Number(entry.createdOrder))
+          ? Number(entry.createdOrder)
+          : index
+      };
+    })
+    .filter(Boolean);
+}
+
 function normalizeCards(list = []) {
   if (!Array.isArray(list)) return [];
   return list
@@ -1613,6 +1825,12 @@ function normalizeCards(list = []) {
       const damageRaw = Number(card.damage ?? card.baseDamage ?? 0);
       const damage = Number.isFinite(damageRaw) ? Math.max(0, Math.round(damageRaw)) : 0;
       const damageByLevel = normalizeCardDamageByLevel(card.masteryDamageByLevel, damage);
+      const constructStatusStacksRaw = Number(
+        card.constructStatusStacks ??
+          card.statusStacks ??
+          card.constructStacks ??
+          1
+      );
 
       return {
         ...card,
@@ -1641,6 +1859,17 @@ function normalizeCards(list = []) {
         modifiers: normalizeModifiers(card.modifiers || {}),
         damage,
         damageType: autoCardDamageType(card),
+        constructDurationTurns: Number.isFinite(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns))
+          ? Math.max(1, Math.round(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns)))
+          : 1,
+        constructMode: detectConstructMode(card),
+        constructStatusId: String(
+          card.constructStatusId ?? card.statusId ?? card.constructStatus ?? ''
+        ).trim(),
+        constructStatusName: String(card.constructStatusName ?? card.statusName ?? '').trim(),
+        constructStatusStacks: Number.isFinite(constructStatusStacksRaw)
+          ? Math.max(1, Math.round(constructStatusStacksRaw))
+          : 1,
         masteryLevel,
         masteryUses,
         masteryThresholds: thresholds,
@@ -1913,13 +2142,9 @@ function normalizeSetRuntime(runtime = {}) {
   const machine = source.machine && typeof source.machine === 'object' ? source.machine : {};
   return {
     machine: {
-      servoStrideUsedTurn: Boolean(machine.servoStrideUsedTurn),
       autoLoaderPrimed: Boolean(machine.autoLoaderPrimed),
       autoLoaderTriggeredTurn: Boolean(machine.autoLoaderTriggeredTurn),
-      autoLoaderDiscountUsedTurn: Boolean(machine.autoLoaderDiscountUsedTurn),
-      overclockUsedCombat: Boolean(machine.overclockUsedCombat),
-      overclockActiveTurn: Boolean(machine.overclockActiveTurn),
-      overclockWindowOpen: Boolean(machine.overclockWindowOpen)
+      autoLoaderDiscountUsedTurn: Boolean(machine.autoLoaderDiscountUsedTurn)
     }
   };
 }
@@ -1937,6 +2162,89 @@ function ensureSetRuntime(participant) {
 
 function getMachineSetRuntime(participant) {
   return ensureSetRuntime(participant).machine;
+}
+
+function getMachineConstructCap(participant) {
+  const value = Number(participant?.derivedBonuses?.machineConstructs?.maxActive ?? 1);
+  return Number.isFinite(value) ? Math.max(1, Math.round(value)) : 1;
+}
+
+function getMachineConstructDamageBonus(participant) {
+  const value = Number(participant?.derivedBonuses?.machineConstructs?.damageBonus ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function getMachineConstructDurationBonus(participant) {
+  const value = Number(participant?.derivedBonuses?.machineConstructs?.durationBonusTurns ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function describeConstructSummary(construct = {}) {
+  const mode = normalizeConstructMode(construct.mode || construct.constructMode) || 'damage';
+  if (mode === 'status') {
+    const statusLabel = construct.statusName || statusDisplayName(detectStatusType({ presetId: construct.statusId, name: construct.statusName }) || construct.statusId || 'Status');
+    const statusStacks = Math.max(1, Number(construct.statusStacks || 1));
+    const forceText = Number(construct.damage || 0) > 0 ? ` + ${construct.damage} Force` : '';
+    return `applies ${statusLabel} x${statusStacks}${forceText}`;
+  }
+  if (mode === 'utility') {
+    return 'utility construct';
+  }
+  return `${construct.damage || 0} ${construct.damageType || 'damage'}`;
+}
+
+function deployConstructFromCard(participant, card, options = {}) {
+  const baseDamage = Math.max(0, Number(options.baseDamage || 0));
+  const bonusDamage = Math.max(0, Number(options.bonusDamage || 0));
+  const damageType = String(options.damageType || '').trim();
+  const mode = normalizeConstructMode(options.mode) || detectConstructMode(card);
+  const statusId = String(options.statusId || '').trim();
+  const normalizedStatusType = detectStatusType({ presetId: statusId, name: options.statusName });
+  const statusName = String(options.statusName || (normalizedStatusType ? statusDisplayName(normalizedStatusType) : '')).trim();
+  const statusStacks = Math.max(1, Number(options.statusStacks || 1));
+  const durationBase = Number(card?.constructDurationTurns ?? card?.constructDuration ?? card?.durationTurns ?? 1);
+  const durationBonusTurns = Math.max(0, Number(options.durationBonusTurns || 0));
+  const durationTurns = Math.max(
+    1,
+    (Number.isFinite(durationBase) ? Math.round(durationBase) : 1) + durationBonusTurns
+  );
+  const appliedDamageBonus = mode === 'damage' || mode === 'status' ? bonusDamage : 0;
+  const finalDamage =
+    mode === 'damage'
+      ? (baseDamage > 0 ? Math.max(0, baseDamage + appliedDamageBonus) : 0)
+      : mode === 'status'
+        ? appliedDamageBonus
+        : 0;
+  const finalDamageType = mode === 'status' ? 'Force' : damageType;
+  const cap = getMachineConstructCap(participant);
+  const current = normalizeConstructs(participant.constructs, participant.id);
+  const displaced = [];
+  while (current.length >= cap) {
+    const removed = current.shift();
+    if (removed) displaced.push(removed);
+  }
+  const construct = {
+    id: randomUUID(),
+    ownerId: participant.id,
+    sourceCardId: card.id || '',
+    name: `${card.name}`,
+    damage: finalDamage,
+    baseDamage,
+    damageBonus: appliedDamageBonus,
+    damageType: finalDamageType,
+    remainingTurns: durationTurns,
+    targetId: String(options.targetId || '').trim(),
+    mode,
+    statusId,
+    statusName,
+    statusStacks,
+    tags: Array.isArray(card.tags) ? card.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
+    createdAt: new Date().toISOString(),
+    createdOrder: Date.now()
+  };
+  current.push(construct);
+  participant.constructs = current;
+  return { construct, displaced };
 }
 
 function getSetCardCount(participant, setName) {
@@ -1967,41 +2275,23 @@ function isMachineAttackCard(card) {
 
 function resetSetTurnState(participant) {
   const machine = getMachineSetRuntime(participant);
-  machine.servoStrideUsedTurn = false;
   machine.autoLoaderPrimed = false;
   machine.autoLoaderTriggeredTurn = false;
   machine.autoLoaderDiscountUsedTurn = false;
-  machine.overclockActiveTurn = false;
-  machine.overclockWindowOpen = hasSetBonus(participant, 'Machine', 10) && !machine.overclockUsedCombat;
 }
 
 function resetSetCombatState(participant) {
-  const machine = getMachineSetRuntime(participant);
-  machine.overclockUsedCombat = false;
-  machine.overclockActiveTurn = false;
-  machine.overclockWindowOpen = false;
-  machine.servoStrideUsedTurn = false;
-  machine.autoLoaderPrimed = false;
-  machine.autoLoaderTriggeredTurn = false;
-  machine.autoLoaderDiscountUsedTurn = false;
+  resetSetTurnState(participant);
+  participant.constructs = [];
 }
 
 function markTurnActionTaken(participant) {
   participant.turnActionCount = Math.max(0, Number(participant.turnActionCount || 0)) + 1;
-  const machine = getMachineSetRuntime(participant);
-  machine.overclockWindowOpen = false;
 }
 
 function applyEndOfTurnSetEffects(participant) {
-  const events = [];
-  const machine = getMachineSetRuntime(participant);
-  if (machine.overclockActiveTurn) {
-    machine.overclockActiveTurn = false;
-    addStatusStacks(participant, 'weakened', 1);
-    events.push('overclock ends and gains Weakened 1.');
-  }
-  machine.overclockWindowOpen = false;
-  return events;
+  void participant;
+  return [];
 }
 
 function ensureBaseStats(participant) {
@@ -2072,6 +2362,7 @@ function recalculateParticipant(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const setRuntime = ensureSetRuntime(participant);
   participant.cards = normalizeCards(participant.cards);
+  participant.constructs = normalizeConstructs(participant.constructs, participant.id);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
   participant.inventory = normalizeInventoryEntries(participant.inventory);
   participant.quests = normalizeJournalEntries(participant.quests, 'quest');
@@ -2117,17 +2408,19 @@ function recalculateParticipant(participant) {
   addModifierTotals(totals, setTotals);
 
   if (!hasSetBonus(participant, 'Machine', 5)) {
-    setRuntime.machine.servoStrideUsedTurn = false;
-  }
-  if (!hasSetBonus(participant, 'Machine', 7)) {
     setRuntime.machine.autoLoaderPrimed = false;
     setRuntime.machine.autoLoaderTriggeredTurn = false;
     setRuntime.machine.autoLoaderDiscountUsedTurn = false;
   }
-  if (!hasSetBonus(participant, 'Machine', 10)) {
-    setRuntime.machine.overclockUsedCombat = false;
-    setRuntime.machine.overclockActiveTurn = false;
-    setRuntime.machine.overclockWindowOpen = false;
+  const machineConstructCap = hasSetBonus(participant, 'Machine', 10)
+    ? 3
+    : hasSetBonus(participant, 'Machine', 5)
+      ? 2
+      : 1;
+  const machineConstructDamageBonus = hasSetBonus(participant, 'Machine', 7) ? 2 : 0;
+  const machineConstructDurationBonus = hasSetBonus(participant, 'Machine', 7) ? 1 : 0;
+  if (participant.constructs.length > machineConstructCap) {
+    participant.constructs = participant.constructs.slice(participant.constructs.length - machineConstructCap);
   }
 
   participant.apMax = Math.max(1, Math.round((base.apMax ?? 0) + totals.apMax));
@@ -2153,7 +2446,12 @@ function recalculateParticipant(participant) {
     base,
     totals,
     cardModifiers,
-    setBonuses: appliedBonuses
+    setBonuses: appliedBonuses,
+    machineConstructs: {
+      maxActive: machineConstructCap,
+      damageBonus: machineConstructDamageBonus,
+      durationBonusTurns: machineConstructDurationBonus
+    }
   };
   clampParticipant(participant);
 }

@@ -686,6 +686,14 @@ textarea {
   flex-wrap: wrap;
 }
 
+.construct-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.construct-item {
+  background: rgba(15, 23, 42, 0.55);
+}
+
 .player-sheet {
   gap: 1.25rem;
 }
