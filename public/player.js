@@ -1462,7 +1462,7 @@ function renderCards() {
             <h4>${card.name}</h4>
             <p>• ${card.type || '—'} · ${card.tier || '—'}</p>
             <p>Set: <strong>${card.set || '—'}</strong></p>
-            <p>AP ${card.apCost || 0} · Range ${card.range || 0} ft · HP +${card.healthBonus || 0}</p>
+            <p>AP ${card.apCost || 0} · Range ${formatCardRange(card)} · HP +${card.healthBonus || 0}</p>
             ${renderCardDamageLine(card, participant)}
             <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
             ${renderConstructMetaLine(card, participant)}
@@ -1514,6 +1514,30 @@ function renderCardEffectLine(card = {}) {
   if (!effect) return '';
   if (isRedundantDamageEffect(card, effect)) return '';
   return `<p>${effect}</p>`;
+}
+
+function formatCardRange(card = {}) {
+  const text = String(card.rangeText || '').trim();
+  if (text) return text;
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
+  return `${range} ft`;
+}
+
+function getCardScaledValue(source, level = 1, fallback = 0) {
+  if (source == null) return fallback;
+  const parsedLevel = Math.max(1, Math.min(3, Number(level || 1)));
+  if (typeof source === 'number') return Number.isFinite(source) ? source : fallback;
+  if (typeof source === 'string') {
+    const parsed = Number(source);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  if (typeof source !== 'object') return fallback;
+  const direct = Number(source[parsedLevel]);
+  if (Number.isFinite(direct)) return direct;
+  const named = Number(source[`level${parsedLevel}`]);
+  if (Number.isFinite(named)) return named;
+  return fallback;
 }
 
 function isConstructCard(card = {}) {
@@ -2361,6 +2385,8 @@ function normalizeCardPayload(raw = {}) {
     tier: raw.tier || 'Common',
     apCost: toNumber(raw.apCost ?? raw.ap ?? 0),
     range: toNumber(raw.range ?? 0),
+    rangeText: String(raw.rangeText || '').trim(),
+    rangeByLevel: raw.rangeByLevel && typeof raw.rangeByLevel === 'object' ? { ...raw.rangeByLevel } : undefined,
     healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
     damage: baseDamage,
     damageType: raw.damageType || raw.damage_type || '',
@@ -2375,6 +2401,31 @@ function normalizeCardPayload(raw = {}) {
       1,
       Math.round(toNumber(raw.constructStatusStacks ?? raw.statusStacks ?? 1, 1))
     ),
+    statusApply:
+      raw.statusApply && typeof raw.statusApply === 'object'
+        ? {
+            id: String(raw.statusApply.id || '').trim(),
+            name: String(raw.statusApply.name || '').trim(),
+            stacksByLevel:
+              raw.statusApply.stacksByLevel && typeof raw.statusApply.stacksByLevel === 'object'
+                ? { ...raw.statusApply.stacksByLevel }
+                : undefined
+          }
+        : undefined,
+    movementByLevel:
+      raw.movementByLevel && typeof raw.movementByLevel === 'object' ? { ...raw.movementByLevel } : undefined,
+    pullDistanceByLevel:
+      raw.pullDistanceByLevel && typeof raw.pullDistanceByLevel === 'object'
+        ? { ...raw.pullDistanceByLevel }
+        : undefined,
+    pushDistanceByLevel:
+      raw.pushDistanceByLevel && typeof raw.pushDistanceByLevel === 'object'
+        ? { ...raw.pushDistanceByLevel }
+        : undefined,
+    shieldRestoreByLevel:
+      raw.shieldRestoreByLevel && typeof raw.shieldRestoreByLevel === 'object'
+        ? { ...raw.shieldRestoreByLevel }
+        : undefined,
     masteryLevel,
     masteryUses,
     masteryThresholds,

@@ -128,7 +128,7 @@ function renderDetail() {
         <p><strong>Type:</strong> ${escapeHtml(card.type || '-')}</p>
         <p><strong>Tier:</strong> ${escapeHtml(card.tier || '-')}</p>
         <p><strong>AP Cost:</strong> ${Number(card.apCost || 0)}</p>
-        <p><strong>Range:</strong> ${Number(card.range || 0)} ft</p>
+        <p><strong>Range:</strong> ${formatCardRange(card)}</p>
         <p><strong>Health Bonus:</strong> ${Number(card.healthBonus || 0)}</p>
         <p><strong>Damage:</strong> ${Number(card.damage || 0)} ${escapeHtml(card.damageType || '')}</p>
         <p><strong>Tags:</strong> ${escapeHtml((card.tags || []).join(', ') || '-')}</p>
@@ -201,6 +201,9 @@ function compareRarity(a, b) {
 }
 
 function normalizeCardForAdd(raw = {}) {
+  const rangeRaw = raw.range;
+  const parsedRange = Number(rangeRaw || 0);
+  const rangeText = String(raw.rangeText || '').trim() || (!Number.isFinite(parsedRange) && String(rangeRaw || '').trim() ? String(rangeRaw).trim() : '');
   const tags = Array.isArray(raw.tags)
     ? raw.tags.map((tag) => String(tag).trim()).filter(Boolean)
     : String(raw.tags || '')
@@ -215,7 +218,8 @@ function normalizeCardForAdd(raw = {}) {
     type: String(raw.type || 'Attack').trim(),
     tier: String(raw.tier || 'Common').trim(),
     apCost: Number(raw.apCost || 0),
-    range: Number(raw.range || 0),
+    range: Number.isFinite(parsedRange) ? parsedRange : 0,
+    rangeText,
     healthBonus: Number(raw.healthBonus || 0),
     damage: Number(raw.damage || 0),
     damageType: String(raw.damageType || '').trim(),
@@ -224,6 +228,13 @@ function normalizeCardForAdd(raw = {}) {
     masteryThresholds: raw.masteryThresholds || { level2: 25, level3: 55 },
     masteryDamageByLevel: raw.masteryDamageByLevel || undefined
   };
+}
+
+function formatCardRange(card = {}) {
+  const text = String(card.rangeText || '').trim();
+  if (text) return text;
+  const range = Number(card.range || 0);
+  return `${range} ft`;
 }
 
 async function api(path, method = 'GET', payload) {

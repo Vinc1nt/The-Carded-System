@@ -2390,6 +2390,8 @@ function normalizeCardPayload(raw = {}) {
     tier: raw.tier || 'Common',
     apCost: toNumber(raw.apCost ?? raw.ap ?? 0),
     range: toNumber(raw.range ?? 0),
+    rangeText: String(raw.rangeText || '').trim(),
+    rangeByLevel: raw.rangeByLevel && typeof raw.rangeByLevel === 'object' ? { ...raw.rangeByLevel } : undefined,
     healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
     damage: baseDamage,
     damageType: raw.damageType || raw.damage_type || '',
@@ -2404,6 +2406,31 @@ function normalizeCardPayload(raw = {}) {
       1,
       Math.round(toNumber(raw.constructStatusStacks ?? raw.statusStacks ?? 1, 1))
     ),
+    statusApply:
+      raw.statusApply && typeof raw.statusApply === 'object'
+        ? {
+            id: String(raw.statusApply.id || '').trim(),
+            name: String(raw.statusApply.name || '').trim(),
+            stacksByLevel:
+              raw.statusApply.stacksByLevel && typeof raw.statusApply.stacksByLevel === 'object'
+                ? { ...raw.statusApply.stacksByLevel }
+                : undefined
+          }
+        : undefined,
+    movementByLevel:
+      raw.movementByLevel && typeof raw.movementByLevel === 'object' ? { ...raw.movementByLevel } : undefined,
+    pullDistanceByLevel:
+      raw.pullDistanceByLevel && typeof raw.pullDistanceByLevel === 'object'
+        ? { ...raw.pullDistanceByLevel }
+        : undefined,
+    pushDistanceByLevel:
+      raw.pushDistanceByLevel && typeof raw.pushDistanceByLevel === 'object'
+        ? { ...raw.pushDistanceByLevel }
+        : undefined,
+    shieldRestoreByLevel:
+      raw.shieldRestoreByLevel && typeof raw.shieldRestoreByLevel === 'object'
+        ? { ...raw.shieldRestoreByLevel }
+        : undefined,
     masteryLevel,
     masteryUses,
     masteryThresholds,

@@ -653,6 +653,7 @@ function executeCardAction(body) {
     return { error: 'Card not found' };
   }
   const card = participant.cards[cardIndex];
+  const masteryLevel = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
   const baseCost = Math.max(0, Number(card.apCost || 0));
   let apCost = baseCost;
   const machine = getMachineSetRuntime(participant);
@@ -683,13 +684,25 @@ function executeCardAction(body) {
   const constructStatusStacks = Math.max(1, Number(card.constructStatusStacks || 1));
   const rawDamage = isConstruct
     ? 0
-    : Math.max(0, baseDamage + (participant.damageBonus || 0));
+    : baseDamage > 0
+      ? Math.max(0, baseDamage + (participant.damageBonus || 0))
+      : 0;
+  const shieldRestoreBase = getCardScaledValue(card.shieldRestoreByLevel, masteryLevel, 0);
+  const shieldRestoreBonus = getGlobalShieldRestoreBonus(participant);
+  const shieldRestoreTotal = Math.max(0, shieldRestoreBase + (shieldRestoreBase > 0 ? shieldRestoreBonus : 0));
+  const moveDistance = getCardScaledValue(card.movementByLevel, masteryLevel, 0);
+  const pushDistance = getCardScaledValue(card.pushDistanceByLevel, masteryLevel, 0);
+  const pullDistance = getCardScaledValue(card.pullDistanceByLevel, masteryLevel, 0);
+  const statusApply = normalizeCardStatusApply(card, masteryLevel);
+  const selfTarget = isSelfTargetCard(card);
 
   const targetId = String(body.targetId || '').trim();
   const target = targetId ? findParticipant(targetId) : null;
-  if (!isConstruct && rawDamage > 0 && !target) {
-    return { error: 'Target is required for damaging cards' };
-  }
+  const requiresTarget =
+    !selfTarget &&
+    ((isConstruct && (constructMode === 'damage' || constructMode === 'status')) ||
+      (!isConstruct && (rawDamage > 0 || Boolean(statusApply) || pushDistance > 0 || pullDistance > 0)));
+  if (requiresTarget && !target) return { error: 'Target is required for this card effect' };
   if (
     isConstruct &&
     (constructMode === 'damage' || constructMode === 'status') &&
@@ -726,6 +739,31 @@ function executeCardAction(body) {
     }
   } else if (target && rawDamage > 0) {
     damageResult = applyCardDamageWithType(target, rawDamage, damageType);
+  }
+
+  if (!isConstruct && shieldRestoreTotal > 0) {
+    const beforeShield = participant.shield;
+    participant.shield = Math.min(participant.maxShield, participant.shield + shieldRestoreTotal);
+    notes.push(`Restores ${participant.shield - beforeShield} Shield.`);
+  }
+
+  if (!isConstruct && moveDistance > 0) {
+    notes.push(`Moves ${moveDistance} ft.`);
+  }
+  if (!isConstruct && pushDistance > 0 && target) {
+    notes.push(`Pushes ${target.name} ${pushDistance} ft.`);
+  }
+  if (!isConstruct && pullDistance > 0 && target) {
+    notes.push(`Pulls ${target.name} ${pullDistance} ft.`);
+  }
+
+  if (!isConstruct && statusApply) {
+    const statusTarget = selfTarget ? participant : target;
+    if (statusTarget) {
+      addStatusStacks(statusTarget, statusApply.id, statusApply.stacks);
+      enforceControlHierarchy(statusTarget);
+      notes.push(`Applies ${statusDisplayName(statusApply.id)} ${statusApply.stacks} to ${statusTarget.name}.`);
+    }
   }
 
   if (hasSetBonus(participant, 'Machine', 5) && isMachineCard(card) && !machine.autoLoaderTriggeredTurn) {
@@ -1888,6 +1926,49 @@ function getCardDamageAtCurrentMastery(card) {
   if (level >= 3) return byLevel[3];
   if (level >= 2) return byLevel[2];
   return byLevel[1];
+}
+
+function getCardScaledValue(source, level = 1, fallback = 0) {
+  if (source == null) return fallback;
+  const parsedLevel = Math.max(1, Math.min(3, Number(level || 1)));
+  if (typeof source === 'number') return Number.isFinite(source) ? source : fallback;
+  if (typeof source === 'string') {
+    const parsed = Number(source);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  if (typeof source !== 'object') return fallback;
+  const direct = Number(source[parsedLevel]);
+  if (Number.isFinite(direct)) return direct;
+  const named = Number(source[`level${parsedLevel}`]);
+  if (Number.isFinite(named)) return named;
+  const order = parsedLevel === 3 ? [3, 2, 1] : parsedLevel === 2 ? [2, 1, 3] : [1, 2, 3];
+  for (const key of order) {
+    const value = Number(source[key] ?? source[`level${key}`]);
+    if (Number.isFinite(value)) return value;
+  }
+  return fallback;
+}
+
+function normalizeCardStatusApply(card = {}, level = 1) {
+  const source = card.statusApply;
+  if (!source || typeof source !== 'object') return null;
+  const id = detectStatusType({ presetId: source.id, name: source.name });
+  if (!id) return null;
+  const stacks = Math.max(1, Math.round(getCardScaledValue(source.stacksByLevel, level, source.stacks ?? 1)));
+  return { id, stacks };
+}
+
+function isSelfTargetCard(card = {}) {
+  const rangeText = String(card.rangeText || '').trim().toLowerCase();
+  if (rangeText === 'self') return true;
+  return Number(card.range || 0) <= 0;
+}
+
+function getGlobalShieldRestoreBonus(participant = {}) {
+  const base = Number(participant.baseStats?.guardRestore ?? DEFAULT_GUARD_RESTORE);
+  const total = Number(participant.guardRestore ?? base);
+  if (!Number.isFinite(base) || !Number.isFinite(total)) return 0;
+  return Math.max(0, Math.round(total - base));
 }
 
 function hasDamageTypeEntry(list = [], type = '') {
