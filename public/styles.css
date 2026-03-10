@@ -200,6 +200,19 @@ body {
   gap: 0.5rem;
 }
 
+.summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.summary-actions button {
+  padding: 0.35rem 0.62rem;
+  font-size: 0.8rem;
+  border-radius: 8px;
+}
+
 .turn-list {
   display: flex;
   flex-direction: column;
@@ -671,11 +684,55 @@ textarea {
   margin-top: 0.55rem;
 }
 
+.inactive-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
 .card-item {
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 12px;
   padding: 0.72rem;
   background: rgba(2, 6, 23, 0.4);
+}
+
+.card-collapse {
+  margin: 0;
+}
+
+.card-collapse > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.card-collapse > summary::-webkit-details-marker {
+  display: none;
+}
+
+.card-summary-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.card-summary-ap {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.card-summary-effect {
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.28;
+}
+
+.card-collapse-body {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
 }
 
 .card-attribute-table {
@@ -1057,6 +1114,69 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.inventory-currency-group,
+.inventory-items-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.inventory-currency-group h4,
+.inventory-items-group h4 {
+  margin: 0;
+}
+
+.currency-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.currency-tab {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.currency-tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.currency-tab-header strong {
+  font-size: 0.86rem;
+}
+
+.currency-tab-header span {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.currency-tab-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.currency-tab-controls input {
+  width: 84px;
+  min-width: 0;
+}
+
+.currency-tab-controls button {
+  padding: 0.28rem 0.54rem;
+  font-size: 0.76rem;
+  border-radius: 8px;
 }
 
 .journal-entry {

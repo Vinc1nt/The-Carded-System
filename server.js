@@ -954,6 +954,9 @@ function sanitizeParticipantUpdate(body, current) {
   if (Array.isArray(body.inventory)) {
     update.inventory = normalizeInventoryEntries(body.inventory);
   }
+  if (Array.isArray(body.currencies)) {
+    update.currencies = normalizeCurrencyEntries(body.currencies);
+  }
   if (Array.isArray(body.quests)) {
     update.quests = normalizeJournalEntries(body.quests, 'quest');
   }
@@ -1022,6 +1025,7 @@ function createParticipant(body = {}) {
     statuses: Array.isArray(body.statuses) ? body.statuses : [],
     abilities: normalizeAbilityEntries(body.abilities),
     inventory: normalizeInventoryEntries(body.inventory),
+    currencies: normalizeCurrencyEntries(body.currencies),
     quests: normalizeJournalEntries(body.quests, 'quest'),
     achievements: normalizeJournalEntries(body.achievements, 'achievement'),
     resistances: normalizeDamageTypes(body.resistances),
@@ -2120,6 +2124,42 @@ function normalizeInventoryEntries(list) {
     .filter(Boolean);
 }
 
+function normalizeCurrencyEntries(list) {
+  if (!Array.isArray(list)) return [];
+  const normalized = [];
+  const seenByName = new Map();
+  list.forEach((entry, index) => {
+    if (entry == null) return;
+    let name = '';
+    let amountRaw = 0;
+    if (typeof entry === 'string') {
+      name = entry.trim();
+      amountRaw = 0;
+    } else if (typeof entry === 'object') {
+      name = String(entry.name || entry.title || '').trim();
+      amountRaw = Number(entry.amount ?? entry.value ?? entry.quantity ?? 0);
+    }
+    if (!name) return;
+    const amount = Number.isFinite(amountRaw) ? Math.max(0, Math.round(amountRaw)) : 0;
+    const key = name.toLowerCase();
+    const existingIndex = seenByName.get(key);
+    if (existingIndex != null) {
+      normalized[existingIndex] = {
+        ...normalized[existingIndex],
+        amount
+      };
+      return;
+    }
+    normalized.push({
+      id: entry?.id || randomUUID(),
+      name: name || `Currency ${index + 1}`,
+      amount
+    });
+    seenByName.set(key, normalized.length - 1);
+  });
+  return normalized;
+}
+
 function normalizeJournalEntries(list, category) {
   if (!Array.isArray(list)) return [];
   const normalizedCategory = normalizeJournalCategory(category);
@@ -2483,6 +2523,7 @@ function recalculateParticipant(participant) {
   participant.constructs = normalizeConstructs(participant.constructs, participant.id);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
   participant.inventory = normalizeInventoryEntries(participant.inventory);
+  participant.currencies = normalizeCurrencyEntries(participant.currencies);
   participant.quests = normalizeJournalEntries(participant.quests, 'quest');
   participant.achievements = normalizeJournalEntries(participant.achievements, 'achievement');
   const rootedStacks = getStatusStacks(participant, 'rooted');

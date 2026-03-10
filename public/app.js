@@ -583,13 +583,34 @@ function renderCardsSection(participant, drawers = {}) {
 }
 
 function renderInactiveCardsDropdown(participant, inactiveEntries = []) {
+  const options = inactiveEntries
+    .map(({ card, index }) => {
+      const effect = formatCardEffectAtMastery(card, participant);
+      return `<option value="${index}" data-card-id="${card.id || ''}" data-card-index="${index}">${escapeHtml(
+        `${card.name || `Card ${index + 1}`} · AP ${Number(card.apCost || 0)} · ${effect || '—'}`
+      )}</option>`;
+    })
+    .join('');
   return `
     <details class="inactive-cards-dropdown" data-section="inactiveCards">
       <summary><strong>Inactive Cards (${inactiveEntries.length})</strong></summary>
       <div class="collapsible-body">
-        <div class="cards-grid cards-grid-compact">
-          ${renderCards(participant, inactiveEntries, { inactive: true })}
-        </div>
+        ${
+          inactiveEntries.length
+            ? `
+            <div class="inactive-picker">
+              <label>Inactive Card
+                <select data-inactive-card-select>
+                  ${options}
+                </select>
+              </label>
+              <div class="card-actions">
+                <button type="button" data-activate-selected-card>Activate Card</button>
+              </div>
+            </div>
+          `
+            : '<p class="muted">No inactive cards.</p>'
+        }
       </div>
     </details>
   `;
@@ -660,14 +681,41 @@ function renderMitigationSection(participant) {
 
 function renderInventorySection(participant, drawers = {}) {
   const items = participant.inventory || [];
+  const currencies = participant.currencies || [];
   const toolingClass = drawers.inventory ? 'card-tooling' : 'card-tooling hidden';
+  const currencyToolingClass = drawers.inventoryCurrency ? 'card-tooling' : 'card-tooling hidden';
   return `
     <details class="collapsible-block" data-section="inventory">
       <summary>
-        <strong>Inventory (${items.length})</strong>
-        <button type="button" data-toggle-inventory-form>Add Item</button>
+        <strong>Inventory (${items.length} items · ${currencies.length} currencies)</strong>
+        <div class="summary-actions">
+          <button type="button" data-toggle-currency-form>Add Currency</button>
+          <button type="button" data-toggle-inventory-form>Add Item</button>
+        </div>
       </summary>
       <div class="collapsible-body">
+        <div class="inventory-currency-group">
+          <h4>Currencies</h4>
+          <div class="currency-list">
+            ${renderCurrencyEntries(participant)}
+          </div>
+          <div class="${currencyToolingClass}" data-currency-tooling>
+            <form data-form="currency" class="stacked-form">
+              <div class="form-row">
+                <label>Name
+                  <input type="text" name="name" placeholder="Gold" required />
+                </label>
+                <label>Starting Amount
+                  <input type="number" name="amount" min="0" value="0" />
+                </label>
+              </div>
+              <button type="submit">Add Currency</button>
+            </form>
+          </div>
+        </div>
+        <div class="inventory-items-group">
+          <h4>Items</h4>
+        </div>
         <div class="ability-list">
           ${renderInventoryEntries(participant)}
         </div>
@@ -693,6 +741,30 @@ function renderInventorySection(participant, drawers = {}) {
       </div>
     </details>
   `;
+}
+
+function renderCurrencyEntries(participant) {
+  const currencies = participant.currencies || [];
+  if (!currencies.length) {
+    return '<p class="muted">No currencies yet.</p>';
+  }
+  return currencies
+    .map(
+      (currency, index) => `
+        <article class="currency-tab">
+          <div class="currency-tab-header">
+            <strong>${escapeHtml(currency.name || `Currency ${index + 1}`)}</strong>
+            <span>${Number(currency.amount || 0)}</span>
+          </div>
+          <div class="currency-tab-controls">
+            <input type="number" min="1" step="1" value="1" data-currency-input="${currency.id || ''}" data-currency-index="${index}" />
+            <button type="button" data-currency-adjust="add" data-currency-id="${currency.id || ''}" data-currency-index="${index}">Add</button>
+            <button type="button" data-currency-adjust="remove" data-currency-id="${currency.id || ''}" data-currency-index="${index}">Remove</button>
+            <button type="button" data-remove-currency="${currency.id || ''}" data-currency-index="${index}">Delete</button>
+          </div>
+        </article>`
+    )
+    .join('');
 }
 
 function renderInventoryEntries(participant) {
@@ -1339,11 +1411,11 @@ function getCardBuckets(participant = {}) {
 
 function getDrawerState(participantId) {
   if (!participantId) {
-    return { card: false, relic: false, inventory: false };
+    return { card: false, relic: false, inventory: false, inventoryCurrency: false };
   }
   const existing = detailDrawerState.get(participantId);
   if (existing) return existing;
-  const initial = { card: false, relic: false, inventory: false };
+  const initial = { card: false, relic: false, inventory: false, inventoryCurrency: false };
   detailDrawerState.set(participantId, initial);
   return initial;
 }
@@ -1699,6 +1771,34 @@ function wireDetailEvents(participant) {
       }
     });
   });
+  panel.querySelector('[data-activate-selected-card]')?.addEventListener('click', async () => {
+    const select = panel.querySelector('[data-inactive-card-select]');
+    const option = select?.selectedOptions?.[0];
+    if (!option) {
+      notify('Choose an inactive card first.');
+      return;
+    }
+    const cardId = option.dataset.cardId || '';
+    const fallbackIndex = Number(option.dataset.cardIndex);
+    const latest = (await getServerParticipant(participant.id)) || participant;
+    const cards = [...(latest?.cards || participant.cards || [])];
+    const activeCount = cards.filter((entry) => isCardActive(entry)).length;
+    if (activeCount >= MAX_ACTIVE_CARDS) {
+      notify(`Deactivate a card first. Max ${MAX_ACTIVE_CARDS} active cards.`);
+      return;
+    }
+    let idx = cards.findIndex((entry) => cardId && entry.id === cardId);
+    if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+    if (idx < 0 || idx >= cards.length) return;
+    cards[idx] = { ...cards[idx], active: true };
+    try {
+      await api(`/api/participants/${participant.id}`, 'PATCH', { cards });
+      notify(`${cards[idx].name || 'Card'} activated.`, 'success');
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
   panel.querySelectorAll('[data-use-card]').forEach((button) => {
     button.addEventListener('click', async () => {
       const cardId = button.dataset.useCard;
@@ -1806,12 +1906,21 @@ function wireDetailEvents(participant) {
 
   const inventoryTooling = panel.querySelector('[data-inventory-tooling]');
   const inventoryForm = inventoryTooling?.querySelector('[data-form="inventory"]');
+  const currencyTooling = panel.querySelector('[data-currency-tooling]');
+  const currencyForm = currencyTooling?.querySelector('[data-form="currency"]');
   panel.querySelector('[data-toggle-inventory-form]')?.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     const isOpening = inventoryTooling?.classList.contains('hidden');
     inventoryTooling?.classList.toggle('hidden');
     setDrawerState(participant.id, 'inventory', isOpening);
+  });
+  panel.querySelector('[data-toggle-currency-form]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const isOpening = currencyTooling?.classList.contains('hidden');
+    currencyTooling?.classList.toggle('hidden');
+    setDrawerState(participant.id, 'inventoryCurrency', isOpening);
   });
   inventoryForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1842,6 +1951,43 @@ function wireDetailEvents(participant) {
       notify(err.message);
     }
   });
+  currencyForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const name = String(formData.get('name') || '').trim();
+    if (!name) {
+      notify('Currency name is required.');
+      return;
+    }
+    const amount = Math.max(0, Math.round(Number(formData.get('amount') || 0)));
+    try {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const currencies = [...(latest?.currencies || participant.currencies || [])];
+      const existingIndex = currencies.findIndex(
+        (entry) => String(entry.name || '').trim().toLowerCase() === name.toLowerCase()
+      );
+      if (existingIndex >= 0) {
+        const currentAmount = Math.max(0, Number(currencies[existingIndex].amount || 0));
+        currencies[existingIndex] = {
+          ...currencies[existingIndex],
+          amount: currentAmount + amount
+        };
+      } else {
+        currencies.push({
+          id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+          name,
+          amount
+        });
+      }
+      await api(`/api/participants/${participant.id}`, 'PATCH', { currencies });
+      event.target.reset();
+      setDrawerState(participant.id, 'inventoryCurrency', true);
+      notify(existingIndex >= 0 ? `${name} updated.` : `${name} added.`, 'success');
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
   panel.querySelectorAll('[data-remove-inventory]').forEach((button) => {
     button.addEventListener('click', async () => {
       const itemId = button.dataset.removeInventory;
@@ -1854,6 +2000,49 @@ function wireDetailEvents(participant) {
         if (idx < 0 || idx >= inventory.length) return;
         inventory.splice(idx, 1);
         await api(`/api/participants/${participant.id}`, 'PATCH', { inventory });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelectorAll('[data-currency-adjust]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const direction = button.dataset.currencyAdjust === 'remove' ? -1 : 1;
+      const currencyId = button.dataset.currencyId;
+      const fallbackIndex = Number(button.dataset.currencyIndex);
+      const amountInput = button
+        .closest('.currency-tab')
+        ?.querySelector('[data-currency-input]');
+      const step = Math.max(1, Math.round(Number(amountInput?.value || 1)));
+      try {
+        const latest = (await getServerParticipant(participant.id)) || participant;
+        const currencies = [...(latest?.currencies || participant.currencies || [])];
+        let idx = currencies.findIndex((currency) => currencyId && currency.id === currencyId);
+        if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+        if (idx < 0 || idx >= currencies.length) return;
+        const current = Math.max(0, Number(currencies[idx].amount || 0));
+        const next = direction > 0 ? current + step : Math.max(0, current - step);
+        currencies[idx] = { ...currencies[idx], amount: next };
+        await api(`/api/participants/${participant.id}`, 'PATCH', { currencies });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelectorAll('[data-remove-currency]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const currencyId = button.dataset.removeCurrency;
+      const fallbackIndex = Number(button.dataset.currencyIndex);
+      try {
+        const latest = (await getServerParticipant(participant.id)) || participant;
+        const currencies = [...(latest?.currencies || participant.currencies || [])];
+        let idx = currencies.findIndex((currency) => currencyId && currency.id === currencyId);
+        if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+        if (idx < 0 || idx >= currencies.length) return;
+        currencies.splice(idx, 1);
+        await api(`/api/participants/${participant.id}`, 'PATCH', { currencies });
         fetchState();
       } catch (err) {
         notify(err.message);
@@ -2105,31 +2294,42 @@ function renderCards(participant, entries = [], options = {}) {
           <button type="button" data-activate-card="${card.id || ''}" data-card-index="${index}">Activate</button>
           <button type="button" data-export-card="${card.id || ''}">Export</button>
           <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove</button>`;
+      const compactEffect = formatCardEffectAtMastery(card, participant);
       return `
       <article class="card-item" data-card="${card.id}" data-card-index="${index}">
-        <h4>${card.name}</h4>
-        <p>• ${card.type || '—'} · ${card.tier || '—'}${options.inactive ? ' · Inactive' : ''}</p>
-        ${renderCardAttributeTable(card, participant)}
-        ${renderConstructMetaLine(card, participant)}
-        ${renderMasteryLines(card)}
-        ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
-        <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
-        <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
-        ${
-          options.inactive
-            ? ''
-            : renderCardTargetControl(card, participant)
-        }
-        <label>Set Mastery
-          <select data-card-mastery="${card.id || ''}" data-card-index="${index}">
-            <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
-            <option value="2" ${Number(card.masteryLevel || 1) === 2 ? 'selected' : ''}>Level 2</option>
-            <option value="3" ${Number(card.masteryLevel || 1) >= 3 ? 'selected' : ''}>Level 3</option>
-          </select>
-        </label>
-        <div class="card-actions">
-          ${options.inactive ? inactiveActions : activeActions}
-        </div>
+        <details class="card-collapse">
+          <summary>
+            <div class="card-summary-row">
+              <span class="card-summary-ap">AP ${Number(card.apCost || 0)}</span>
+              <span class="card-summary-effect">${escapeHtml(compactEffect || '—')}</span>
+            </div>
+          </summary>
+          <div class="card-collapse-body">
+            <h4>${card.name}</h4>
+            <p>• ${card.type || '—'} · ${card.tier || '—'}${options.inactive ? ' · Inactive' : ''}</p>
+            ${renderCardAttributeTable(card, participant)}
+            ${renderConstructMetaLine(card, participant)}
+            ${renderMasteryLines(card)}
+            ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
+            <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
+            <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
+            ${
+              options.inactive
+                ? ''
+                : renderCardTargetControl(card, participant)
+            }
+            <label>Set Mastery
+              <select data-card-mastery="${card.id || ''}" data-card-index="${index}">
+                <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
+                <option value="2" ${Number(card.masteryLevel || 1) === 2 ? 'selected' : ''}>Level 2</option>
+                <option value="3" ${Number(card.masteryLevel || 1) >= 3 ? 'selected' : ''}>Level 3</option>
+              </select>
+            </label>
+            <div class="card-actions">
+              ${options.inactive ? inactiveActions : activeActions}
+            </div>
+          </div>
+        </details>
       </article>`;
     })
     .join('');

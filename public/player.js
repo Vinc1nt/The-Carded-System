@@ -275,7 +275,7 @@ function renderStats() {
       ${renderPlayerStatusSection(participant)}
       ${renderPlayerDamageSection(participant)}
       ${renderPlayerAbilitiesSection(participant)}
-      <details class="player-collapsible" data-player-section="abilities" open>
+      <details class="player-collapsible" data-player-section="abilities">
         <summary><strong>Ability Scores</strong></summary>
         <div class="collapsible-body">
           <label>Proficiency Bonus
@@ -489,7 +489,7 @@ function buildParticipantFromCreateForm(formData) {
 
 function renderPlayerStandardActionsSection() {
   return `
-    <details class="player-collapsible" data-player-section="standardActions" open>
+    <details class="player-collapsible" data-player-section="standardActions">
       <summary><strong>Standard Actions</strong></summary>
       <div class="collapsible-body">
         <label class="checkbox-row">
@@ -525,7 +525,7 @@ function renderPlayerStandardActionButtons() {
 function renderPlayerCardsSection(participant) {
   const { active, total } = getPlayerCardBuckets(participant || {});
   return `
-    <details class="player-collapsible" data-player-section="cards" open>
+    <details class="player-collapsible" data-player-section="cards">
       <summary><strong>Cards & Loadout (${active.length}/${MAX_ACTIVE_CARDS} active · ${total} total)</strong></summary>
       <div class="collapsible-body">
         <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
@@ -638,7 +638,7 @@ function renderPlayerCardsSection(participant) {
 
 function renderPlayerStatusSection(participant) {
   return `
-    <details class="player-collapsible" data-player-section="statuses" open>
+    <details class="player-collapsible" data-player-section="statuses">
       <summary><strong>Statuses</strong></summary>
       <div class="collapsible-body">
         <div class="section-header">
@@ -654,7 +654,7 @@ function renderPlayerStatusSection(participant) {
 
 function renderPlayerDamageSection(participant) {
   return `
-    <details class="player-collapsible" data-player-section="mitigation" open>
+    <details class="player-collapsible" data-player-section="mitigation">
       <summary><strong>Resistances & Vulnerabilities</strong></summary>
       <div class="collapsible-body">
         ${renderPlayerDamageGroup('Resistances', participant.resistances, 'resistance')}
@@ -697,7 +697,7 @@ function renderPlayerDamageGroup(label, values = [], key) {
 
 function renderPlayerAbilitiesSection(participant) {
   return `
-    <details class="player-collapsible" data-player-section="abilitiesText" open>
+    <details class="player-collapsible" data-player-section="abilitiesText">
       <summary><strong>Abilities</strong></summary>
       <div class="collapsible-body">
         <div class="ability-list">
@@ -805,7 +805,7 @@ function restorePlayerJournalSections(participantId) {
 
 function renderPlayerJournalGroup(label, entries, emptyText, category) {
   return `
-    <details class="player-collapsible journal-collapsible" data-journal-section="${category}" open>
+    <details class="player-collapsible journal-collapsible" data-journal-section="${category}">
       <summary><strong>${label} (${entries.length})</strong></summary>
       <div class="collapsible-body journal-list">
         ${renderPlayerJournalEntries(entries, emptyText, category)}
@@ -926,7 +926,7 @@ function hideJournalPopup() {
 
 function renderPlayerSetSection(participant) {
   return `
-    <details class="player-collapsible" data-player-section="sets" open>
+    <details class="player-collapsible" data-player-section="sets">
       <summary><strong>Set Tracker</strong></summary>
       <div class="collapsible-body">
         ${renderSetTracker(participant)}
@@ -937,7 +937,7 @@ function renderPlayerSetSection(participant) {
 
 function renderPlayerConstructSection() {
   return `
-    <details class="player-collapsible" data-player-section="constructs" open>
+    <details class="player-collapsible" data-player-section="constructs">
       <summary><strong>Constructs</strong></summary>
       <div class="collapsible-body">
         <div id="playerConstructList" class="card-list empty-state">No active constructs.</div>
@@ -948,7 +948,7 @@ function renderPlayerConstructSection() {
 
 function renderPlayerRelicSection() {
   return `
-    <details class="player-collapsible" data-player-section="relics" open>
+    <details class="player-collapsible" data-player-section="relics">
       <summary><strong>Relics & Artifacts</strong></summary>
       <div class="collapsible-body">
         <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
@@ -990,7 +990,7 @@ function renderPlayerRelicSection() {
 
 function renderPlayerNotesSection(participant) {
   return `
-    <details class="player-collapsible" data-player-section="notes" open>
+    <details class="player-collapsible" data-player-section="notes">
       <summary><strong>Notes</strong></summary>
       <div class="collapsible-body">
         <div class="section-header">
@@ -1005,9 +1005,25 @@ function renderPlayerNotesSection(participant) {
 
 function renderPlayerInventorySection() {
   return `
-    <details class="player-collapsible" data-player-section="inventory" open>
+    <details class="player-collapsible" data-player-section="inventory">
       <summary><strong>Inventory</strong></summary>
       <div class="collapsible-body">
+        <div class="section-header">
+          <h4>Currencies</h4>
+          <button type="button" data-player-toggle-currency>Add Currency</button>
+        </div>
+        <div id="playerCurrencyList" class="relic-list empty-state">No currencies yet.</div>
+        <form id="playerCurrencyForm" class="stacked-form hidden">
+          <div class="form-row">
+            <label>Name
+              <input type="text" name="name" placeholder="Gold" required />
+            </label>
+            <label>Starting Amount
+              <input type="number" name="amount" min="0" value="0" />
+            </label>
+          </div>
+          <button type="submit">Add Currency</button>
+        </form>
         <div class="section-header">
           <h4>Items</h4>
           <button type="button" data-player-toggle-inventory>Add Item</button>
@@ -1491,14 +1507,7 @@ function renderCards() {
       <div class="cards-grid player-card-grid">
         ${renderPlayerCardsList(participant, active, { inactive: false })}
       </div>
-      <details class="inactive-cards-dropdown">
-        <summary><strong>Inactive Cards (${inactive.length})</strong></summary>
-        <div class="collapsible-body">
-          <div class="cards-grid player-card-grid cards-grid-compact">
-            ${renderPlayerCardsList(participant, inactive, { inactive: true })}
-          </div>
-        </div>
-      </details>
+      ${renderPlayerInactiveCardsDropdown(participant, inactive)}
     `;
   }
   renderPlayerConstructs(participant);
@@ -1509,6 +1518,40 @@ function renderCards() {
   wirePlayerCardUses(participant);
   wirePlayerCardExports(participant);
   wirePlayerCardActivation(participant);
+}
+
+function renderPlayerInactiveCardsDropdown(participant, inactiveEntries = []) {
+  const options = inactiveEntries
+    .map(({ card, index }) => {
+      const effect = formatCardEffectAtMastery(card, participant);
+      return `<option value="${index}" data-card-id="${card.id || ''}" data-card-index="${index}">${escapeHtml(
+        `${card.name || `Card ${index + 1}`} · AP ${Number(card.apCost || 0)} · ${effect || '—'}`
+      )}</option>`;
+    })
+    .join('');
+  return `
+    <details class="inactive-cards-dropdown">
+      <summary><strong>Inactive Cards (${inactiveEntries.length})</strong></summary>
+      <div class="collapsible-body">
+        ${
+          inactiveEntries.length
+            ? `
+            <div class="inactive-picker">
+              <label>Inactive Card
+                <select data-player-inactive-card-select>
+                  ${options}
+                </select>
+              </label>
+              <div class="card-actions">
+                <button type="button" data-player-activate-selected-card>Activate Card</button>
+              </div>
+            </div>
+          `
+            : '<p class="muted">No inactive cards.</p>'
+        }
+      </div>
+    </details>
+  `;
 }
 
 function renderPlayerCardsList(participant, entries = [], options = {}) {
@@ -1524,32 +1567,43 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
       const inactiveActions = `
               <button type="button" data-player-activate-card="${card.id}" data-player-card-index="${index}">Activate</button>
               <button type="button" data-player-export-card="${card.id}">Export Card</button>`;
+      const compactEffect = formatCardEffectAtMastery(card, participant);
       return `
           <article class="card-item" data-player-card="${card.id}" data-player-card-index="${index}">
-            <h4>${card.name}</h4>
-            <p>• ${card.type || '—'} · ${card.tier || '—'}${options.inactive ? ' · Inactive' : ''}</p>
-            ${renderPlayerCardAttributeTable(card, participant)}
-            ${renderConstructMetaLine(card, participant)}
-            ${renderMasteryLines(card)}
-            ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
-            ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
-            <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
-            <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
-            ${
-              options.inactive
-                ? ''
-                : renderPlayerCardTargetControl(card, participant)
-            }
-            <label>Set Mastery
-              <select data-player-card-mastery="${card.id}" data-player-card-index="${index}">
-                <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
-                <option value="2" ${Number(card.masteryLevel || 1) === 2 ? 'selected' : ''}>Level 2</option>
-                <option value="3" ${Number(card.masteryLevel || 1) >= 3 ? 'selected' : ''}>Level 3</option>
-              </select>
-            </label>
-            <div class="card-actions">
-              ${options.inactive ? inactiveActions : activeActions}
-            </div>
+            <details class="card-collapse">
+              <summary>
+                <div class="card-summary-row">
+                  <span class="card-summary-ap">AP ${Number(card.apCost || 0)}</span>
+                  <span class="card-summary-effect">${escapeHtml(compactEffect || '—')}</span>
+                </div>
+              </summary>
+              <div class="card-collapse-body">
+                <h4>${card.name}</h4>
+                <p>• ${card.type || '—'} · ${card.tier || '—'}${options.inactive ? ' · Inactive' : ''}</p>
+                ${renderPlayerCardAttributeTable(card, participant)}
+                ${renderConstructMetaLine(card, participant)}
+                ${renderMasteryLines(card)}
+                ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
+                ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
+                <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
+                <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
+                ${
+                  options.inactive
+                    ? ''
+                    : renderPlayerCardTargetControl(card, participant)
+                }
+                <label>Set Mastery
+                  <select data-player-card-mastery="${card.id}" data-player-card-index="${index}">
+                    <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
+                    <option value="2" ${Number(card.masteryLevel || 1) === 2 ? 'selected' : ''}>Level 2</option>
+                    <option value="3" ${Number(card.masteryLevel || 1) >= 3 ? 'selected' : ''}>Level 3</option>
+                  </select>
+                </label>
+                <div class="card-actions">
+                  ${options.inactive ? inactiveActions : activeActions}
+                </div>
+              </div>
+            </details>
           </article>`;
     })
     .join('');
@@ -1910,6 +1964,30 @@ function wirePlayerCardActivation(participant) {
       fetchState();
     };
   });
+  listEl.querySelector('[data-player-activate-selected-card]')?.addEventListener('click', async () => {
+    const select = listEl.querySelector('[data-player-inactive-card-select]');
+    const option = select?.selectedOptions?.[0];
+    if (!option) {
+      notify('Choose an inactive card first.');
+      return;
+    }
+    const cardId = option.dataset.cardId || '';
+    const fallbackIndex = Number(option.dataset.cardIndex);
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const cards = [...(latest?.cards || participant.cards || [])];
+    const activeCount = cards.filter((entry) => isCardActive(entry)).length;
+    if (activeCount >= MAX_ACTIVE_CARDS) {
+      notify(`Deactivate a card first. Max ${MAX_ACTIVE_CARDS} active cards.`);
+      return;
+    }
+    let idx = cards.findIndex((entry) => cardId && entry.id === cardId);
+    if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+    if (idx < 0 || idx >= cards.length) return;
+    cards[idx] = { ...cards[idx], active: true };
+    await patchParticipant(participant.id, { cards });
+    notify(`${cards[idx].name || 'Card'} activated.`);
+    fetchState();
+  });
 }
 
 function renderPlayerConstructs(participant) {
@@ -2077,14 +2155,20 @@ function renderRelics(participant) {
 function renderInventory(participant) {
   const listEl = document.getElementById('playerInventoryList');
   const formEl = document.getElementById('playerInventoryForm');
-  if (!listEl) return;
+  const currencyListEl = document.getElementById('playerCurrencyList');
+  const currencyFormEl = document.getElementById('playerCurrencyForm');
+  if (!listEl || !currencyListEl) return;
   if (!participant) {
     listEl.classList.add('empty-state');
     listEl.innerHTML = '<p class="empty-state">Select a combatant to view inventory.</p>';
+    currencyListEl.classList.add('empty-state');
+    currencyListEl.innerHTML = '<p class="empty-state">Select a combatant to view currencies.</p>';
     if (formEl) formEl.onsubmit = null;
+    if (currencyFormEl) currencyFormEl.onsubmit = null;
     return;
   }
   const items = participant?.inventory || [];
+  const currencies = participant?.currencies || [];
   if (!items.length) {
     listEl.classList.add('empty-state');
     listEl.innerHTML = '<p class="empty-state">No inventory items yet.</p>';
@@ -2103,6 +2187,29 @@ function renderInventory(participant) {
       )
       .join('');
   }
+  if (!currencies.length) {
+    currencyListEl.classList.add('empty-state');
+    currencyListEl.innerHTML = '<p class="empty-state">No currencies yet.</p>';
+  } else {
+    currencyListEl.classList.remove('empty-state');
+    currencyListEl.innerHTML = currencies
+      .map(
+        (currency, index) => `
+          <article class="currency-tab">
+            <div class="currency-tab-header">
+              <strong>${escapeHtml(currency.name || `Currency ${index + 1}`)}</strong>
+              <span>${Number(currency.amount || 0)}</span>
+            </div>
+            <div class="currency-tab-controls">
+              <input type="number" min="1" step="1" value="1" data-player-currency-input="${currency.id || ''}" data-player-currency-index="${index}" />
+              <button type="button" data-player-currency-adjust="add" data-player-currency-id="${currency.id || ''}" data-player-currency-index="${index}">Add</button>
+              <button type="button" data-player-currency-adjust="remove" data-player-currency-id="${currency.id || ''}" data-player-currency-index="${index}">Remove</button>
+              <button type="button" data-player-remove-currency="${currency.id || ''}" data-player-currency-index="${index}">Delete</button>
+            </div>
+          </article>`
+      )
+      .join('');
+  }
   listEl.querySelectorAll('[data-remove-inventory]').forEach((button) => {
     button.onclick = async () => {
       const itemId = button.dataset.removeInventory;
@@ -2114,6 +2221,41 @@ function renderInventory(participant) {
       if (idx < 0 || idx >= inventory.length) return;
       inventory.splice(idx, 1);
       await patchParticipant(participant.id, { inventory });
+      fetchState();
+    };
+  });
+  currencyListEl.querySelectorAll('[data-player-currency-adjust]').forEach((button) => {
+    button.onclick = async () => {
+      const direction = button.dataset.playerCurrencyAdjust === 'remove' ? -1 : 1;
+      const currencyId = button.dataset.playerCurrencyId;
+      const fallbackIndex = Number(button.dataset.playerCurrencyIndex);
+      const amountInput = button
+        .closest('.currency-tab')
+        ?.querySelector('[data-player-currency-input]');
+      const step = Math.max(1, Math.round(Number(amountInput?.value || 1)));
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const currencies = [...(latest?.currencies || participant.currencies || [])];
+      let idx = currencies.findIndex((entry) => currencyId && entry.id === currencyId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= currencies.length) return;
+      const current = Math.max(0, Number(currencies[idx].amount || 0));
+      const next = direction > 0 ? current + step : Math.max(0, current - step);
+      currencies[idx] = { ...currencies[idx], amount: next };
+      await patchParticipant(participant.id, { currencies });
+      fetchState();
+    };
+  });
+  currencyListEl.querySelectorAll('[data-player-remove-currency]').forEach((button) => {
+    button.onclick = async () => {
+      const currencyId = button.dataset.playerRemoveCurrency;
+      const fallbackIndex = Number(button.dataset.playerCurrencyIndex);
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const currencies = [...(latest?.currencies || participant.currencies || [])];
+      let idx = currencies.findIndex((entry) => currencyId && entry.id === currencyId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= currencies.length) return;
+      currencies.splice(idx, 1);
+      await patchParticipant(participant.id, { currencies });
       fetchState();
     };
   });
@@ -2141,6 +2283,41 @@ function renderInventory(participant) {
       await patchParticipant(participant.id, { inventory: [...currentInventory, newItem] });
       formEl.reset();
       formEl.classList.add('hidden');
+      fetchState();
+    };
+  }
+  if (currencyFormEl) {
+    currencyFormEl.onsubmit = async (event) => {
+      event.preventDefault();
+      const data = new FormData(currencyFormEl);
+      const name = String(data.get('name') || '').trim();
+      if (!name) {
+        notify('Currency name is required.');
+        return;
+      }
+      const amount = Math.max(0, Math.round(Number(data.get('amount') || 0)));
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const currencies = [...(latest?.currencies || participant.currencies || [])];
+      const existingIndex = currencies.findIndex(
+        (entry) => String(entry.name || '').trim().toLowerCase() === name.toLowerCase()
+      );
+      if (existingIndex >= 0) {
+        const current = Math.max(0, Number(currencies[existingIndex].amount || 0));
+        currencies[existingIndex] = {
+          ...currencies[existingIndex],
+          amount: current + amount
+        };
+      } else {
+        currencies.push({
+          id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+          name,
+          amount
+        });
+      }
+      await patchParticipant(participant.id, { currencies });
+      currencyFormEl.reset();
+      currencyFormEl.classList.add('hidden');
+      notify(existingIndex >= 0 ? `${name} updated.` : `${name} added.`);
       fetchState();
     };
   }
@@ -2434,8 +2611,12 @@ function wirePlayerSheetEvents(participant) {
     };
   });
   const inventoryForm = panel.querySelector('#playerInventoryForm');
+  const currencyForm = panel.querySelector('#playerCurrencyForm');
   panel.querySelector('[data-player-toggle-inventory]')?.addEventListener('click', () => {
     inventoryForm?.classList.toggle('hidden');
+  });
+  panel.querySelector('[data-player-toggle-currency]')?.addEventListener('click', () => {
+    currencyForm?.classList.toggle('hidden');
   });
   const notesButton = panel.querySelector('[data-player-save-notes]');
   const notesInput = panel.querySelector('[data-player-notes]');
