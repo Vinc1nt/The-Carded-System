@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Carded System - Card Library</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell card-library-page">
+      <header class="top-bar">
+        <div class="encounter-meta">
+          <div class="meta-label">Library</div>
+          <div class="meta-value">Preset Cards</div>
+        </div>
+        <div class="header-actions">
+          <a href="/" rel="noopener noreferrer">Back to GM Tracker</a>
+          <a href="/player" target="_blank" rel="noopener noreferrer">Open Player Dashboard</a>
+        </div>
+      </header>
+      <main class="card-library-layout">
+        <section class="panel card-library-list-panel">
+          <div class="panel-header">
+            <h2>Card List</h2>
+            <button type="button" id="refreshLibrary">Refresh</button>
+          </div>
+          <div class="stacked-form">
+            <label>Target Combatant (optional)
+              <select id="libraryParticipantSelect">
+                <option value="">None selected</option>
+              </select>
+            </label>
+          </div>
+          <div id="libraryList" class="library-list empty-state">No preset cards configured.</div>
+        </section>
+        <section class="panel card-library-detail-panel">
+          <div class="panel-header">
+            <h2 id="libraryCardTitle">Select a card</h2>
+          </div>
+          <div id="libraryCardDetail" class="empty-state">Pick a card from the list to view details.</div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/cards.js"></script>
+  </body>
+</html>

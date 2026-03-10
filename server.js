@@ -1571,6 +1571,9 @@ async function handleStatic(res, pathname) {
   if (requestedPath === '/player') {
     requestedPath = '/player.html';
   }
+  if (requestedPath === '/cards') {
+    requestedPath = '/cards.html';
+  }
   const normalized = path
     .normalize(requestedPath)
     .replace(/^(\.\.(\/|\\|$))+/, '');

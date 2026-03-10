@@ -14,29 +14,6 @@ const DAMAGE_TYPES = [
   'Thunder'
 ];
 
-const CARD_PRESETS = [
-  {
-    id: 'auto_hammer',
-    name: 'Auto Hammer',
-    card: {
-      name: 'Auto Hammer',
-      set: 'Machine',
-      type: 'Attack',
-      tier: 'Common',
-      healthBonus: 1,
-      apCost: 2,
-      range: 5,
-      tags: ['Bludgeoning'],
-      effect: 'Deal Bludgeoning damage.',
-      damage: 8,
-      damageType: 'Bludgeoning',
-      mastery: ['Level 1: Base', 'Level 2: Damage increases to 9', 'Level 3: Unlocks fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 },
-      masteryDamageByLevel: { 1: 8, 2: 9, 3: 9 }
-    }
-  }
-];
-
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
   reference: { standardActions: [], sets: [], statuses: [] },
@@ -257,6 +234,7 @@ function renderDetailPanel() {
       </div>
       <div class="detail-actions">
         <a href="/player?id=${participant.id}" target="_blank" rel="noopener noreferrer">Player View</a>
+        <a href="/cards?participantId=${participant.id}" target="_blank" rel="noopener noreferrer">Card Library</a>
         <button type="button" data-toggle-base-stats>Edit Base Stats</button>
         <button type="button" data-export-character>Export Character</button>
         <button type="button" data-export-deck>Export Deck</button>
@@ -388,17 +366,6 @@ function renderCardsSection(participant, drawers = {}) {
               <input type="file" accept="application/json" data-card-import />
             </label>
             <p class="muted help-text">Upload a single card object or {"cards": []} list with automation fields.</p>
-          </div>
-          <div class="form-row preset-row">
-            <label>Preset Card
-              <select data-card-preset-select>
-                ${renderCardPresetOptions()}
-              </select>
-            </label>
-            <div class="preset-actions">
-              <button type="button" data-add-card-preset>Add Card</button>
-              <button type="button" data-export-card-preset>Export Card</button>
-            </div>
           </div>
           <form data-form="card" class="stacked-form">
           <datalist id="setOptions">
@@ -1244,13 +1211,6 @@ function setDrawerState(participantId, key, isOpen) {
   detailDrawerState.set(participantId, next);
 }
 
-function renderCardPresetOptions() {
-  const options = CARD_PRESETS.map(
-    (preset) => `<option value="${preset.id}">${preset.name}</option>`
-  ).join('');
-  return `<option value="">Select preset…</option>${options}`;
-}
-
 function renderStatusOptions() {
   return (state.reference?.statuses || [])
     .map((status) => `<option value="${status.id}">${status.name}</option>`)
@@ -1504,42 +1464,6 @@ function wireDetailEvents(participant) {
   });
   cardTools?.querySelector('[data-card-import]')?.addEventListener('change', (event) => {
     importCardsFromFile(event.currentTarget, participant.id);
-  });
-  cardTools?.querySelector('[data-add-card-preset]')?.addEventListener('click', async () => {
-    const presetId = cardTools?.querySelector('[data-card-preset-select]')?.value || '';
-    if (!presetId) {
-      notify('Select a preset card first.');
-      return;
-    }
-    const presetCard = createCardFromPreset(presetId);
-    if (!presetCard) {
-      notify('Preset card not found.');
-      return;
-    }
-    try {
-      const latest = (await getServerParticipant(participant.id)) || participant;
-      const existingCards = latest?.cards || participant.cards || [];
-      await api(`/api/participants/${participant.id}`, 'PATCH', {
-        cards: [...existingCards, presetCard]
-      });
-      fetchState();
-    } catch (err) {
-      notify(err.message);
-    }
-  });
-  cardTools?.querySelector('[data-export-card-preset]')?.addEventListener('click', () => {
-    const presetId = cardTools?.querySelector('[data-card-preset-select]')?.value || '';
-    if (!presetId) {
-      notify('Select a preset card first.');
-      return;
-    }
-    const preset = CARD_PRESETS.find((entry) => entry.id === presetId);
-    const presetCard = createCardFromPreset(presetId);
-    if (!preset || !presetCard) {
-      notify('Preset card not found.');
-      return;
-    }
-    downloadJson(presetCard, `${slugify(preset.name)}.json`);
   });
   cardForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -2392,12 +2316,6 @@ function buildCardFromForm(formData) {
     }
   };
   return normalizeCardPayload(card);
-}
-
-function createCardFromPreset(presetId) {
-  const preset = CARD_PRESETS.find((entry) => entry.id === presetId);
-  if (!preset) return null;
-  return normalizeCardPayload(preset.card);
 }
 
 function applyManualMastery(card, level) {
