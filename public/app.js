@@ -13,6 +13,7 @@ const DAMAGE_TYPES = [
   'Slashing',
   'Thunder'
 ];
+const MAX_ACTIVE_CARDS = 10;
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
@@ -248,13 +249,13 @@ function renderDetailPanel() {
       ${renderVitalCard('AP', participant.apCurrent, participant.apMax, 'ap')}
     </div>
     ${renderStatusSection(participant)}
+    ${renderCardsSection(participant, drawers)}
+    ${renderConstructSection(participant)}
+    ${renderSetTrackerSection(participant)}
     ${renderMitigationSection(participant)}
     ${renderAbilitiesSection(participant)}
     ${renderActionsSection(participant)}
-    ${renderSetTrackerSection(participant)}
-    ${renderConstructSection(participant)}
     ${renderJournalSection(participant)}
-    ${renderCardsSection(participant, drawers)}
     ${renderRelicSection(participant, drawers)}
     ${renderInventorySection(participant, drawers)}
     ${renderAutomationSection(participant)}
@@ -262,7 +263,9 @@ function renderDetailPanel() {
   `;
   els.detailPanel.dataset.participantId = participant.id;
   wireDetailEvents(participant);
-  restoreDetailSections(participant.id);
+  if (previousId && previousId === participant.id) {
+    restoreDetailSections(participant.id);
+  }
 }
 
 function renderVitalCard(label, current, max, key) {
@@ -347,18 +350,19 @@ function renderActionsSection(participant) {
 }
 
 function renderCardsSection(participant, drawers = {}) {
-  const cards = participant.cards || [];
+  const { active, inactive, total } = getCardBuckets(participant);
   const toolingClass = drawers.card ? 'card-tooling' : 'card-tooling hidden';
   return `
     <details class="collapsible-block" data-section="cards">
       <summary>
-        <strong>Cards (${cards.length})</strong>
+        <strong>Cards (${active.length}/${MAX_ACTIVE_CARDS} active · ${total} total)</strong>
         <button type="button" data-toggle-card-form>Add Card</button>
       </summary>
       <div class="collapsible-body">
         <div class="cards-grid">
-          ${renderCards(participant)}
+          ${renderCards(participant, active, { inactive: false })}
         </div>
+        ${renderInactiveCardsDropdown(participant, inactive)}
         <div class="${toolingClass}" data-card-tooling>
           <div class="card-import">
             <label class="file-upload">
@@ -467,6 +471,19 @@ function renderCardsSection(participant, drawers = {}) {
           </label>
           <button type="submit">Add Card</button>
         </form>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderInactiveCardsDropdown(participant, inactiveEntries = []) {
+  return `
+    <details class="inactive-cards-dropdown" data-section="inactiveCards">
+      <summary><strong>Inactive Cards (${inactiveEntries.length})</strong></summary>
+      <div class="collapsible-body">
+        <div class="cards-grid cards-grid-compact">
+          ${renderCards(participant, inactiveEntries, { inactive: true })}
         </div>
       </div>
     </details>
@@ -626,7 +643,7 @@ function renderMitigationGroup(label, values = [], key) {
 }
 
 function renderSetTrackerSection(participant) {
-  const cards = participant.cards || [];
+  const cards = getCardBuckets(participant).active.map((entry) => entry.card);
   const counts = {};
   cards.forEach((card) => {
     const setName = String(card.set || '').trim();
@@ -672,6 +689,10 @@ function renderConstructSection(participant) {
   const constructs = participant.constructs || [];
   const summary = participant.derivedBonuses?.machineConstructs || {};
   const cap = Number(summary.maxActive || 1);
+  const hasConstructCard = getCardBuckets(participant).active.some(({ card }) => isConstructCard(card));
+  if (!hasConstructCard) {
+    return '';
+  }
   return `
     <details class="collapsible-block" data-section="constructs">
       <summary>
@@ -1193,6 +1214,24 @@ function renderSetOptions() {
     .join('');
 }
 
+function isCardActive(card = {}) {
+  return card?.active !== false;
+}
+
+function getCardBuckets(participant = {}) {
+  const entries = (participant.cards || []).map((card, index) => ({ card, index }));
+  const active = [];
+  const inactive = [];
+  entries.forEach((entry) => {
+    if (isCardActive(entry.card)) {
+      active.push(entry);
+    } else {
+      inactive.push(entry);
+    }
+  });
+  return { active, inactive, total: entries.length };
+}
+
 function getDrawerState(participantId) {
   if (!participantId) {
     return { card: false, relic: false, inventory: false };
@@ -1472,6 +1511,8 @@ function wireDetailEvents(participant) {
     try {
       const latest = (await getServerParticipant(participant.id)) || participant;
       const existingCards = latest?.cards || participant.cards || [];
+      const activeCount = existingCards.filter((card) => isCardActive(card)).length;
+      newCard.active = activeCount < MAX_ACTIVE_CARDS;
       const response = await api(`/api/participants/${participant.id}`, 'PATCH', {
         cards: [...existingCards, newCard]
       });
@@ -1481,27 +1522,72 @@ function wireDetailEvents(participant) {
       fetchState();
       event.target.reset();
       setDrawerState(participant.id, 'card', true);
+      if (!newCard.active) {
+        notify(`Active loadout is full (${MAX_ACTIVE_CARDS}). Card added as inactive.`);
+      }
     } catch (err) {
       notify(err.message);
     }
   });
 
-  panel.querySelectorAll('[data-remove-card]').forEach((button, index) => {
+  panel.querySelectorAll('[data-remove-card]').forEach((button) => {
     button.addEventListener('click', async () => {
       const cardId = button.dataset.removeCard;
+      const fallbackIndex = Number(button.dataset.cardIndex);
       const latest = (await getServerParticipant(participant.id)) || participant;
       const sourceCards = latest?.cards || participant.cards || [];
       const updated = sourceCards.filter((card, idx) => {
         if (card.id) {
           return card.id !== cardId;
         }
-        return idx !== index;
+        return idx !== fallbackIndex;
       });
       try {
         const response = await api(`/api/participants/${participant.id}`, 'PATCH', { cards: updated });
         if (response?.participant) {
           updateParticipantInState(response.participant);
         }
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelectorAll('[data-deactivate-card]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const cardId = button.dataset.deactivateCard;
+      const fallbackIndex = Number(button.dataset.cardIndex);
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const cards = [...(latest?.cards || participant.cards || [])];
+      let idx = cards.findIndex((entry) => cardId && entry.id === cardId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= cards.length) return;
+      cards[idx] = { ...cards[idx], active: false };
+      try {
+        await api(`/api/participants/${participant.id}`, 'PATCH', { cards });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelectorAll('[data-activate-card]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const cardId = button.dataset.activateCard;
+      const fallbackIndex = Number(button.dataset.cardIndex);
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const cards = [...(latest?.cards || participant.cards || [])];
+      const activeCount = cards.filter((entry) => isCardActive(entry)).length;
+      if (activeCount >= MAX_ACTIVE_CARDS) {
+        notify(`Deactivate a card first. Max ${MAX_ACTIVE_CARDS} active cards.`);
+        return;
+      }
+      let idx = cards.findIndex((entry) => cardId && entry.id === cardId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= cards.length) return;
+      cards[idx] = { ...cards[idx], active: true };
+      try {
+        await api(`/api/participants/${participant.id}`, 'PATCH', { cards });
         fetchState();
       } catch (err) {
         notify(err.message);
@@ -1899,32 +1985,36 @@ function renderStatuses(participant) {
     .join('');
 }
 
-function renderCards(participant) {
-  const cards = participant.cards || [];
-  if (!cards.length) {
-    return '<p class="empty-state">No cards tracked yet.</p>';
+function renderCards(participant, entries = [], options = {}) {
+  if (!entries.length) {
+    return `<p class="empty-state">${options.inactive ? 'No inactive cards.' : 'No active cards tracked yet.'}</p>`;
   }
-  return cards
-    .map(
-      (card, index) => `
-      <article class="card-item" data-card="${card.id}">
+  return entries
+    .map(({ card, index }) => {
+      const activeActions = `
+          <button type="button" data-use-card="${card.id || ''}">Use</button>
+          <button type="button" data-deactivate-card="${card.id || ''}" data-card-index="${index}">Deactivate</button>
+          <button type="button" data-export-card="${card.id || ''}">Export</button>
+          <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove</button>`;
+      const inactiveActions = `
+          <button type="button" data-activate-card="${card.id || ''}" data-card-index="${index}">Activate</button>
+          <button type="button" data-export-card="${card.id || ''}">Export</button>
+          <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove</button>`;
+      return `
+      <article class="card-item" data-card="${card.id}" data-card-index="${index}">
         <h4>${card.name}</h4>
-        <p>• ${card.type || '—'} · ${card.tier || '—'}</p>
-        <p>Set: <strong>${card.set || '—'}</strong> · AP ${card.apCost || 0}</p>
-        ${renderCardDamageLine(card, participant)}
-        <p>Tags: ${(card.tags || []).join(', ') || '—'}</p>
+        <p>• ${card.type || '—'} · ${card.tier || '—'}${options.inactive ? ' · Inactive' : ''}</p>
+        ${renderCardAttributeTable(card, participant)}
         ${renderConstructMetaLine(card, participant)}
-        ${renderCardEffectLine(card)}
         ${renderMasteryLines(card)}
         ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
         <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
         <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
-        <label>Target
-          <select data-card-target="${card.id || ''}">
-            <option value="">Select target…</option>
-            ${renderParticipantTargetOptions(participant.id)}
-          </select>
-        </label>
+        ${
+          options.inactive
+            ? ''
+            : renderCardTargetControl(card, participant)
+        }
         <label>Set Mastery
           <select data-card-mastery="${card.id || ''}" data-card-index="${index}">
             <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
@@ -1933,20 +2023,167 @@ function renderCards(participant) {
           </select>
         </label>
         <div class="card-actions">
-          <button type="button" data-use-card="${card.id || ''}">Use</button>
-          <button type="button" data-export-card="${card.id || ''}">Export</button>
-          <button type="button" data-remove-card="${card.id || ''}" data-card-index="${index}">Remove</button>
+          ${options.inactive ? inactiveActions : activeActions}
         </div>
-      </article>`
-    )
+      </article>`;
+    })
     .join('');
 }
 
-function renderParticipantTargetOptions(actorId) {
-  return (state.encounter.participants || [])
-    .filter((entry) => entry.id !== actorId)
-    .map((entry) => `<option value="${entry.id}">${entry.name}</option>`)
+function renderCardTargetControl(card = {}, participant = {}) {
+  const selfOnly = isSelfTargetCard(card);
+  const selfId = participant.id || '';
+  if (selfOnly) {
+    return `<label>Target
+      <select data-card-target="${card.id || ''}" disabled>
+        <option value="${selfId}" selected>Self</option>
+      </select>
+    </label>`;
+  }
+  return `<label>Target
+    <select data-card-target="${card.id || ''}">
+      <option value="">Select target…</option>
+      ${renderParticipantTargetOptions(participant.id, true)}
+    </select>
+  </label>`;
+}
+
+function renderParticipantTargetOptions(actorId, includeSelf = false) {
+  const options = [];
+  if (includeSelf && actorId) {
+    options.push(`<option value="${actorId}">Self</option>`);
+  }
+  for (const entry of state.encounter.participants || []) {
+    if (entry.id === actorId) continue;
+    options.push(`<option value="${entry.id}">${entry.name}</option>`);
+  }
+  return options.join('');
+}
+
+function renderCardAttributeTable(card = {}, participant = {}) {
+  const rows = [
+    ['Set', card.set || '—'],
+    ['Type', card.type || '—'],
+    ['Tier', card.tier || '—'],
+    ['Health Bonus', formatSignedValue(card.healthBonus || 0)],
+    ['AP Cost', Number(card.apCost || 0)],
+    ['Range', formatCardRange(card)],
+    ['Tags', (card.tags || []).join(', ') || '—'],
+    ['Effect', formatCardEffectAtMastery(card, participant)]
+  ];
+  const body = rows
+    .map(
+      ([label, value]) => `
+      <tr>
+        <th>${escapeHtml(label)}</th>
+        <td>${escapeHtml(String(value ?? '—'))}</td>
+      </tr>`
+    )
     .join('');
+  return `
+    <table class="card-attribute-table">
+      <thead>
+        <tr><th>Attribute</th><th>Description</th></tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+function formatSignedValue(value = 0) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return '+0';
+  return `${amount >= 0 ? '+' : ''}${Math.round(amount)}`;
+}
+
+function formatCardRange(card = {}) {
+  const text = String(card.rangeText || '').trim();
+  if (text) return text;
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
+  return `${range} ft`;
+}
+
+function isSelfTargetCard(card = {}) {
+  const text = String(card.rangeText || '').trim().toLowerCase();
+  if (text === 'self') return true;
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
+  return Number(range || 0) <= 0;
+}
+
+function getCardScaledValue(source, level = 1, fallback = 0) {
+  if (source == null) return fallback;
+  const parsedLevel = Math.max(1, Math.min(3, Number(level || 1)));
+  if (typeof source === 'number') return Number.isFinite(source) ? source : fallback;
+  if (typeof source === 'string') {
+    const parsed = Number(source);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  if (typeof source !== 'object') return fallback;
+  const direct = Number(source[parsedLevel]);
+  if (Number.isFinite(direct)) return direct;
+  const named = Number(source[`level${parsedLevel}`]);
+  if (Number.isFinite(named)) return named;
+  return fallback;
+}
+
+function resolveStatusName(statusId = '', statusName = '') {
+  if (statusName) return statusName;
+  const match = (state.reference?.statuses || []).find((entry) => entry.id === statusId);
+  return match?.name || statusId || 'Status';
+}
+
+function getStatusApplyAtMastery(card = {}, level = 1) {
+  const source = card.statusApply;
+  if (!source || typeof source !== 'object') return null;
+  const id = String(source.id || source.statusId || '').trim();
+  const name = resolveStatusName(id, String(source.name || '').trim());
+  const stacks = Math.max(
+    1,
+    Math.round(
+      getCardScaledValue(source.stacksByLevel, level, Number(source.stacks ?? source.defaultStacks ?? 1))
+    )
+  );
+  if (!id && !name) return null;
+  return { id, name, stacks };
+}
+
+function formatCardEffectAtMastery(card = {}, participant = {}) {
+  const fallback = String(card.effect || '').trim();
+  if (isConstructCard(card)) {
+    return fallback || '—';
+  }
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const parts = [];
+  const damage = getCardDisplayDamage(card);
+  if (damage > 0) {
+    parts.push(`Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage.`);
+  }
+  const shield = Math.max(0, Math.round(getCardScaledValue(card.shieldRestoreByLevel, level, 0)));
+  if (shield > 0) {
+    parts.push(`Restore ${shield} Shield.`);
+  }
+  const move = Math.max(0, Math.round(getCardScaledValue(card.movementByLevel, level, 0)));
+  if (move > 0) {
+    parts.push(`Move ${move} ft.`);
+  }
+  const pull = Math.max(0, Math.round(getCardScaledValue(card.pullDistanceByLevel, level, 0)));
+  if (pull > 0) {
+    parts.push(`Pull target ${pull} ft.`);
+  }
+  const push = Math.max(0, Math.round(getCardScaledValue(card.pushDistanceByLevel, level, 0)));
+  if (push > 0) {
+    parts.push(`Push target ${push} ft.`);
+  }
+  const statusApply = getStatusApplyAtMastery(card, level);
+  if (statusApply) {
+    parts.push(`Apply ${statusApply.name} ${statusApply.stacks}.`);
+  }
+  if (parts.length) {
+    return parts.join(' ');
+  }
+  return fallback || '—';
 }
 
 function renderCardEffectLine(card = {}) {
@@ -1957,10 +2194,7 @@ function renderCardEffectLine(card = {}) {
 }
 
 function isConstructCard(card = {}) {
-  const type = String(card?.type || '').toLowerCase();
-  if (type.includes('construct') || type.includes('turret')) return true;
-  const mode = String(card?.constructMode || '').toLowerCase();
-  if (mode === 'damage' || mode === 'status' || mode === 'utility') return true;
+  if (card?.isConstruct === true) return true;
   const tags = Array.isArray(card?.tags) ? card.tags : [];
   return tags.some((tag) => {
     const token = String(tag || '').trim().toLowerCase();
@@ -1972,7 +2206,7 @@ function detectConstructMode(card = {}) {
   const explicit = String(card?.constructMode || '').trim().toLowerCase();
   if (explicit === 'damage' || explicit === 'status' || explicit === 'utility') return explicit;
   if (card?.constructStatusId || card?.constructStatusName) return 'status';
-  return Number(card?.damage || 0) > 0 ? 'damage' : 'utility';
+  return getCardDisplayDamage(card) > 0 ? 'damage' : 'utility';
 }
 
 function getConstructSetBonus(participant = {}) {
@@ -2347,6 +2581,19 @@ async function importCardsFromFile(input, participantId) {
     }
     const latest = (await getServerParticipant(participantId)) || getParticipantSnapshot(participantId);
     const existingCards = latest?.cards || [];
+    let remainingSlots = Math.max(
+      0,
+      MAX_ACTIVE_CARDS - existingCards.filter((card) => isCardActive(card)).length
+    );
+    imported.forEach((card) => {
+      if (card.active === false) return;
+      if (remainingSlots > 0) {
+        card.active = true;
+        remainingSlots -= 1;
+      } else {
+        card.active = false;
+      }
+    });
     const response = await api(`/api/participants/${participantId}`, 'PATCH', {
       cards: [...existingCards, ...imported]
     });
@@ -2354,6 +2601,9 @@ async function importCardsFromFile(input, participantId) {
       updateParticipantInState(response.participant);
     }
     notify(`Imported ${imported.length} card${imported.length === 1 ? '' : 's'}.`);
+    if (imported.some((card) => card.active === false)) {
+      notify(`Only ${MAX_ACTIVE_CARDS} cards can be active. Extra imports were set inactive.`);
+    }
     fetchState();
   } catch (err) {
     notify(`Card import failed: ${err.message}`);
@@ -2388,6 +2638,7 @@ function normalizeCardPayload(raw = {}) {
     set: raw.set || '',
     type: raw.type || 'Attack',
     tier: raw.tier || 'Common',
+    active: raw.active !== false,
     apCost: toNumber(raw.apCost ?? raw.ap ?? 0),
     range: toNumber(raw.range ?? 0),
     rangeText: String(raw.rangeText || '').trim(),

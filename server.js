@@ -81,6 +81,7 @@ const STANDARD_ACTIONS = {
 };
 
 const DEFAULT_GUARD_RESTORE = 3;
+const MAX_ACTIVE_CARDS = 10;
 const SET_LIBRARY = {
   Machine: [
     {
@@ -653,6 +654,9 @@ function executeCardAction(body) {
     return { error: 'Card not found' };
   }
   const card = participant.cards[cardIndex];
+  if (!isCardActive(card)) {
+    return { error: 'Card is inactive. Activate it in loadout first.' };
+  }
   const masteryLevel = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
   const baseCost = Math.max(0, Number(card.apCost || 0));
   let apCost = baseCost;
@@ -694,14 +698,14 @@ function executeCardAction(body) {
   const pushDistance = getCardScaledValue(card.pushDistanceByLevel, masteryLevel, 0);
   const pullDistance = getCardScaledValue(card.pullDistanceByLevel, masteryLevel, 0);
   const statusApply = normalizeCardStatusApply(card, masteryLevel);
-  const selfTarget = isSelfTargetCard(card);
+  const selfTarget = isSelfTargetCard(card, masteryLevel);
 
   const targetId = String(body.targetId || '').trim();
   const target = targetId ? findParticipant(targetId) : null;
   const requiresTarget =
     !selfTarget &&
     ((isConstruct && (constructMode === 'damage' || constructMode === 'status')) ||
-      (!isConstruct && (rawDamage > 0 || Boolean(statusApply) || pushDistance > 0 || pullDistance > 0)));
+      (!isConstruct && (rawDamage > 0 || shieldRestoreTotal > 0 || Boolean(statusApply) || pushDistance > 0 || pullDistance > 0)));
   if (requiresTarget && !target) return { error: 'Target is required for this card effect' };
   if (
     isConstruct &&
@@ -742,9 +746,11 @@ function executeCardAction(body) {
   }
 
   if (!isConstruct && shieldRestoreTotal > 0) {
-    const beforeShield = participant.shield;
-    participant.shield = Math.min(participant.maxShield, participant.shield + shieldRestoreTotal);
-    notes.push(`Restores ${participant.shield - beforeShield} Shield.`);
+    const shieldTarget = selfTarget ? participant : target || participant;
+    const beforeShield = shieldTarget.shield;
+    shieldTarget.shield = Math.min(shieldTarget.maxShield, shieldTarget.shield + shieldRestoreTotal);
+    const restored = shieldTarget.shield - beforeShield;
+    notes.push(`Restores ${restored} Shield${shieldTarget.id === participant.id ? '' : ` to ${shieldTarget.name}`}.`);
   }
 
   if (!isConstruct && moveDistance > 0) {
@@ -1045,6 +1051,11 @@ function createParticipant(body = {}) {
       base: baseStats,
       totals: createZeroModifier(),
       cardModifiers: [],
+      cardLoadout: {
+        maxActive: MAX_ACTIVE_CARDS,
+        active: 0,
+        total: 0
+      },
       setBonuses: [],
       machineConstructs: {
         maxActive: 1,
@@ -1773,8 +1784,7 @@ function autoCardDamageType(card = {}) {
 }
 
 function isConstructCard(card = {}) {
-  const type = String(card?.type || '').toLowerCase();
-  if (type.includes('construct') || type.includes('turret')) return true;
+  if (card?.isConstruct === true) return true;
   const tags = Array.isArray(card?.tags) ? card.tags : [];
   return tags.some((tag) => {
     const token = String(tag || '').trim().toLowerCase();
@@ -1788,15 +1798,18 @@ function normalizeConstructMode(value = '') {
   return '';
 }
 
-function detectConstructMode(card = {}) {
+function detectConstructMode(card = {}, options = {}) {
   const explicit = normalizeConstructMode(card.constructMode);
   if (explicit) return explicit;
+  if (options.infer === false) return '';
   const statusId = String(card.constructStatusId || '').trim();
   if (statusId) return 'status';
   const statusName = String(card.constructStatusName || '').trim();
   if (statusName) return 'status';
-  const damage = Number(card.damage || card.baseDamage || 0);
-  if (Number.isFinite(damage) && damage > 0) return 'damage';
+  const byLevel = normalizeCardDamageByLevel(card.masteryDamageByLevel, card.damage || card.baseDamage || 0);
+  if (Number(byLevel[1] || 0) > 0 || Number(byLevel[2] || 0) > 0 || Number(byLevel[3] || 0) > 0) {
+    return 'damage';
+  }
   return 'utility';
 }
 
@@ -1852,7 +1865,7 @@ function normalizeConstructs(list = [], ownerId = '') {
 
 function normalizeCards(list = []) {
   if (!Array.isArray(list)) return [];
-  return list
+  const normalized = list
     .map((card, index) => {
       if (!card || typeof card !== 'object') return null;
       const thresholds = normalizeCardThresholds(card.masteryThresholds);
@@ -1872,6 +1885,7 @@ function normalizeCards(list = []) {
           card.constructStacks ??
           1
       );
+      const constructCard = isConstructCard(card);
 
       return {
         ...card,
@@ -1880,6 +1894,7 @@ function normalizeCards(list = []) {
         set: canonicalSetName(card.set),
         type: String(card.type || 'Attack').trim(),
         tier: String(card.tier || 'Common').trim(),
+        active: card.active !== false,
         apCost: Number.isFinite(Number(card.apCost)) ? Number(card.apCost) : 0,
         range: Number.isFinite(Number(card.range)) ? Number(card.range) : 0,
         healthBonus: Number.isFinite(Number(card.healthBonus)) ? Number(card.healthBonus) : 0,
@@ -1903,7 +1918,7 @@ function normalizeCards(list = []) {
         constructDurationTurns: Number.isFinite(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns))
           ? Math.max(1, Math.round(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns)))
           : 1,
-        constructMode: detectConstructMode(card),
+        constructMode: detectConstructMode(card, { infer: constructCard }),
         constructStatusId: String(
           card.constructStatusId ?? card.statusId ?? card.constructStatus ?? ''
         ).trim(),
@@ -1918,6 +1933,16 @@ function normalizeCards(list = []) {
       };
     })
     .filter(Boolean);
+  let activeCount = 0;
+  for (const card of normalized) {
+    if (card.active && activeCount < MAX_ACTIVE_CARDS) {
+      card.active = true;
+      activeCount += 1;
+    } else {
+      card.active = false;
+    }
+  }
+  return normalized;
 }
 
 function getCardDamageAtCurrentMastery(card) {
@@ -1958,10 +1983,11 @@ function normalizeCardStatusApply(card = {}, level = 1) {
   return { id, stacks };
 }
 
-function isSelfTargetCard(card = {}) {
+function isSelfTargetCard(card = {}, level = 1) {
   const rangeText = String(card.rangeText || '').trim().toLowerCase();
   if (rangeText === 'self') return true;
-  return Number(card.range || 0) <= 0;
+  const scaledRange = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
+  return Number(scaledRange || 0) <= 0;
 }
 
 function getGlobalShieldRestoreBonus(participant = {}) {
@@ -2331,9 +2357,17 @@ function deployConstructFromCard(participant, card, options = {}) {
   return { construct, displaced };
 }
 
+function isCardActive(card = {}) {
+  return card?.active !== false;
+}
+
+function getActiveParticipantCards(participant = {}) {
+  return (participant.cards || []).filter((card) => isCardActive(card));
+}
+
 function getSetCardCount(participant, setName) {
   const canonicalTarget = canonicalSetName(setName).toLowerCase();
-  return (participant.cards || []).reduce((count, card) => {
+  return getActiveParticipantCards(participant).reduce((count, card) => {
     if (canonicalSetName(card?.set).toLowerCase() !== canonicalTarget) return count;
     return count + 1;
   }, 0);
@@ -2414,7 +2448,7 @@ function addModifierTotals(target, addition) {
 
 function computeSetBonuses(participant) {
   const counts = {};
-  for (const card of participant.cards || []) {
+  for (const card of getActiveParticipantCards(participant)) {
     const setName = canonicalSetName(card.set);
     if (!setName) continue;
     counts[setName] = (counts[setName] || 0) + 1;
@@ -2463,7 +2497,7 @@ function recalculateParticipant(participant) {
   const totals = createZeroModifier();
   const cardModifiers = [];
   participant.relics = normalizeRelics(participant.relics);
-  for (const card of participant.cards || []) {
+  for (const card of getActiveParticipantCards(participant)) {
     const modifiers = normalizeModifiers(card.modifiers);
     const healthBonus = Number(card.healthBonus ?? 0);
     if (Number.isFinite(healthBonus) && healthBonus !== 0) {
@@ -2530,6 +2564,11 @@ function recalculateParticipant(participant) {
     base,
     totals,
     cardModifiers,
+    cardLoadout: {
+      maxActive: MAX_ACTIVE_CARDS,
+      active: getActiveParticipantCards(participant).length,
+      total: participant.cards.length
+    },
     setBonuses: appliedBonuses,
     machineConstructs: {
       maxActive: machineConstructCap,
