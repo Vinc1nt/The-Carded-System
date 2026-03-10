@@ -26,6 +26,95 @@
             <button type="button" id="restAllShort">Short Rest All</button>
             <button type="button" id="restAllLong">Long Rest All</button>
           </div>
+          <div class="gm-menu journal-menu">
+            <button type="button" id="journalMenuToggle">Quest & Achievement ▾</button>
+            <div class="gm-menu-panel journal-menu-panel" id="journalMenuPanel">
+              <details class="journal-manager-group" open>
+                <summary><strong>Create Quest</strong></summary>
+                <form data-global-journal-form="quest" class="stacked-form">
+                  <div class="form-row">
+                    <label>Send To
+                      <select name="target" data-global-journal-target>
+                        <option value="participant">Individual Player</option>
+                        <option value="all">All Players</option>
+                      </select>
+                    </label>
+                    <label>Player
+                      <select name="participantId" data-global-journal-participant></select>
+                    </label>
+                  </div>
+                  <label>Quest Name
+                    <input type="text" name="title" placeholder="Quest title" required />
+                  </label>
+                  <label>Description / Hook
+                    <textarea name="narrative" rows="2" placeholder="Short narrative hook"></textarea>
+                  </label>
+                  <div class="form-row">
+                    <label>Primary Objective
+                      <input type="text" name="objectivePrimary" placeholder="Primary task" />
+                    </label>
+                    <label>Secondary Objective
+                      <input type="text" name="objectiveSecondary" placeholder="Optional secondary task" />
+                    </label>
+                  </div>
+                  <div class="form-row">
+                    <label>Difficulty
+                      <select name="difficulty">
+                        <option value="">Select difficulty…</option>
+                        <option>Common</option>
+                        <option>Uncommon</option>
+                        <option>Rare</option>
+                        <option>Very Rare</option>
+                        <option>Epic</option>
+                      </select>
+                    </label>
+                    <label>Primary Reward
+                      <input type="text" name="rewardPrimary" placeholder="XP / Card Shards / Relic / Currency / Unlock" />
+                    </label>
+                  </div>
+                  <div class="form-row">
+                    <label>Bonus Reward
+                      <input type="text" name="rewardBonus" placeholder="Optional bonus reward" />
+                    </label>
+                    <label>Failure Condition
+                      <input type="text" name="failureCondition" placeholder="Optional failure condition" />
+                    </label>
+                  </div>
+                  <button type="submit">Create Quest</button>
+                </form>
+              </details>
+
+              <details class="journal-manager-group" open>
+                <summary><strong>Create Achievement</strong></summary>
+                <form data-global-journal-form="achievement" class="stacked-form">
+                  <div class="form-row">
+                    <label>Send To
+                      <select name="target" data-global-journal-target>
+                        <option value="participant">Individual Player</option>
+                        <option value="all">All Players</option>
+                      </select>
+                    </label>
+                    <label>Player
+                      <select name="participantId" data-global-journal-participant></select>
+                    </label>
+                  </div>
+                  <label>Title
+                    <input type="text" name="title" placeholder="Achievement name" required />
+                  </label>
+                  <label>Requirement
+                    <textarea name="requirement" rows="2" placeholder="What the player did"></textarea>
+                  </label>
+                  <label>Reward
+                    <input type="text" name="reward" placeholder="Passive Bonus / Title / Card / Relic" />
+                  </label>
+                  <label>Description / Flavor
+                    <textarea name="flavor" rows="2" placeholder="Flavor text about the accomplishment"></textarea>
+                  </label>
+                  <button type="submit">Create Achievement</button>
+                </form>
+              </details>
+            </div>
+          </div>
           <div class="gm-menu">
             <button type="button" id="gmMenuToggle">Encounter Menu ▾</button>
             <div class="gm-menu-panel" id="gmMenuPanel">

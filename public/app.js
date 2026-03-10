@@ -44,6 +44,8 @@ const els = {
   refreshState: document.getElementById('refreshState'),
   gmMenuToggle: document.getElementById('gmMenuToggle'),
   gmMenuPanel: document.getElementById('gmMenuPanel'),
+  journalMenuToggle: document.getElementById('journalMenuToggle'),
+  journalMenuPanel: document.getElementById('journalMenuPanel'),
   downloadEncounter: document.getElementById('downloadEncounter'),
   uploadEncounter: document.getElementById('uploadEncounter'),
   restAllShort: document.getElementById('restAllShort'),
@@ -97,15 +99,23 @@ function wireGlobalEvents() {
 
   els.gmMenuToggle?.addEventListener('click', (event) => {
     event.stopPropagation();
+    els.journalMenuPanel?.classList.remove('is-open');
     els.gmMenuPanel?.classList.toggle('is-open');
+  });
+  els.journalMenuToggle?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    els.gmMenuPanel?.classList.remove('is-open');
+    els.journalMenuPanel?.classList.toggle('is-open');
   });
   document.addEventListener('click', (event) => {
     if (!event.target.closest('.gm-menu')) {
       els.gmMenuPanel?.classList.remove('is-open');
+      els.journalMenuPanel?.classList.remove('is-open');
     }
   });
   els.downloadEncounter?.addEventListener('click', handleEncounterDownload);
   els.uploadEncounter?.addEventListener('change', handleEncounterImport);
+  wireGlobalJournalForms();
 }
 
 function subscribeToEvents() {
@@ -158,11 +168,106 @@ function render() {
   renderTurnList();
   renderDetailPanel();
   renderLog();
+  renderGlobalJournalTargetOptions();
 }
 
 function renderMeta() {
   els.round.textContent = state.encounter.round ?? 1;
   els.count.textContent = state.encounter.participants?.length ?? 0;
+}
+
+function renderGlobalJournalTargetOptions() {
+  const selects = document.querySelectorAll('[data-global-journal-participant]');
+  if (!selects.length) return;
+  const participants = state.encounter.participants || [];
+  const fallbackId =
+    (participants.find((entry) => entry.id === selectedParticipantId) || participants[0] || {}).id || '';
+  selects.forEach((select) => {
+    const previous = select.value;
+    if (!participants.length) {
+      select.innerHTML = '<option value="">No players available</option>';
+      select.value = '';
+      updateGlobalJournalTargetVisibility(select.closest('form'));
+      return;
+    }
+    select.innerHTML = participants
+      .map(
+        (entry) =>
+          `<option value="${entry.id}">${escapeHtml(entry.name)}</option>`
+      )
+      .join('');
+    if (participants.some((entry) => entry.id === previous)) {
+      select.value = previous;
+    } else {
+      select.value = fallbackId;
+    }
+    updateGlobalJournalTargetVisibility(select.closest('form'));
+  });
+}
+
+function wireGlobalJournalForms() {
+  document.querySelectorAll('[data-global-journal-form]').forEach((form) => {
+    const category = form.dataset.globalJournalForm;
+    const targetSelect = form.querySelector('[data-global-journal-target]');
+    targetSelect?.addEventListener('change', () => updateGlobalJournalTargetVisibility(form));
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const payload = buildJournalPayloadFromForm(form, category);
+      if (payload.error) {
+        notify(payload.error);
+        return;
+      }
+      const formData = new FormData(form);
+      const target = String(formData.get('target') || 'participant').toLowerCase() === 'all' ? 'all' : 'participant';
+      const participantId = String(formData.get('participantId') || '').trim();
+      if (target === 'participant' && !participantId) {
+        notify('Select a player or choose "All Players".');
+        return;
+      }
+      try {
+        const participantSelect = form.querySelector('[data-global-journal-participant]');
+        const participantName =
+          participantSelect?.selectedOptions?.[0]?.textContent?.trim() || 'Selected player';
+        await api('/api/journal/entry', 'POST', {
+          target,
+          participantId: target === 'participant' ? participantId : undefined,
+          category,
+          ...payload
+        });
+        const currentTarget = target;
+        const currentParticipant = participantId;
+        form.reset();
+        if (targetSelect) targetSelect.value = currentTarget;
+        renderGlobalJournalTargetOptions();
+        const participantSelectAfter = form.querySelector('[data-global-journal-participant]');
+        if (participantSelectAfter && currentTarget === 'participant') {
+          const stillExists = Array.from(participantSelectAfter.options).some((option) => option.value === currentParticipant);
+          participantSelectAfter.value = stillExists ? currentParticipant : participantSelectAfter.value;
+        }
+        updateGlobalJournalTargetVisibility(form);
+        const itemLabel = category === 'achievement' ? 'Achievement' : 'Quest';
+        if (currentTarget === 'all') {
+          notify(`${itemLabel} sent to all players.`, 'success');
+        } else {
+          notify(`${itemLabel} sent to ${participantName}.`, 'success');
+        }
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+    updateGlobalJournalTargetVisibility(form);
+  });
+}
+
+function updateGlobalJournalTargetVisibility(form) {
+  if (!form) return;
+  const target = String(form.querySelector('[data-global-journal-target]')?.value || 'participant').toLowerCase();
+  const participantSelect = form.querySelector('[data-global-journal-participant]');
+  if (!participantSelect) return;
+  const disable = target === 'all' || participantSelect.options.length === 0;
+  participantSelect.disabled = disable;
+  const label = participantSelect.closest('label');
+  label?.classList.toggle('is-disabled', disable);
 }
 
 function renderTurnList() {
@@ -2863,11 +2968,11 @@ async function api(path, method = 'GET', body) {
   return data;
 }
 
-function notify(message) {
+function notify(message, type = 'info') {
   if (!message) return;
   console.warn(message);
   const toast = document.createElement('div');
-  toast.className = 'toast';
+  toast.className = `toast ${type === 'success' ? 'toast-success' : ''}`;
   toast.textContent = message;
   document.body.appendChild(toast);
   setTimeout(() => {
