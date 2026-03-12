@@ -240,6 +240,7 @@ const trackerState = {
     started: false,
     participants: [],
     currentIndex: -1,
+    currentTurnKey: '',
     log: []
   },
   reference: buildReferenceData(),
@@ -320,6 +321,7 @@ async function handleApi(req, res, pathname, method) {
         Object.assign(participant, sanitizeParticipantUpdate(body, participant));
         recalculateParticipant(participant);
         sortParticipants();
+        ensureCurrentIndex();
         touchState();
         broadcastState('participant_updated');
         return sendJson(res, { participant });
@@ -406,6 +408,33 @@ async function handleApi(req, res, pathname, method) {
     if (method === 'POST' && pathname === '/api/constructs/target') {
       const body = await readBody(req);
       const result = executeRetargetConstructAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/constructs/move') {
+      const body = await readBody(req);
+      const result = executeMoveConstructAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/zones/target/add') {
+      const body = await readBody(req);
+      const result = executeAddZoneTargetAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/zones/target/remove') {
+      const body = await readBody(req);
+      const result = executeRemoveZoneTargetAction(body);
       if (result.error) {
         return sendJson(res, result, 400);
       }
@@ -578,6 +607,8 @@ function startEncounter(startingRound = 1) {
     resetSetCombatState(participant);
     participant.turnActionCount = 0;
   });
+  trackerState.encounter.currentIndex = -1;
+  trackerState.encounter.currentTurnKey = '';
   ensureCurrentIndex();
   const actor = getCurrentParticipant();
   if (actor) {
@@ -662,6 +693,21 @@ function executeCardAction(body) {
   let apCost = baseCost;
   const machine = getMachineSetRuntime(participant);
   const notes = [];
+  const chargesMax = Math.max(
+    0,
+    Math.round(Number(card.chargesMax ?? card.maxCharges ?? card.charges ?? 0) || 0)
+  );
+  const chargesCurrent =
+    chargesMax > 0
+      ? Math.max(
+          0,
+          Math.round(Number(card.chargesCurrent ?? card.remainingCharges ?? chargesMax) || 0)
+        )
+      : 0;
+
+  if (chargesMax > 0 && chargesCurrent <= 0) {
+    return { error: 'No charges remaining' };
+  }
 
   if (hasSetBonus(participant, 'Machine', 5) && machine.autoLoaderPrimed && isMachineAttackCard(card)) {
     const discounted = Math.max(1, apCost - 1);
@@ -678,53 +724,180 @@ function executeCardAction(body) {
   }
 
   const damageType = String(card.damageType || '').trim();
+  const secondaryDamageType = String(card.secondaryDamageType || '').trim() || damageType;
   const baseDamage = getCardDamageAtCurrentMastery(card);
+  const secondaryBaseDamage = getCardSecondaryDamageAtCurrentMastery(card);
   const isConstruct = isConstructCard(card);
+  const zoneCard = !isConstruct && isZoneCard(card, masteryLevel);
+  const targetMode = normalizeCardTargetMode(card);
+  const secondaryTargetMode = normalizeSecondaryTargetMode(card);
+  const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card, masteryLevel) : 0;
+  const allowSelfTarget = card.allowSelfTarget !== false;
   const constructDamageBonus = getMachineConstructDamageBonus(participant);
   const constructDurationBonus = getMachineConstructDurationBonus(participant);
   const constructMode = detectConstructMode(card);
   const constructStatusId = String(card.constructStatusId || '').trim();
   const constructStatusName = String(card.constructStatusName || '').trim();
   const constructStatusStacks = Math.max(1, Number(card.constructStatusStacks || 1));
+  const nextAttackBonus = !isConstruct && baseDamage > 0
+    ? Math.max(0, Number(participant.nextAttackDamageBonus || 0))
+    : 0;
+  const zoneTickDamage = zoneCard
+    ? Math.max(0, baseDamage + (participant.damageBonus || 0))
+    : 0;
   const rawDamage = isConstruct
     ? 0
+    : zoneCard
+      ? 0
     : baseDamage > 0
-      ? Math.max(0, baseDamage + (participant.damageBonus || 0))
+      ? Math.max(0, baseDamage + (participant.damageBonus || 0) + nextAttackBonus)
       : 0;
+  const secondaryRawDamage = isConstruct ? 0 : Math.max(0, secondaryBaseDamage);
   const shieldRestoreBase = getCardScaledValue(card.shieldRestoreByLevel, masteryLevel, 0);
   const shieldRestoreBonus = getGlobalShieldRestoreBonus(participant);
   const shieldRestoreTotal = Math.max(0, shieldRestoreBase + (shieldRestoreBase > 0 ? shieldRestoreBonus : 0));
+  const healTotal = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.healByLevel, masteryLevel, Number(card.heal || 0)))
+  );
   const moveDistance = getCardScaledValue(card.movementByLevel, masteryLevel, 0);
   const pushDistance = getCardScaledValue(card.pushDistanceByLevel, masteryLevel, 0);
   const pullDistance = getCardScaledValue(card.pullDistanceByLevel, masteryLevel, 0);
   const statusApply = normalizeCardStatusApply(card, masteryLevel);
   const selfTarget = isSelfTargetCard(card, masteryLevel);
+  const conditionalShieldDamageBonus = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.bonusDamageIfTargetHasShieldByLevel, masteryLevel, Number(card.bonusDamageIfTargetHasShield || 0)))
+  );
+  const fullyBlockedHpDamage = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.directHpDamageOnFullyBlockedByLevel, masteryLevel, Number(card.directHpDamageOnFullyBlocked || 0)))
+  );
+  const nextAttackGrant = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.nextAttackDamageBonusByLevel, masteryLevel, Number(card.nextAttackDamageBonus || 0)))
+  );
 
   const targetId = String(body.targetId || '').trim();
   const target = targetId ? findParticipant(targetId) : null;
+  const targetIdsRaw = Array.isArray(body.targetIds)
+    ? body.targetIds
+    : String(body.targetIds || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+  const targetIds = [];
+  for (const value of targetIdsRaw) {
+    const id = String(value || '').trim();
+    if (!id || targetIds.includes(id)) continue;
+    targetIds.push(id);
+  }
+  const selectedTargets = targetIds
+    .map((id) => findParticipant(id))
+    .filter(Boolean);
+  if (targetMode === 'multi_select' && !selectedTargets.length && target) {
+    selectedTargets.push(target);
+  }
+  if (targetMode === 'multi_select' && selectedTargets.length !== targetIds.length) {
+    return { error: 'One or more selected targets were not found' };
+  }
+  if (targetMode === 'multi_select' && selectedTargets.length > multiTargetCap) {
+    return { error: `Select up to ${multiTargetCap} targets` };
+  }
+
+  const primaryTarget = targetMode === 'multi_select'
+    ? selectedTargets[0] || null
+    : target;
+  const primaryTargets = targetMode === 'all_others'
+    ? trackerState.encounter.participants.filter((entry) => entry.id !== participant.id)
+    : targetMode === 'multi_select'
+      ? selectedTargets
+      : primaryTarget
+        ? [primaryTarget]
+        : [];
+
+  const secondaryTargetId = String(body.secondaryTargetId || '').trim();
+  const secondaryTarget = secondaryTargetId ? findParticipant(secondaryTargetId) : null;
   const requiresTarget =
+    targetMode !== 'all_others' &&
     !selfTarget &&
+    !zoneCard &&
     ((isConstruct && (constructMode === 'damage' || constructMode === 'status')) ||
-      (!isConstruct && (rawDamage > 0 || shieldRestoreTotal > 0 || Boolean(statusApply) || pushDistance > 0 || pullDistance > 0)));
-  if (requiresTarget && !target) return { error: 'Target is required for this card effect' };
+      (!isConstruct &&
+        (rawDamage > 0 ||
+          shieldRestoreTotal > 0 ||
+          healTotal > 0 ||
+          Boolean(statusApply) ||
+          pushDistance > 0 ||
+          pullDistance > 0 ||
+          nextAttackGrant > 0)));
+  if (requiresTarget && !primaryTargets.length) return { error: 'Target is required for this card effect' };
   if (
     isConstruct &&
     (constructMode === 'damage' || constructMode === 'status') &&
-    !target
+    !primaryTarget
   ) {
     return { error: 'Target is required to deploy this construct' };
   }
   if (targetId && !target) {
     return { error: 'Target not found' };
   }
+  if (!allowSelfTarget && !selfTarget && primaryTargets.some((entry) => entry.id === participant.id)) {
+    return { error: 'This card cannot target self' };
+  }
+  if (secondaryTargetId && !secondaryTarget) {
+    return { error: 'Secondary target not found' };
+  }
+  if (secondaryTarget && secondaryTarget.id === participant.id) {
+    return { error: 'Secondary target cannot be self' };
+  }
+  if (secondaryTargetMode === 'adjacent' && secondaryTarget && primaryTarget && secondaryTarget.id === primaryTarget.id) {
+    return { error: 'Secondary target must be different from the primary target' };
+  }
 
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   let damageResult = null;
+  const damageResults = [];
   let constructDeployResult = null;
+  let zoneDeployResult = null;
+  const addDamageResult = (damageTarget, amount, type, source = 'primary', options = {}) => {
+    if (!damageTarget || amount <= 0) return;
+    const shieldConditionalBonus = Math.max(0, Number(options.bonusIfTargetHasShield || 0));
+    const directHpOnFullyBlocked = Math.max(0, Number(options.directHpOnFullyBlocked || 0));
+    let appliedAmount = Math.max(0, Number(amount || 0));
+    let shieldBonusApplied = 0;
+    if (shieldConditionalBonus > 0 && damageTarget.shield > 0) {
+      appliedAmount += shieldConditionalBonus;
+      shieldBonusApplied = shieldConditionalBonus;
+    }
+    const result = applyCardDamageWithType(damageTarget, appliedAmount, type);
+    result.shieldBonusDamage = shieldBonusApplied;
+    result.directHpDamage = 0;
+    if (directHpOnFullyBlocked > 0 && result.shieldBefore > 0 && damageTarget.shield > 0) {
+      const hpBypass = Math.min(damageTarget.hp, directHpOnFullyBlocked);
+      if (hpBypass > 0) {
+        damageTarget.hp = Math.max(0, damageTarget.hp - hpBypass);
+        result.directHpDamage = hpBypass;
+        result.hpDamage += hpBypass;
+        result.finalDamage += hpBypass;
+        result.hpAfter = damageTarget.hp;
+      }
+    }
+    if (!damageResult) {
+      damageResult = result;
+    }
+    damageResults.push({
+      target: damageTarget,
+      result,
+      damageType: type,
+      source
+    });
+  };
+  const others = trackerState.encounter.participants.filter((entry) => entry.id !== participant.id);
   if (isConstruct) {
     constructDeployResult = deployConstructFromCard(participant, card, {
-      targetId: target?.id || null,
+      targetId: primaryTarget?.id || null,
       baseDamage,
       damageType,
       bonusDamage: constructDamageBonus,
@@ -741,34 +914,186 @@ function executeCardAction(body) {
       const displacedNames = constructDeployResult.displaced.map((entry) => entry.name).join(', ');
       notes.push(`Replaced construct slot: ${displacedNames}.`);
     }
-  } else if (target && rawDamage > 0) {
-    damageResult = applyCardDamageWithType(target, rawDamage, damageType);
+  } else if (zoneCard) {
+    zoneDeployResult = deployZoneFromCard(participant, card, {
+      masteryLevel,
+      damage: zoneTickDamage,
+      damageType,
+      targetIds: primaryTargets.map((entry) => entry.id)
+    });
+    const zone = zoneDeployResult.zone;
+    const durationText =
+      zone.remainingTurns > 0
+        ? `${zone.remainingTurns} turn${zone.remainingTurns === 1 ? '' : 's'}`
+        : 'until removed';
+    const targetText = zone.targetIds.length ? ` Targets: ${zone.targetIds.length}.` : '';
+    notes.push(
+      `Creates zone ${zone.name} (${zone.radiusFt} ft radius, ${zone.damage} ${zone.damageType || 'damage'}, ${durationText}).${targetText}`
+    );
+  } else {
+    if (rawDamage > 0) {
+      for (const damageTarget of primaryTargets) {
+        addDamageResult(damageTarget, rawDamage, damageType, 'primary', {
+          bonusIfTargetHasShield: conditionalShieldDamageBonus,
+          directHpOnFullyBlocked: fullyBlockedHpDamage
+        });
+      }
+    }
+
+    if (secondaryRawDamage > 0) {
+      let secondaryTargets = [];
+      if (secondaryTargetMode === 'same') {
+        secondaryTargets = primaryTargets;
+      } else if (secondaryTargetMode === 'adjacent') {
+        if (secondaryTarget && (!primaryTarget || secondaryTarget.id !== primaryTarget.id)) {
+          secondaryTargets = [secondaryTarget];
+        }
+      } else if (secondaryTarget) {
+        secondaryTargets = [secondaryTarget];
+      }
+      if (secondaryTargetMode === 'adjacent' && !['all_others', 'multi_select'].includes(targetMode) && !secondaryTargets.length) {
+        notes.push('No adjacent secondary target selected.');
+      }
+      for (const splashTarget of secondaryTargets) {
+        addDamageResult(splashTarget, secondaryRawDamage, secondaryDamageType, 'secondary');
+      }
+    }
+  }
+
+  if (!isConstruct && nextAttackBonus > 0 && damageResults.length) {
+    participant.nextAttackDamageBonus = 0;
+    notes.push(`Consumes +${nextAttackBonus} next-attack damage bonus.`);
   }
 
   if (!isConstruct && shieldRestoreTotal > 0) {
-    const shieldTarget = selfTarget ? participant : target || participant;
-    const beforeShield = shieldTarget.shield;
-    shieldTarget.shield = Math.min(shieldTarget.maxShield, shieldTarget.shield + shieldRestoreTotal);
-    const restored = shieldTarget.shield - beforeShield;
-    notes.push(`Restores ${restored} Shield${shieldTarget.id === participant.id ? '' : ` to ${shieldTarget.name}`}.`);
+    const shieldTarget = selfTarget
+      ? participant
+      : targetMode === 'all_others'
+        ? null
+        : primaryTarget || participant;
+    if (targetMode === 'all_others' || targetMode === 'multi_select') {
+      const recipients = targetMode === 'all_others' ? others : primaryTargets;
+      const restoredTargets = [];
+      recipients.forEach((entry) => {
+        const beforeShield = entry.shield;
+        entry.shield = Math.min(entry.maxShield, entry.shield + shieldRestoreTotal);
+        const restored = entry.shield - beforeShield;
+        if (restored > 0) {
+          restoredTargets.push(`${entry.name} (+${restored})`);
+        }
+      });
+      if (restoredTargets.length) {
+        notes.push(`Restores Shield to ${restoredTargets.join(', ')}.`);
+      }
+    } else if (shieldTarget) {
+      const beforeShield = shieldTarget.shield;
+      shieldTarget.shield = Math.min(shieldTarget.maxShield, shieldTarget.shield + shieldRestoreTotal);
+      const restored = shieldTarget.shield - beforeShield;
+      notes.push(`Restores ${restored} Shield${shieldTarget.id === participant.id ? '' : ` to ${shieldTarget.name}`}.`);
+    }
+  }
+
+  if (!isConstruct && healTotal > 0) {
+    const healTarget = selfTarget
+      ? participant
+      : targetMode === 'all_others'
+        ? null
+        : primaryTarget || participant;
+    if (targetMode === 'all_others' || targetMode === 'multi_select') {
+      const recipients = targetMode === 'all_others' ? others : primaryTargets;
+      const healedTargets = [];
+      recipients.forEach((entry) => {
+        const beforeHp = entry.hp;
+        entry.hp = Math.min(entry.maxHp, entry.hp + healTotal);
+        const healed = entry.hp - beforeHp;
+        if (healed > 0) {
+          healedTargets.push(`${entry.name} (+${healed})`);
+        }
+      });
+      if (healedTargets.length) {
+        notes.push(`Restores HP to ${healedTargets.join(', ')}.`);
+      }
+    } else if (healTarget) {
+      const beforeHp = healTarget.hp;
+      healTarget.hp = Math.min(healTarget.maxHp, healTarget.hp + healTotal);
+      const healed = healTarget.hp - beforeHp;
+      notes.push(`Restores ${healed} HP${healTarget.id === participant.id ? '' : ` to ${healTarget.name}`}.`);
+    }
   }
 
   if (!isConstruct && moveDistance > 0) {
     notes.push(`Moves ${moveDistance} ft.`);
   }
-  if (!isConstruct && pushDistance > 0 && target) {
-    notes.push(`Pushes ${target.name} ${pushDistance} ft.`);
+  if (!isConstruct && pushDistance > 0) {
+    const pushTargets =
+      targetMode === 'all_others'
+        ? others
+        : targetMode === 'multi_select'
+          ? primaryTargets
+          : primaryTarget
+            ? [primaryTarget]
+            : [];
+    if (pushTargets.length === 1) {
+      notes.push(`Pushes ${pushTargets[0].name} ${pushDistance} ft.`);
+    } else if (pushTargets.length > 1) {
+      notes.push(`Pushes ${pushTargets.length} targets ${pushDistance} ft.`);
+    }
   }
-  if (!isConstruct && pullDistance > 0 && target) {
-    notes.push(`Pulls ${target.name} ${pullDistance} ft.`);
+  if (!isConstruct && pullDistance > 0) {
+    const pullTargets =
+      targetMode === 'all_others'
+        ? others
+        : targetMode === 'multi_select'
+          ? primaryTargets
+          : primaryTarget
+            ? [primaryTarget]
+            : [];
+    if (pullTargets.length === 1) {
+      notes.push(`Pulls ${pullTargets[0].name} ${pullDistance} ft.`);
+    } else if (pullTargets.length > 1) {
+      notes.push(`Pulls ${pullTargets.length} targets ${pullDistance} ft.`);
+    }
   }
 
   if (!isConstruct && statusApply) {
-    const statusTarget = selfTarget ? participant : target;
-    if (statusTarget) {
-      addStatusStacks(statusTarget, statusApply.id, statusApply.stacks);
-      enforceControlHierarchy(statusTarget);
-      notes.push(`Applies ${statusDisplayName(statusApply.id)} ${statusApply.stacks} to ${statusTarget.name}.`);
+    const statusTargets =
+      targetMode === 'all_others'
+        ? others
+        : targetMode === 'multi_select'
+          ? primaryTargets
+        : selfTarget
+          ? [participant]
+          : primaryTarget
+            ? [primaryTarget]
+            : [];
+    if (statusTargets.length) {
+      statusTargets.forEach((statusTarget) => {
+        addStatusStacks(statusTarget, statusApply.id, statusApply.stacks);
+        enforceControlHierarchy(statusTarget);
+      });
+      const names = statusTargets.map((entry) => entry.name).join(', ');
+      notes.push(`Applies ${statusDisplayName(statusApply.id)} ${statusApply.stacks} to ${names}.`);
+    }
+  }
+
+  if (!isConstruct && nextAttackGrant > 0) {
+    const recipients =
+      targetMode === 'all_others'
+        ? others
+        : targetMode === 'multi_select'
+          ? primaryTargets
+          : selfTarget
+            ? [participant]
+            : primaryTarget
+              ? [primaryTarget]
+              : [];
+    if (recipients.length) {
+      recipients.forEach((entry) => {
+        const currentBonus = Number(entry.nextAttackDamageBonus || 0);
+        entry.nextAttackDamageBonus = Math.max(0, currentBonus + nextAttackGrant);
+      });
+      const names = recipients.map((entry) => entry.name).join(', ');
+      notes.push(`Grants +${nextAttackGrant} damage to next attack for ${names}.`);
     }
   }
 
@@ -793,25 +1118,51 @@ function executeCardAction(body) {
     notes.push(`Mastery increased to Level ${afterLevel}.`);
   }
 
+  if (chargesMax > 0) {
+    card.chargesMax = chargesMax;
+    card.chargesCurrent = Math.max(0, chargesCurrent - 1);
+    notes.push(`Charges: ${card.chargesCurrent}/${chargesMax}.`);
+  }
+
   markTurnActionTaken(participant);
   const noteText = notes.length ? ` ${notes.join(' ')}` : '';
   const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
-  const targetText = damageResult
-    ? ` ${target.name} takes ${damageResult.finalDamage} ${damageType || 'damage'} (${damageResult.shieldDamage} Shield, ${damageResult.hpDamage} HP).`
+  const damageText = damageResults.length
+    ? ` ${damageResults
+        .map((entry) => {
+          const mitigation = entry.result.resisted && !entry.result.vulnerable
+            ? ' [Resisted]'
+            : entry.result.vulnerable && !entry.result.resisted
+              ? ' [Vulnerable]'
+              : '';
+          const conditional =
+            entry.result.shieldBonusDamage > 0
+              ? ` [+${entry.result.shieldBonusDamage} vs Shield]`
+              : '';
+          const fullyBlocked =
+            entry.result.directHpDamage > 0
+              ? ` [Fully Blocked: +${entry.result.directHpDamage} direct HP]`
+              : '';
+          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${fullyBlocked}`;
+        })
+        .join(' ')}`
     : '';
-  const mitigationText = damageResult
-    ? ` ${damageResult.resisted && !damageResult.vulnerable ? '[Resisted]' : ''}${damageResult.vulnerable && !damageResult.resisted ? '[Vulnerable]' : ''}`.trim()
-    : '';
-  const mitigationSuffix = mitigationText ? ` ${mitigationText}` : '';
-  pushLog(`${participant.name} plays ${card.name} (${costText}).${targetText}${mitigationSuffix}${noteText}`, participant.id, {
+  const totalFinalDamage = damageResults.reduce((total, entry) => total + Number(entry.result.finalDamage || 0), 0);
+  pushLog(`${participant.name} plays ${card.name} (${costText}).${damageText}${noteText}`, participant.id, {
     cardId: card.id,
     apCost,
     baseCost,
-    targetId: target?.id || null,
+    targetId: primaryTarget?.id || null,
+    targetIds: primaryTargets.map((entry) => entry.id),
+    secondaryTargetId: secondaryTarget?.id || null,
+    targetMode,
     damageType,
+    secondaryDamageType,
     rawDamage,
-    finalDamage: damageResult?.finalDamage ?? 0,
-    construct: constructDeployResult?.construct || null
+    secondaryRawDamage,
+    finalDamage: totalFinalDamage,
+    construct: constructDeployResult?.construct || null,
+    zone: zoneDeployResult?.zone || null
   });
   touchState();
   broadcastState('card_action');
@@ -820,9 +1171,13 @@ function executeCardAction(body) {
     card,
     apCost,
     baseCost,
-    target,
+    target: primaryTarget,
+    targets: primaryTargets,
+    secondaryTarget,
     damageResult,
-    construct: constructDeployResult?.construct || null
+    damageResults,
+    construct: constructDeployResult?.construct || null,
+    zone: zoneDeployResult?.zone || null
   };
 }
 
@@ -877,6 +1232,110 @@ function executeRetargetConstructAction(body) {
   return { participant, construct };
 }
 
+function executeMoveConstructAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const constructId = String(body.constructId || '').trim();
+  if (!constructId) {
+    return { error: 'constructId is required' };
+  }
+  const list = normalizeConstructs(participant.constructs, participant.id);
+  const construct = list.find((entry) => String(entry.id || '') === constructId);
+  if (!construct) {
+    return { error: 'Construct not found' };
+  }
+  const apCost = 1;
+  if (Number(construct.apCurrent || 0) < apCost) {
+    return { error: `${construct.name} does not have enough AP` };
+  }
+  const baseMove = Math.max(5, Math.round(Number(construct.moveFt || 10)));
+  const difficultTerrain = Boolean(body.difficultTerrain);
+  const distance = difficultTerrain ? Math.max(5, Math.floor(baseMove / 2)) : baseMove;
+  construct.apCurrent = Math.max(0, Number(construct.apCurrent || 0) - apCost);
+  participant.constructs = list;
+  pushLog(
+    `${participant.name} commands ${construct.name} to move ${distance} ft (${construct.apCurrent}/${construct.apMax} AP left).`,
+    participant.id
+  );
+  touchState();
+  broadcastState('construct_moved');
+  return { participant, construct, distance, apCost };
+}
+
+function findZone(participant, zoneId) {
+  if (!participant || !zoneId) return null;
+  participant.zones = normalizeZones(participant.zones, participant.id);
+  return participant.zones.find((entry) => String(entry.id || '') === String(zoneId || '')) || null;
+}
+
+function executeAddZoneTargetAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const zoneId = String(body.zoneId || '').trim();
+  if (!zoneId) {
+    return { error: 'zoneId is required' };
+  }
+  const targetId = String(body.targetId || '').trim();
+  if (!targetId) {
+    return { error: 'targetId is required' };
+  }
+  const target = findParticipant(targetId);
+  if (!target) {
+    return { error: 'Target not found' };
+  }
+  const zone = findZone(participant, zoneId);
+  if (!zone) {
+    return { error: 'Zone not found' };
+  }
+  const ids = new Set(Array.isArray(zone.targetIds) ? zone.targetIds : []);
+  ids.add(target.id);
+  zone.targetIds = Array.from(ids);
+  pushLog(`${participant.name} adds ${target.name} to zone ${zone.name}.`, participant.id, {
+    zoneId: zone.id,
+    targetId: target.id
+  });
+  touchState();
+  broadcastState('zone_target_added');
+  return { participant, zone, target };
+}
+
+function executeRemoveZoneTargetAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const zoneId = String(body.zoneId || '').trim();
+  if (!zoneId) {
+    return { error: 'zoneId is required' };
+  }
+  const targetId = String(body.targetId || '').trim();
+  if (!targetId) {
+    return { error: 'targetId is required' };
+  }
+  const zone = findZone(participant, zoneId);
+  if (!zone) {
+    return { error: 'Zone not found' };
+  }
+  const before = Array.isArray(zone.targetIds) ? zone.targetIds.length : 0;
+  zone.targetIds = (zone.targetIds || []).filter((id) => String(id) !== targetId);
+  if (zone.targetIds.length === before) {
+    return { error: 'Target was not assigned to this zone' };
+  }
+  const target = findParticipant(targetId);
+  pushLog(
+    `${participant.name} removes ${target?.name || 'a target'} from zone ${zone.name}.`,
+    participant.id,
+    { zoneId: zone.id, targetId }
+  );
+  touchState();
+  broadcastState('zone_target_removed');
+  return { participant, zone, targetId };
+}
+
 function activateSetBonusAction(body) {
   void body;
   return { error: 'No active set abilities are currently configured.' };
@@ -909,7 +1368,8 @@ function sanitizeParticipantUpdate(body, current) {
     'apCurrent',
     'hp',
     'shield',
-    'mastery'
+    'mastery',
+    'nextAttackDamageBonus'
   ];
   for (const field of numericFields) {
     if (typeof body[field] === 'number') {
@@ -946,6 +1406,7 @@ function sanitizeParticipantUpdate(body, current) {
   if (typeof body.notes === 'string') update.notes = body.notes;
   if (Array.isArray(body.cards)) update.cards = normalizeCards(body.cards);
   if (Array.isArray(body.constructs)) update.constructs = normalizeConstructs(body.constructs, current.id);
+  if (Array.isArray(body.zones)) update.zones = normalizeZones(body.zones, current.id);
   if (Array.isArray(body.tags)) update.tags = body.tags;
   if (Array.isArray(body.statuses)) update.statuses = body.statuses;
   if (Array.isArray(body.abilities)) {
@@ -1021,6 +1482,7 @@ function createParticipant(body = {}) {
     mastery: typeof body.mastery === 'number' ? body.mastery : 1,
     cards: normalizeCards(body.cards),
     constructs: normalizeConstructs(body.constructs, id),
+    zones: normalizeZones(body.zones, id),
     tags: Array.isArray(body.tags) ? body.tags : [],
     statuses: Array.isArray(body.statuses) ? body.statuses : [],
     abilities: normalizeAbilityEntries(body.abilities),
@@ -1050,6 +1512,9 @@ function createParticipant(body = {}) {
     guardUsedThisTurn: false,
     guardRestore: baseStats.guardRestore,
     damageBonus: baseStats.damageBonus,
+    nextAttackDamageBonus: Number.isFinite(Number(body.nextAttackDamageBonus))
+      ? Math.max(0, Math.round(Number(body.nextAttackDamageBonus)))
+      : 0,
     baseStats,
     derivedBonuses: {
       base: baseStats,
@@ -1081,48 +1546,137 @@ function sortParticipants() {
   });
 }
 
-function ensureCurrentIndex() {
-  if (trackerState.encounter.currentIndex === -1 && trackerState.encounter.participants.length > 0) {
-    trackerState.encounter.currentIndex = 0;
+function buildTurnEntries() {
+  const entries = [];
+  for (const participant of trackerState.encounter.participants || []) {
+    entries.push({
+      kind: 'participant',
+      participantId: participant.id
+    });
+    participant.zones = normalizeZones(participant.zones, participant.id);
+    for (const zone of participant.zones) {
+      entries.push({
+        kind: 'zone',
+        participantId: participant.id,
+        zoneId: zone.id
+      });
+    }
   }
+  return entries;
+}
+
+function getTurnEntryKey(entry) {
+  if (!entry) return '';
+  if (entry.kind === 'zone') {
+    return `zone:${entry.participantId}:${entry.zoneId}`;
+  }
+  return `participant:${entry.participantId}`;
+}
+
+function setCurrentTurnByIndex(entries, index) {
+  if (!entries.length) {
+    trackerState.encounter.currentIndex = -1;
+    trackerState.encounter.currentTurnKey = '';
+    return null;
+  }
+  const safeIndex = Math.min(Math.max(Number(index) || 0, 0), entries.length - 1);
+  const entry = entries[safeIndex];
+  trackerState.encounter.currentIndex = safeIndex;
+  trackerState.encounter.currentTurnKey = getTurnEntryKey(entry);
+  return entry;
+}
+
+function ensureCurrentIndex() {
+  const entries = buildTurnEntries();
+  if (!entries.length) {
+    trackerState.encounter.currentIndex = -1;
+    trackerState.encounter.currentTurnKey = '';
+    return;
+  }
+  const currentKey = String(trackerState.encounter.currentTurnKey || '');
+  if (currentKey) {
+    const keyedIndex = entries.findIndex((entry) => getTurnEntryKey(entry) === currentKey);
+    if (keyedIndex >= 0) {
+      setCurrentTurnByIndex(entries, keyedIndex);
+      return;
+    }
+  }
+  const currentIndex = Number(trackerState.encounter.currentIndex);
+  if (Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < entries.length) {
+    setCurrentTurnByIndex(entries, currentIndex);
+    return;
+  }
+  setCurrentTurnByIndex(entries, 0);
 }
 
 function fixCurrentIndexAfterRemoval() {
-  const list = trackerState.encounter.participants;
-  if (!list.length) {
-    trackerState.encounter.currentIndex = -1;
-    return;
+  ensureCurrentIndex();
+}
+
+function resolveCurrentTurnIndexForAdvance(entries, direction = 1) {
+  const key = String(trackerState.encounter.currentTurnKey || '');
+  if (key) {
+    const keyedIndex = entries.findIndex((entry) => getTurnEntryKey(entry) === key);
+    if (keyedIndex >= 0) return keyedIndex;
   }
-  trackerState.encounter.currentIndex = trackerState.encounter.currentIndex % list.length;
+  const rawIndex = Number(trackerState.encounter.currentIndex);
+  if (!Number.isInteger(rawIndex)) return -1;
+  if (direction > 0) {
+    return Math.min(entries.length - 1, Math.max(-1, rawIndex - 1));
+  }
+  return Math.min(entries.length - 1, Math.max(0, rawIndex));
 }
 
 function advanceTurn(direction = 1) {
-  const list = trackerState.encounter.participants;
-  if (!list.length) return;
-  const previousIndex = trackerState.encounter.currentIndex;
-  if (direction > 0 && previousIndex >= 0 && previousIndex < list.length) {
-    const previousActor = list[previousIndex];
-    const endEvents = applyEndOfTurnSetEffects(previousActor);
-    endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+  const entries = buildTurnEntries();
+  if (!entries.length) {
+    trackerState.encounter.currentIndex = -1;
+    trackerState.encounter.currentTurnKey = '';
+    return;
   }
+  const previousIndex = resolveCurrentTurnIndexForAdvance(entries, direction);
+  const previousEntry = previousIndex >= 0 ? entries[previousIndex] : null;
+  if (direction > 0 && previousEntry?.kind === 'participant') {
+    const previousActor = findParticipant(previousEntry.participantId);
+    if (previousActor) {
+      const endEvents = applyEndOfTurnSetEffects(previousActor);
+      endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+    }
+  }
+
+  let nextIndex = 0;
   if (previousIndex === -1) {
-    trackerState.encounter.currentIndex = 0;
+    nextIndex = 0;
   } else {
-    trackerState.encounter.currentIndex =
-      (previousIndex + direction + list.length) % list.length;
+    nextIndex = (previousIndex + direction + entries.length) % entries.length;
   }
   if (
     direction > 0 &&
-    trackerState.encounter.currentIndex === 0 &&
+    nextIndex === 0 &&
     previousIndex !== -1
   ) {
     trackerState.encounter.round += 1;
   }
-  const actor = getCurrentParticipant();
-  if (actor) {
-    const startEvents = resetTurn(actor, { applyStatusTick: direction > 0 });
-    startEvents.forEach((event) => pushLog(`${actor.name} ${event}`, actor.id));
-    pushLog(`It is now ${actor.name}'s turn (AP ${actor.apCurrent}).`, actor.id);
+
+  const entry = setCurrentTurnByIndex(entries, nextIndex);
+  if (entry?.kind === 'zone') {
+    const owner = findParticipant(entry.participantId);
+    const zone = findZone(owner, entry.zoneId);
+    if (owner && zone) {
+      const zoneEvents = applyZoneTurnEffects(owner, zone);
+      zoneEvents.forEach((event) => pushLog(event, owner.id, { zoneId: zone.id, zoneTurn: true }));
+      pushLog(`It is now ${owner.name}'s zone effect: ${zone.name}.`, owner.id, {
+        zoneId: zone.id,
+        zoneTurn: true
+      });
+    }
+  } else {
+    const actor = entry ? findParticipant(entry.participantId) : null;
+    if (actor) {
+      const startEvents = resetTurn(actor, { applyStatusTick: direction > 0 });
+      startEvents.forEach((event) => pushLog(`${actor.name} ${event}`, actor.id));
+      pushLog(`It is now ${actor.name}'s turn (AP ${actor.apCurrent}).`, actor.id);
+    }
   }
   touchState();
   broadcastState('turn_advanced');
@@ -1153,10 +1707,37 @@ function abilityModifier(score = 10) {
   return Math.floor((value - 10) / 2);
 }
 
+function getCurrentTurnEntry() {
+  const entries = buildTurnEntries();
+  if (!entries.length) {
+    trackerState.encounter.currentIndex = -1;
+    trackerState.encounter.currentTurnKey = '';
+    return null;
+  }
+  const currentKey = String(trackerState.encounter.currentTurnKey || '');
+  let index = -1;
+  if (currentKey) {
+    index = entries.findIndex((entry) => getTurnEntryKey(entry) === currentKey);
+    if (index < 0) {
+      return null;
+    }
+  } else {
+    const raw = Number(trackerState.encounter.currentIndex);
+    if (Number.isInteger(raw) && raw >= 0 && raw < entries.length) {
+      index = raw;
+    }
+  }
+  if (index < 0) {
+    index = 0;
+  }
+  setCurrentTurnByIndex(entries, index);
+  return entries[index];
+}
+
 function getCurrentParticipant() {
-  const index = trackerState.encounter.currentIndex;
-  if (index < 0) return null;
-  return trackerState.encounter.participants[index] || null;
+  const entry = getCurrentTurnEntry();
+  if (!entry) return null;
+  return findParticipant(entry.participantId) || null;
 }
 
 function findParticipant(id) {
@@ -1167,7 +1748,9 @@ function resolveActor(id) {
   if (id) {
     return findParticipant(id);
   }
-  return getCurrentParticipant();
+  const entry = getCurrentTurnEntry();
+  if (!entry) return null;
+  return findParticipant(entry.participantId);
 }
 
 function pushLog(text, participantId = null, meta = {}) {
@@ -1218,6 +1801,7 @@ function applyLongRest(participant) {
   participant.shield = participant.maxShield;
   participant.statuses = [];
   participant.constructs = [];
+  participant.zones = [];
   participant.apCurrent = participant.apMax;
   participant.guardUsedThisTurn = false;
   pushLog(`${participant.name} takes a long rest and is fully restored.`, participant.id);
@@ -1495,33 +2079,37 @@ function applyConstructStartOfTurnEffects(participant) {
   const events = [];
   const nextConstructs = [];
   for (const construct of participant.constructs) {
-    const mode = normalizeConstructMode(construct.mode || construct.constructMode) || 'damage';
-    const target = construct.targetId ? findParticipant(construct.targetId) : null;
+    const refreshed = {
+      ...construct,
+      apCurrent: Math.max(0, Number(construct.apMax || 0))
+    };
+    const mode = normalizeConstructMode(refreshed.mode || refreshed.constructMode) || 'damage';
+    const target = refreshed.targetId ? findParticipant(refreshed.targetId) : null;
     if ((mode === 'damage' || mode === 'status') && !target) {
-      events.push(`${construct.name} has no valid target this turn.`);
+      events.push(`${refreshed.name} has no valid target this turn.`);
     } else if (mode === 'status' && target) {
-      const stacks = Math.max(1, Number(construct.statusStacks || 1));
+      const stacks = Math.max(1, Number(refreshed.statusStacks || 1));
       const statusType = detectStatusType({
-        presetId: construct.statusId,
-        name: construct.statusName
+        presetId: refreshed.statusId,
+        name: refreshed.statusName
       });
       if (statusType) {
         addStatusStacks(target, statusType, stacks);
         events.push(
-          `${construct.name} applies ${statusDisplayName(statusType)} x${stacks} to ${target.name}.`
+          `${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${target.name}.`
         );
       } else {
-        const statusName = String(construct.statusName || construct.statusId || 'Status').trim();
+        const statusName = String(refreshed.statusName || refreshed.statusId || 'Status').trim();
         target.statuses = normalizeStatuses([...(target.statuses || []), {
           id: randomUUID(),
-          presetId: String(construct.statusId || '').trim(),
+          presetId: String(refreshed.statusId || '').trim(),
           name: statusName,
           stacks,
           notes: 'Applied by construct.'
         }]);
-        events.push(`${construct.name} applies ${statusName} x${stacks} to ${target.name}.`);
+        events.push(`${refreshed.name} applies ${statusName} x${stacks} to ${target.name}.`);
       }
-      const forceDamage = Math.max(0, Number(construct.damage || 0));
+      const forceDamage = Math.max(0, Number(refreshed.damage || 0));
       if (forceDamage > 0) {
         const result = applyCardDamageWithType(target, forceDamage, 'Force');
         const mitigation =
@@ -1531,12 +2119,12 @@ function applyConstructStartOfTurnEffects(participant) {
               ? ' [Vulnerable]'
               : '';
         events.push(
-          `${construct.name} deals ${result.finalDamage} Force to ${target.name} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+          `${refreshed.name} deals ${result.finalDamage} Force to ${target.name} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
         );
       }
     } else if (mode === 'damage' && target) {
-      const damage = Math.max(0, Number(construct.damage || 0));
-      const damageType = String(construct.damageType || '').trim();
+      const damage = Math.max(0, Number(refreshed.damage || 0));
+      const damageType = String(refreshed.damageType || '').trim();
       if (damage > 0) {
         const result = applyCardDamageWithType(target, damage, damageType);
         const mitigation =
@@ -1546,20 +2134,60 @@ function applyConstructStartOfTurnEffects(participant) {
               ? ' [Vulnerable]'
               : '';
         events.push(
-          `${construct.name} hits ${target.name} for ${result.finalDamage} ${damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+          `${refreshed.name} hits ${target.name} for ${result.finalDamage} ${damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
         );
       }
     } else if (mode === 'utility') {
-      events.push(`${construct.name} remains active.`);
+      events.push(`${refreshed.name} remains active.`);
     }
-    const remainingTurns = Math.max(0, Number(construct.remainingTurns || 0) - 1);
+    const remainingTurns = Math.max(0, Number(refreshed.remainingTurns || 0) - 1);
     if (remainingTurns > 0) {
-      nextConstructs.push({ ...construct, remainingTurns });
+      nextConstructs.push({ ...refreshed, remainingTurns });
     } else {
-      events.push(`${construct.name} expires.`);
+      events.push(`${refreshed.name} expires.`);
     }
   }
   participant.constructs = nextConstructs;
+  return events;
+}
+
+function applyZoneTurnEffects(participant, zone) {
+  if (!participant || !zone) return [];
+  participant.zones = normalizeZones(participant.zones, participant.id);
+  const entry = participant.zones.find((item) => String(item.id) === String(zone.id));
+  if (!entry) return [`${participant.name}'s zone no longer exists.`];
+  const targets = (entry.targetIds || [])
+    .map((id) => findParticipant(id))
+    .filter(Boolean);
+  if (!targets.length) {
+    return [`${participant.name}'s zone ${entry.name} has no targets.`];
+  }
+  const events = [];
+  for (const target of targets) {
+    const amount = Math.max(0, Number(entry.damage || 0));
+    if (amount <= 0) {
+      events.push(`${participant.name}'s zone ${entry.name} affects ${target.name}.`);
+      continue;
+    }
+    const result = applyCardDamageWithType(target, amount, entry.damageType);
+    const mitigation =
+      result.resisted && !result.vulnerable
+        ? ' [Resisted]'
+        : result.vulnerable && !result.resisted
+          ? ' [Vulnerable]'
+          : '';
+    events.push(
+      `${participant.name}'s zone ${entry.name} hits ${target.name} for ${result.finalDamage} ${entry.damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+    );
+  }
+  if (Number(entry.remainingTurns || 0) > 0) {
+    entry.remainingTurns = Math.max(0, Number(entry.remainingTurns || 0) - 1);
+    if (entry.remainingTurns <= 0) {
+      participant.zones = participant.zones.filter((item) => String(item.id) !== String(entry.id));
+      events.push(`${participant.name}'s zone ${entry.name} expires.`);
+    }
+  }
+  clampParticipant(participant);
   return events;
 }
 
@@ -1796,6 +2424,14 @@ function isConstructCard(card = {}) {
   });
 }
 
+function isZoneCard(card = {}, level = 1) {
+  if (card?.isZone === true) return true;
+  const radius = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
+  if (Number(radius || 0) > 0) return true;
+  if (Number(card.zoneDurationTurns || 0) > 0) return true;
+  return false;
+}
+
 function normalizeConstructMode(value = '') {
   const token = String(value || '').trim().toLowerCase();
   if (token === 'damage' || token === 'status' || token === 'utility') return token;
@@ -1834,6 +2470,26 @@ function normalizeConstructs(list = [], ownerId = '') {
             ? 'damage'
             : 'utility');
       const statusStacksRaw = Number(entry.statusStacks ?? entry.constructStatusStacks ?? 1);
+      const maxHpRaw = Number(entry.maxHp ?? entry.constructMaxHp ?? entry.hp ?? 1);
+      const maxHp = Number.isFinite(maxHpRaw) ? Math.max(1, Math.round(maxHpRaw)) : 1;
+      const hpRaw = Number(entry.hp ?? entry.currentHp ?? maxHp);
+      const hp = Number.isFinite(hpRaw) ? Math.max(0, Math.min(maxHp, Math.round(hpRaw))) : maxHp;
+      const apMaxRaw = Number(entry.apMax ?? entry.constructAp ?? entry.ap ?? 2);
+      const apMax = Number.isFinite(apMaxRaw) ? Math.max(0, Math.round(apMaxRaw)) : 0;
+      const apCurrentRaw = Number(entry.apCurrent ?? entry.currentAp ?? apMax);
+      const apCurrent = Number.isFinite(apCurrentRaw)
+        ? Math.max(0, Math.min(apMax, Math.round(apCurrentRaw)))
+        : apMax;
+      const moveFtRaw = Number(entry.moveFt ?? entry.constructMoveFt ?? entry.constructMove ?? 10);
+      const moveFt = Number.isFinite(moveFtRaw) ? Math.max(5, Math.round(moveFtRaw)) : 10;
+      const cards = Array.isArray(entry.cards)
+        ? entry.cards
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        : String(entry.cards || entry.constructCards || entry.constructLinkedCard || '')
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean);
       return {
         id: entry.id || randomUUID(),
         ownerId: String(entry.ownerId || ownerId || '').trim(),
@@ -1855,8 +2511,48 @@ function normalizeConstructs(list = [], ownerId = '') {
         statusId: String(entry.statusId || entry.constructStatusId || '').trim(),
         statusName: String(entry.statusName || entry.constructStatusName || '').trim(),
         statusStacks: Number.isFinite(statusStacksRaw) ? Math.max(1, Math.round(statusStacksRaw)) : 1,
+        maxHp,
+        hp,
+        apMax,
+        apCurrent,
+        moveFt,
+        cards,
         tags: Array.isArray(entry.tags)
           ? entry.tags.map((tag) => String(tag).trim()).filter(Boolean)
+          : [],
+        createdAt: entry.createdAt || new Date().toISOString(),
+        createdOrder: Number.isFinite(Number(entry.createdOrder))
+          ? Number(entry.createdOrder)
+          : index
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeZones(list = [], ownerId = '') {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const name = String(entry.name || entry.title || '').trim();
+      if (!name) return null;
+      const damage = Number(entry.damage ?? entry.baseDamage ?? 0);
+      const radiusRaw = Number(entry.radiusFt ?? entry.radius ?? entry.zoneRadius ?? 0);
+      const remainingRaw = Number(entry.remainingTurns ?? entry.durationTurns ?? entry.zoneDurationTurns ?? 0);
+      return {
+        id: entry.id || randomUUID(),
+        ownerId: String(entry.ownerId || ownerId || '').trim(),
+        sourceCardId: String(entry.sourceCardId || '').trim(),
+        name,
+        damage: Number.isFinite(damage) ? Math.max(0, Math.round(damage)) : 0,
+        damageType: String(entry.damageType || '').trim(),
+        radiusFt: Number.isFinite(radiusRaw) ? Math.max(0, Math.round(radiusRaw)) : 0,
+        remainingTurns: Number.isFinite(remainingRaw) ? Math.max(0, Math.round(remainingRaw)) : 0,
+        targetIds: Array.isArray(entry.targetIds)
+          ? Array.from(new Set(entry.targetIds.map((value) => String(value || '').trim()).filter(Boolean)))
+          : [],
+        tags: Array.isArray(entry.tags)
+          ? entry.tags.map((value) => String(value || '').trim()).filter(Boolean)
           : [],
         createdAt: entry.createdAt || new Date().toISOString(),
         createdOrder: Number.isFinite(Number(entry.createdOrder))
@@ -1889,6 +2585,26 @@ function normalizeCards(list = []) {
           card.constructStacks ??
           1
       );
+      const constructApRaw = Number(card.constructAp ?? card.constructApMax ?? card.ap ?? 2);
+      const constructMaxHpRaw = Number(card.constructMaxHp ?? card.constructHp ?? card.hp ?? 1);
+      const constructMoveFtRaw = Number(card.constructMoveFt ?? card.constructMove ?? 10);
+      const cardChargesRaw = Number(card.chargesMax ?? card.maxCharges ?? card.charges ?? 0);
+      const cardChargesMax = Number.isFinite(cardChargesRaw) ? Math.max(0, Math.round(cardChargesRaw)) : 0;
+      const cardChargesCurrentRaw = Number(
+        card.chargesCurrent ?? card.remainingCharges ?? cardChargesMax
+      );
+      const cardChargesCurrent =
+        cardChargesMax > 0 && Number.isFinite(cardChargesCurrentRaw)
+          ? Math.max(0, Math.min(cardChargesMax, Math.round(cardChargesCurrentRaw)))
+          : 0;
+      const constructCards = Array.isArray(card.constructCards)
+        ? card.constructCards
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        : String(card.constructCards || card.constructLinkedCard || '')
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean);
       const constructCard = isConstructCard(card);
 
       return {
@@ -1919,6 +2635,15 @@ function normalizeCards(list = []) {
         modifiers: normalizeModifiers(card.modifiers || {}),
         damage,
         damageType: autoCardDamageType(card),
+        isZone: card.isZone === true || isZoneCard(card, masteryLevel),
+        zoneRadius: Number.isFinite(Number(card.zoneRadius)) ? Math.max(0, Math.round(Number(card.zoneRadius))) : 0,
+        zoneRadiusByLevel:
+          card.zoneRadiusByLevel && typeof card.zoneRadiusByLevel === 'object'
+            ? { ...card.zoneRadiusByLevel }
+            : null,
+        zoneDurationTurns: Number.isFinite(Number(card.zoneDurationTurns))
+          ? Math.max(0, Math.round(Number(card.zoneDurationTurns)))
+          : 0,
         constructDurationTurns: Number.isFinite(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns))
           ? Math.max(1, Math.round(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns)))
           : 1,
@@ -1930,6 +2655,13 @@ function normalizeCards(list = []) {
         constructStatusStacks: Number.isFinite(constructStatusStacksRaw)
           ? Math.max(1, Math.round(constructStatusStacksRaw))
           : 1,
+        constructAp: Number.isFinite(constructApRaw) ? Math.max(0, Math.round(constructApRaw)) : 0,
+        constructMaxHp: Number.isFinite(constructMaxHpRaw) ? Math.max(1, Math.round(constructMaxHpRaw)) : 1,
+        constructMoveFt: Number.isFinite(constructMoveFtRaw) ? Math.max(5, Math.round(constructMoveFtRaw)) : 10,
+        constructCards,
+        constructLinkedCard: constructCards[0] || '',
+        chargesMax: cardChargesMax,
+        chargesCurrent: cardChargesCurrent,
         masteryLevel,
         masteryUses,
         masteryThresholds: thresholds,
@@ -1955,6 +2687,36 @@ function getCardDamageAtCurrentMastery(card) {
   if (level >= 3) return byLevel[3];
   if (level >= 2) return byLevel[2];
   return byLevel[1];
+}
+
+function getCardSecondaryDamageAtCurrentMastery(card) {
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const fallback = Number(card.secondaryDamage || 0);
+  const value = getCardScaledValue(card.secondaryDamageByLevel, level, fallback);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function normalizeCardTargetMode(card = {}) {
+  const token = String(card.targetMode || '').trim().toLowerCase();
+  if (token === 'all_others' || token === 'all-targets') return 'all_others';
+  if (token === 'multi' || token === 'multi_select' || token === 'multi_up_to_3' || token === 'up_to_3') {
+    return 'multi_select';
+  }
+  return 'single';
+}
+
+function normalizeSecondaryTargetMode(card = {}) {
+  const token = String(card.secondaryTargetMode || '').trim().toLowerCase();
+  if (token === 'same' || token === 'adjacent') return token;
+  return '';
+}
+
+function getCardMultiTargetCap(card = {}, level = 1) {
+  const fallback = Number.isFinite(Number(card.multiTargetMax))
+    ? Math.max(1, Math.round(Number(card.multiTargetMax)))
+    : 3;
+  const scaled = getCardScaledValue(card.multiTargetMaxByLevel, level, fallback);
+  return Number.isFinite(Number(scaled)) ? Math.max(1, Math.round(Number(scaled))) : fallback;
 }
 
 function getCardScaledValue(source, level = 1, fallback = 0) {
@@ -2031,7 +2793,9 @@ function applyCardDamageWithType(target, rawDamage, damageType = '') {
     resisted,
     vulnerable,
     shieldBefore,
-    hpBefore
+    hpBefore,
+    shieldAfter: target.shield,
+    hpAfter: target.hp
   };
 }
 
@@ -2331,16 +3095,21 @@ function getMachineConstructDurationBonus(participant) {
 
 function describeConstructSummary(construct = {}) {
   const mode = normalizeConstructMode(construct.mode || construct.constructMode) || 'damage';
+  const resources = [];
+  const hp = Number(construct.maxHp || 0);
+  const ap = Number(construct.apMax || 0);
+  if (hp > 0) resources.push(`HP ${hp}`);
+  if (ap > 0) resources.push(`AP ${ap}`);
   if (mode === 'status') {
     const statusLabel = construct.statusName || statusDisplayName(detectStatusType({ presetId: construct.statusId, name: construct.statusName }) || construct.statusId || 'Status');
     const statusStacks = Math.max(1, Number(construct.statusStacks || 1));
     const forceText = Number(construct.damage || 0) > 0 ? ` + ${construct.damage} Force` : '';
-    return `applies ${statusLabel} x${statusStacks}${forceText}`;
+    return `applies ${statusLabel} x${statusStacks}${forceText}${resources.length ? ` (${resources.join(', ')})` : ''}`;
   }
   if (mode === 'utility') {
-    return 'utility construct';
+    return `utility construct${resources.length ? ` (${resources.join(', ')})` : ''}`;
   }
-  return `${construct.damage || 0} ${construct.damageType || 'damage'}`;
+  return `${construct.damage || 0} ${construct.damageType || 'damage'}${resources.length ? ` (${resources.join(', ')})` : ''}`;
 }
 
 function deployConstructFromCard(participant, card, options = {}) {
@@ -2358,6 +3127,20 @@ function deployConstructFromCard(participant, card, options = {}) {
     1,
     (Number.isFinite(durationBase) ? Math.round(durationBase) : 1) + durationBonusTurns
   );
+  const apMaxRaw = Number(card?.constructAp ?? card?.constructApMax ?? 2);
+  const apMax = Number.isFinite(apMaxRaw) ? Math.max(0, Math.round(apMaxRaw)) : 0;
+  const maxHpRaw = Number(card?.constructMaxHp ?? card?.constructHp ?? 1);
+  const maxHp = Number.isFinite(maxHpRaw) ? Math.max(1, Math.round(maxHpRaw)) : 1;
+  const moveFtRaw = Number(card?.constructMoveFt ?? card?.constructMove ?? 10);
+  const moveFt = Number.isFinite(moveFtRaw) ? Math.max(5, Math.round(moveFtRaw)) : 10;
+  const cards = Array.isArray(card?.constructCards)
+    ? card.constructCards
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    : String(card?.constructLinkedCard || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
   const appliedDamageBonus = mode === 'damage' || mode === 'status' ? bonusDamage : 0;
   const finalDamage =
     mode === 'damage'
@@ -2388,6 +3171,12 @@ function deployConstructFromCard(participant, card, options = {}) {
     statusId,
     statusName,
     statusStacks,
+    maxHp,
+    hp: maxHp,
+    apMax,
+    apCurrent: apMax,
+    moveFt,
+    cards,
     tags: Array.isArray(card.tags) ? card.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
     createdAt: new Date().toISOString(),
     createdOrder: Date.now()
@@ -2395,6 +3184,39 @@ function deployConstructFromCard(participant, card, options = {}) {
   current.push(construct);
   participant.constructs = current;
   return { construct, displaced };
+}
+
+function deployZoneFromCard(participant, card, options = {}) {
+  const level = Math.max(1, Math.min(3, Number(options.masteryLevel || card?.masteryLevel || 1)));
+  const radiusRaw = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
+  const radiusFt = Number.isFinite(Number(radiusRaw)) ? Math.max(0, Math.round(Number(radiusRaw))) : 0;
+  const durationRaw = Number(card.zoneDurationTurns ?? options.zoneDurationTurns ?? 0);
+  const remainingTurns = Number.isFinite(durationRaw) ? Math.max(0, Math.round(durationRaw)) : 0;
+  const targetIds = Array.from(
+    new Set(
+      (options.targetIds || [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+  const zone = {
+    id: randomUUID(),
+    ownerId: participant.id,
+    sourceCardId: String(card?.id || '').trim(),
+    name: `${card?.name || 'Zone'}`,
+    damage: Math.max(0, Number(options.damage || 0)),
+    damageType: String(options.damageType || card?.damageType || '').trim(),
+    radiusFt,
+    remainingTurns,
+    targetIds,
+    tags: Array.isArray(card?.tags) ? card.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
+    createdAt: new Date().toISOString(),
+    createdOrder: Date.now()
+  };
+  const current = normalizeZones(participant.zones, participant.id);
+  current.push(zone);
+  participant.zones = current;
+  return { zone };
 }
 
 function isCardActive(card = {}) {
@@ -2441,6 +3263,7 @@ function resetSetTurnState(participant) {
 function resetSetCombatState(participant) {
   resetSetTurnState(participant);
   participant.constructs = [];
+  participant.zones = [];
 }
 
 function markTurnActionTaken(participant) {
@@ -2521,6 +3344,7 @@ function recalculateParticipant(participant) {
   const setRuntime = ensureSetRuntime(participant);
   participant.cards = normalizeCards(participant.cards);
   participant.constructs = normalizeConstructs(participant.constructs, participant.id);
+  participant.zones = normalizeZones(participant.zones, participant.id);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
   participant.inventory = normalizeInventoryEntries(participant.inventory);
   participant.currencies = normalizeCurrencyEntries(participant.currencies);
@@ -2601,6 +3425,9 @@ function recalculateParticipant(participant) {
     Math.round((base.guardRestore ?? DEFAULT_GUARD_RESTORE) + totals.guardRestore)
   );
   participant.damageBonus = Math.round((base.damageBonus ?? 0) + totals.damageBonus);
+  participant.nextAttackDamageBonus = Number.isFinite(Number(participant.nextAttackDamageBonus))
+    ? Math.max(0, Math.round(Number(participant.nextAttackDamageBonus)))
+    : 0;
   participant.derivedBonuses = {
     base,
     totals,
@@ -2627,15 +3454,15 @@ function importEncounter(encounter = {}) {
     started: Boolean(encounter.started),
     participants: [],
     currentIndex: -1,
+    currentTurnKey: String(encounter.currentTurnKey || ''),
     log: Array.isArray(encounter.log) ? encounter.log.slice(-200) : []
   };
   const participants = Array.isArray(encounter.participants)
     ? encounter.participants.map((raw) => createParticipant(raw))
     : [];
   trackerState.encounter.participants = participants;
-  const importedIndex = typeof encounter.currentIndex === 'number' ? encounter.currentIndex : -1;
   trackerState.encounter.currentIndex =
-    participants.length === 0 ? -1 : Math.min(Math.max(importedIndex, 0), participants.length - 1);
+    typeof encounter.currentIndex === 'number' ? encounter.currentIndex : -1;
   sortParticipants();
   ensureCurrentIndex();
 }

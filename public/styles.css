@@ -230,6 +230,11 @@ body {
   transition: border 0.2s, transform 0.15s;
 }
 
+.turn-row-zone {
+  border-style: dashed;
+  background: rgba(15, 23, 42, 0.55);
+}
+
 .turn-row:hover {
   border-color: var(--accent);
   transform: translateY(-2px);
@@ -712,6 +717,15 @@ textarea {
 
 .card-summary-row {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.card-summary-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
   flex-direction: column;
   gap: 0.12rem;
 }
@@ -727,6 +741,14 @@ textarea {
   color: var(--text);
   font-size: 0.78rem;
   line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+
+.card-summary-action {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.74rem;
+  border-radius: 8px;
 }
 
 .card-collapse-body {

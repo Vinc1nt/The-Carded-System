@@ -16,7 +16,7 @@ const DAMAGE_TYPES = [
 const MAX_ACTIVE_CARDS = 10;
 
 const state = {
-  encounter: { participants: [], log: [], round: 1, currentIndex: -1 },
+  encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
   reference: { standardActions: [], sets: [], statuses: [] },
   updatedAt: null
 };
@@ -270,36 +270,84 @@ function updateGlobalJournalTargetVisibility(form) {
   label?.classList.toggle('is-disabled', disable);
 }
 
+function getTurnEntryKey(entry = {}) {
+  if (entry.kind === 'zone') {
+    return `zone:${entry.participantId}:${entry.zoneId}`;
+  }
+  return `participant:${entry.participantId}`;
+}
+
+function getEncounterTurnEntries() {
+  const entries = [];
+  for (const participant of state.encounter.participants || []) {
+    entries.push({ kind: 'participant', participantId: participant.id, participant, zone: null });
+    for (const zone of participant.zones || []) {
+      entries.push({
+        kind: 'zone',
+        participantId: participant.id,
+        zoneId: zone.id,
+        participant,
+        zone
+      });
+    }
+  }
+  return entries;
+}
+
 function renderTurnList() {
-  const list = state.encounter.participants || [];
-  if (!list.length) {
+  const entries = getEncounterTurnEntries();
+  if (!entries.length) {
     els.turnList.textContent = 'No combatants yet.';
     els.turnList.classList.add('empty-state');
     return;
   }
   els.turnList.classList.remove('empty-state');
   els.turnList.innerHTML = '';
-  list.forEach((participant, index) => {
+  entries.forEach((entry, index) => {
+    const participant = entry.participant;
+    if (!participant) return;
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = 'turn-row';
+    row.className = `turn-row${entry.kind === 'zone' ? ' turn-row-zone' : ''}`;
     row.dataset.id = participant.id;
+    const turnKey = getTurnEntryKey(entry);
+    row.dataset.turnKey = turnKey;
     if (participant.id === selectedParticipantId) {
       row.classList.add('is-selected');
     }
-    if (index === state.encounter.currentIndex) {
+    if (state.encounter.currentTurnKey && turnKey === state.encounter.currentTurnKey) {
+      row.classList.add('is-current');
+    } else if (!state.encounter.currentTurnKey && index === state.encounter.currentIndex) {
       row.classList.add('is-current');
     }
-    row.innerHTML = `
-      <strong>${participant.name}</strong>
-      <div class="statline">
-        <span>Init ${participant.initiative ?? 0}</span>
-        <span>AP ${participant.apCurrent}/${participant.apMax}</span>
-        <span>HP ${participant.hp}/${participant.maxHp}</span>
-        <span>Shield ${participant.shield}/${participant.maxShield}</span>
-      </div>
-      <div class="statline">${formatStatusesSummary(participant)}</div>
-    `;
+    if (entry.kind === 'zone') {
+      const zone = entry.zone || {};
+      const targetCount = Array.isArray(zone.targetIds) ? zone.targetIds.length : 0;
+      const remaining =
+        Number(zone.remainingTurns || 0) > 0
+          ? ` • ${zone.remainingTurns} turn${zone.remainingTurns === 1 ? '' : 's'} left`
+          : '';
+      row.innerHTML = `
+        <strong>${escapeHtml(zone.name || 'Zone Effect')}</strong>
+        <div class="statline">
+          <span>Zone (${escapeHtml(participant.name)})</span>
+          <span>${Number(zone.damage || 0)} ${escapeHtml(zone.damageType || 'damage')}</span>
+          <span>${Number(zone.radiusFt || 0)} ft radius</span>
+        </div>
+        <div class="statline">${targetCount} target${targetCount === 1 ? '' : 's'}${remaining}</div>
+      `;
+    } else {
+      row.innerHTML = `
+        <strong>${participant.name}</strong>
+        <div class="statline">
+          <span>Init ${participant.initiative ?? 0}</span>
+          <span>AP ${participant.apCurrent}/${participant.apMax}</span>
+          <span>HP ${participant.hp}/${participant.maxHp}</span>
+          <span>Shield ${participant.shield}/${participant.maxShield}</span>
+        </div>
+        <div class="statline">${formatStatusesSummary(participant)}</div>
+      `;
+    }
     row.addEventListener('click', () => {
       selectedParticipantId = participant.id;
       renderDetailPanel();
@@ -354,6 +402,7 @@ function renderDetailPanel() {
       ${renderVitalCard('AP', participant.apCurrent, participant.apMax, 'ap')}
     </div>
     ${renderStatusSection(participant)}
+    ${renderZoneSection(participant)}
     ${renderCardsSection(participant, drawers)}
     ${renderConstructSection(participant)}
     ${renderSetTrackerSection(participant)}
@@ -423,6 +472,69 @@ function renderStatusSection(participant) {
       </div>
     </details>
   `;
+}
+
+function renderZoneSection(participant) {
+  const zones = participant.zones || [];
+  return `
+    <details class="collapsible-block" data-section="zones">
+      <summary><strong>Zones</strong></summary>
+      <div class="collapsible-body">
+        <div class="cards-grid construct-grid">
+          ${renderZoneCards(participant, zones)}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderZoneCards(participant, zones = []) {
+  if (!zones.length) {
+    return '<p class="muted">No active zones.</p>';
+  }
+  return zones
+    .map((zone) => {
+      const targetIds = Array.isArray(zone.targetIds) ? zone.targetIds : [];
+      const targetBadges = targetIds
+        .map((targetId) => {
+          const target = (state.encounter.participants || []).find((entry) => entry.id === targetId);
+          if (!target) return '';
+          return `
+            <span class="status-pill">
+              ${escapeHtml(target.name)}
+              <button type="button" data-zone-remove-target="${zone.id || ''}" data-zone-target-id="${target.id}">Remove</button>
+            </span>`;
+        })
+        .filter(Boolean)
+        .join('');
+      const options = (state.encounter.participants || [])
+        .filter((entry) => !targetIds.includes(entry.id))
+        .map((entry) => `<option value="${entry.id}">${escapeHtml(entry.name)}</option>`)
+        .join('');
+      const remaining =
+        Number(zone.remainingTurns || 0) > 0
+          ? ` · ${zone.remainingTurns} turn${zone.remainingTurns === 1 ? '' : 's'} left`
+          : '';
+      return `
+        <article class="card-item construct-item">
+          <h4>${escapeHtml(zone.name || 'Zone')}</h4>
+          <p>${Number(zone.damage || 0)} ${escapeHtml(zone.damageType || 'damage')} · ${Number(zone.radiusFt || 0)} ft radius${remaining}</p>
+          <div class="status-list">
+            ${targetBadges || '<span class="muted">No targets assigned.</span>'}
+          </div>
+          <div class="form-row">
+            <label>Add Target
+              <select data-zone-add-target="${zone.id || ''}">
+                <option value="">Select target…</option>
+                ${options}
+              </select>
+            </label>
+            <button type="button" data-zone-add-target-button="${zone.id || ''}">Add</button>
+          </div>
+        </article>
+      `;
+    })
+    .join('');
 }
 
 function renderActionsSection(participant) {
@@ -897,6 +1009,8 @@ function renderConstructCards(participant) {
           <h4>${escapeHtml(construct.name || 'Construct')}</h4>
           <p>${escapeHtml(renderConstructCardSummary(construct))}</p>
           <p>Turns Remaining: ${Number(construct.remainingTurns || 0)}</p>
+          <p>HP: ${Number(construct.hp || 0)}/${Number(construct.maxHp || 0)} • AP: ${Number(construct.apCurrent || 0)}/${Number(construct.apMax || 0)}</p>
+          <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
           <label>Target
             <select data-construct-target="${construct.id || ''}">
               <option value="">Select target…</option>
@@ -910,6 +1024,7 @@ function renderConstructCards(participant) {
             </select>
           </label>
           <div class="card-actions">
+            <button type="button" data-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
             <button type="button" data-remove-construct="${construct.id || ''}">Remove</button>
           </div>
         </article>`
@@ -1533,6 +1648,22 @@ function wireDetailEvents(participant) {
     });
   });
 
+  panel.querySelectorAll('[data-construct-move]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const constructId = button.dataset.constructMove;
+      if (!constructId) return;
+      try {
+        await api('/api/constructs/move', 'POST', {
+          participantId: participant.id,
+          constructId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
   const basePanel = panel.querySelector('[data-base-panel]');
   const baseForm = basePanel?.querySelector('[data-form="baseStats"]');
   panel.querySelector('[data-toggle-base-stats]')?.addEventListener('click', () => {
@@ -1662,6 +1793,43 @@ function wireDetailEvents(participant) {
       statuses.splice(idx, 1);
       try {
         await api(`/api/participants/${participant.id}`, 'PATCH', { statuses });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-zone-add-target-button]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const zoneId = button.dataset.zoneAddTargetButton;
+      const select = panel.querySelector(`[data-zone-add-target="${zoneId}"]`);
+      const targetId = select?.value || '';
+      if (!zoneId || !targetId) return;
+      try {
+        await api('/api/zones/target/add', 'POST', {
+          participantId: participant.id,
+          zoneId,
+          targetId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-zone-remove-target]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const zoneId = button.dataset.zoneRemoveTarget;
+      const targetId = button.dataset.zoneTargetId;
+      if (!zoneId || !targetId) return;
+      try {
+        await api('/api/zones/target/remove', 'POST', {
+          participantId: participant.id,
+          zoneId,
+          targetId
+        });
         fetchState();
       } catch (err) {
         notify(err.message);
@@ -1800,16 +1968,26 @@ function wireDetailEvents(participant) {
     }
   });
   panel.querySelectorAll('[data-use-card]').forEach((button) => {
-    button.addEventListener('click', async () => {
+    button.addEventListener('click', async (event) => {
+      if (button.closest('summary')) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
       const cardId = button.dataset.useCard;
       if (!cardId) return;
       const article = button.closest('[data-card]');
       const targetId = article?.querySelector(`[data-card-target="${cardId}"]`)?.value || '';
+      const targetIds = Array.from(
+        article?.querySelector(`[data-card-targets="${cardId}"]`)?.selectedOptions || []
+      ).map((option) => option.value);
+      const secondaryTargetId = article?.querySelector(`[data-card-secondary-target="${cardId}"]`)?.value || '';
       try {
         await api('/api/actions/card', 'POST', {
           participantId: participant.id,
           cardId,
-          targetId
+          targetId,
+          targetIds,
+          secondaryTargetId
         });
         fetchState();
       } catch (err) {
@@ -2300,8 +2478,11 @@ function renderCards(participant, entries = [], options = {}) {
         <details class="card-collapse">
           <summary>
             <div class="card-summary-row">
-              <span class="card-summary-ap">AP ${Number(card.apCost || 0)}</span>
-              <span class="card-summary-effect">${escapeHtml(compactEffect || '—')}</span>
+              <div class="card-summary-main">
+                <span class="card-summary-ap">AP ${Number(card.apCost || 0)}</span>
+                <span class="card-summary-effect">${escapeHtml(compactEffect || '—')}</span>
+              </div>
+              ${options.inactive ? '' : `<button type="button" class="card-summary-action" data-use-card="${card.id || ''}">Use</button>`}
             </div>
           </summary>
           <div class="card-collapse-body">
@@ -2337,20 +2518,55 @@ function renderCards(participant, entries = [], options = {}) {
 
 function renderCardTargetControl(card = {}, participant = {}) {
   const selfOnly = isSelfTargetCard(card);
+  const targetMode = getCardTargetMode(card);
+  const allowSelfTarget = card.allowSelfTarget !== false;
+  const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
+  const secondaryDamage = getCardSecondaryDamage(card);
+  const secondaryTargetMode = getCardSecondaryTargetMode(card);
+  const showSecondaryTarget = secondaryDamage > 0 && secondaryTargetMode === 'adjacent';
   const selfId = participant.id || '';
-  if (selfOnly) {
+  if (selfOnly || targetMode === 'all_others') {
+    const label = targetMode === 'all_others' ? 'All other combatants' : 'Self';
+    const value = targetMode === 'all_others' ? '' : selfId;
     return `<label>Target
       <select data-card-target="${card.id || ''}" disabled>
-        <option value="${selfId}" selected>Self</option>
+        <option value="${value}" selected>${label}</option>
+      </select>
+    </label>
+    ${
+      showSecondaryTarget
+        ? `<label>${escapeHtml(card.secondaryTargetLabel || 'Secondary Target')}
+      <select data-card-secondary-target="${card.id || ''}">
+        <option value="">Select target…</option>
+        ${renderParticipantTargetOptions(participant.id, false)}
+      </select>
+    </label>`
+        : ''
+    }`;
+  }
+  if (targetMode === 'multi_select') {
+    return `<label>Targets (up to ${multiTargetCap})
+      <select data-card-targets="${card.id || ''}" multiple size="${Math.max(3, Math.min(6, multiTargetCap + 1))}">
+        ${renderParticipantTargetOptions(participant.id, allowSelfTarget)}
       </select>
     </label>`;
   }
   return `<label>Target
     <select data-card-target="${card.id || ''}">
       <option value="">Select target…</option>
-      ${renderParticipantTargetOptions(participant.id, true)}
+      ${renderParticipantTargetOptions(participant.id, allowSelfTarget)}
     </select>
-  </label>`;
+  </label>
+  ${
+    showSecondaryTarget
+      ? `<label>${escapeHtml(card.secondaryTargetLabel || 'Secondary Target')}
+    <select data-card-secondary-target="${card.id || ''}">
+      <option value="">Select target…</option>
+      ${renderParticipantTargetOptions(participant.id, false)}
+    </select>
+  </label>`
+      : ''
+  }`;
 }
 
 function renderParticipantTargetOptions(actorId, includeSelf = false) {
@@ -2373,9 +2589,16 @@ function renderCardAttributeTable(card = {}, participant = {}) {
     ['Health Bonus', formatSignedValue(card.healthBonus || 0)],
     ['AP Cost', Number(card.apCost || 0)],
     ['Range', formatCardRange(card)],
-    ['Tags', (card.tags || []).join(', ') || '—'],
-    ['Effect', formatCardEffectAtMastery(card, participant)]
+    ['Tags', (card.tags || []).join(', ') || '—']
   ];
+  const chargesMax = Math.max(0, Math.round(Number(card.chargesMax ?? card.maxCharges ?? card.charges ?? 0) || 0));
+  const chargesCurrent = chargesMax > 0
+    ? Math.max(0, Math.round(Number(card.chargesCurrent ?? card.remainingCharges ?? chargesMax) || 0))
+    : 0;
+  if (chargesMax > 0) {
+    rows.push(['Charges', `${chargesCurrent}/${chargesMax}`]);
+  }
+  rows.push(['Effect', formatCardEffectAtMastery(card, participant)]);
   const body = rows
     .map(
       ([label, value]) => `
@@ -2415,6 +2638,36 @@ function isSelfTargetCard(card = {}) {
   const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
   const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
   return Number(range || 0) <= 0;
+}
+
+function getCardTargetMode(card = {}) {
+  const token = String(card.targetMode || '').trim().toLowerCase();
+  if (token === 'all_others' || token === 'all-targets') return 'all_others';
+  if (token === 'multi' || token === 'multi_select' || token === 'multi_up_to_3' || token === 'up_to_3') {
+    return 'multi_select';
+  }
+  return 'single';
+}
+
+function getCardMultiTargetCap(card = {}) {
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const fallback = Number.isFinite(Number(card.multiTargetMax))
+    ? Math.max(1, Math.round(Number(card.multiTargetMax)))
+    : 3;
+  const value = getCardScaledValue(card.multiTargetMaxByLevel, level, fallback);
+  return Number.isFinite(Number(value)) ? Math.max(1, Math.round(Number(value))) : fallback;
+}
+
+function getCardSecondaryTargetMode(card = {}) {
+  const token = String(card.secondaryTargetMode || '').trim().toLowerCase();
+  if (token === 'same' || token === 'adjacent') return token;
+  return '';
+}
+
+function getCardSecondaryDamage(card = {}) {
+  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const value = getCardScaledValue(card.secondaryDamageByLevel, level, Number(card.secondaryDamage || 0));
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 function getCardScaledValue(source, level = 1, fallback = 0) {
@@ -2460,14 +2713,43 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     return fallback || '—';
   }
   const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const targetMode = getCardTargetMode(card);
+  const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
+  const secondaryTargetMode = getCardSecondaryTargetMode(card);
   const parts = [];
   const damage = getCardDisplayDamage(card);
+  const secondaryDamage = getCardSecondaryDamage(card);
+  const secondaryType = card.secondaryDamageType || card.damageType || '';
   if (damage > 0) {
-    parts.push(`Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage.`);
+    if (targetMode === 'all_others') {
+      parts.push(`Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage to all targets.`);
+    } else if (targetMode === 'multi_select') {
+      parts.push(`Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage to up to ${multiTargetCap} targets.`);
+    } else if (secondaryDamage > 0 && secondaryTargetMode === 'adjacent') {
+      parts.push(
+        `Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage to target and ${secondaryDamage}${
+          secondaryType ? ` ${secondaryType}` : ''
+        } damage to adjacent enemy.`
+      );
+    } else if (secondaryDamage > 0 && secondaryTargetMode === 'same') {
+      parts.push(
+        `Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage and ${secondaryDamage}${
+          secondaryType ? ` ${secondaryType}` : ''
+        } damage.`
+      );
+    } else {
+      parts.push(`Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage.`);
+    }
+  } else if (secondaryDamage > 0) {
+    parts.push(`Deal ${secondaryDamage}${secondaryType ? ` ${secondaryType}` : ''} damage.`);
   }
   const shield = Math.max(0, Math.round(getCardScaledValue(card.shieldRestoreByLevel, level, 0)));
   if (shield > 0) {
     parts.push(`Restore ${shield} Shield.`);
+  }
+  const heal = Math.max(0, Math.round(getCardScaledValue(card.healByLevel, level, Number(card.heal || 0))));
+  if (heal > 0) {
+    parts.push(`Restore ${heal} HP.`);
   }
   const move = Math.max(0, Math.round(getCardScaledValue(card.movementByLevel, level, 0)));
   if (move > 0) {
@@ -2483,7 +2765,40 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   }
   const statusApply = getStatusApplyAtMastery(card, level);
   if (statusApply) {
-    parts.push(`Apply ${statusApply.name} ${statusApply.stacks}.`);
+    if (targetMode === 'all_others') {
+      parts.push(`Apply ${statusApply.name} ${statusApply.stacks} to all targets.`);
+    } else if (targetMode === 'multi_select') {
+      parts.push(`Apply ${statusApply.name} ${statusApply.stacks} to each selected target.`);
+    } else {
+      parts.push(`Apply ${statusApply.name} ${statusApply.stacks}.`);
+    }
+  }
+  const shieldBonus = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.bonusDamageIfTargetHasShieldByLevel, level, Number(card.bonusDamageIfTargetHasShield || 0)))
+  );
+  if (shieldBonus > 0) {
+    parts.push(`If target has Shield, deal +${shieldBonus} damage.`);
+  }
+  const fullyBlockedDirectHp = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.directHpDamageOnFullyBlockedByLevel,
+        level,
+        Number(card.directHpDamageOnFullyBlocked || 0)
+      )
+    )
+  );
+  if (fullyBlockedDirectHp > 0) {
+    parts.push(`If Fully Blocked, deal ${fullyBlockedDirectHp} damage directly to HP.`);
+  }
+  const nextAttackBonus = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.nextAttackDamageBonusByLevel, level, Number(card.nextAttackDamageBonus || 0)))
+  );
+  if (nextAttackBonus > 0) {
+    parts.push(`Target gains +${nextAttackBonus} damage on their next attack.`);
   }
   if (parts.length) {
     return parts.join(' ');
@@ -2526,8 +2841,28 @@ function getConstructSetBonus(participant = {}) {
 
 function renderCardDamageLine(card = {}, participant = {}) {
   const baseDamage = getCardDisplayDamage(card);
+  const secondaryDamage = getCardSecondaryDamage(card);
+  const secondaryType = card.secondaryDamageType || card.damageType || '';
+  const secondaryTargetMode = getCardSecondaryTargetMode(card);
+  const targetMode = getCardTargetMode(card);
+  const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
   const typeText = card.damageType || '';
   if (!isConstructCard(card)) {
+    if (baseDamage > 0 && secondaryDamage > 0 && secondaryTargetMode === 'adjacent') {
+      return `<p>Damage: ${baseDamage} ${typeText} (target) + ${secondaryDamage} ${secondaryType} (adjacent)</p>`;
+    }
+    if (baseDamage > 0 && secondaryDamage > 0) {
+      return `<p>Damage: ${baseDamage} ${typeText} + ${secondaryDamage} ${secondaryType}</p>`;
+    }
+    if (targetMode === 'all_others' && baseDamage > 0) {
+      return `<p>Damage: ${baseDamage} ${typeText} (all targets)</p>`;
+    }
+    if (targetMode === 'multi_select' && baseDamage > 0) {
+      return `<p>Damage: ${baseDamage} ${typeText} (up to ${multiTargetCap} targets)</p>`;
+    }
+    if (secondaryDamage > 0) {
+      return `<p>Damage: ${secondaryDamage} ${secondaryType}</p>`;
+    }
     return `<p>Damage: ${baseDamage} ${typeText}</p>`;
   }
   const mode = detectConstructMode(card);
@@ -2556,12 +2891,20 @@ function renderConstructMetaLine(card = {}, participant = {}) {
   const statusName = String(card.constructStatusName || '').trim();
   const statusLabel = statusName || statusId;
   const stacks = Math.max(1, Number(card.constructStatusStacks || 1));
+  const constructAp = Math.max(0, Math.round(Number(card.constructAp ?? 2) || 0));
+  const constructHp = Math.max(1, Math.round(Number(card.constructMaxHp ?? 1) || 1));
+  const constructCards = Array.isArray(card.constructCards)
+    ? card.constructCards
+    : String(card.constructLinkedCard || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
   const modeText = mode === 'status'
     ? `Status: ${statusLabel || 'Unknown'} x${stacks}`
     : mode === 'utility'
       ? 'Utility construct'
       : 'Damage construct';
-  return `<p>Construct: ${modeText} • Duration ${detail} turn${effective === 1 ? '' : 's'} (effective ${effective})</p>`;
+  return `<p>Construct: ${modeText} • Duration ${detail} turn${effective === 1 ? '' : 's'} (effective ${effective}) • HP ${constructHp} • AP ${constructAp}${constructCards.length ? ` • Cards: ${constructCards.join(', ')}` : ''}</p>`;
 }
 
 function isRedundantDamageEffect(card = {}, effectText = '') {
@@ -2951,6 +3294,33 @@ function normalizeCardPayload(raw = {}) {
     healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
     damage: baseDamage,
     damageType: raw.damageType || raw.damage_type || '',
+    secondaryDamage: toNumber(raw.secondaryDamage ?? 0),
+    secondaryDamageByLevel:
+      raw.secondaryDamageByLevel && typeof raw.secondaryDamageByLevel === 'object'
+        ? { ...raw.secondaryDamageByLevel }
+        : undefined,
+    secondaryDamageType: String(raw.secondaryDamageType || '').trim(),
+    secondaryTargetMode: String(raw.secondaryTargetMode || '').trim().toLowerCase(),
+    secondaryTargetLabel: String(raw.secondaryTargetLabel || '').trim(),
+    targetMode: String(raw.targetMode || '').trim().toLowerCase(),
+    multiTargetMax: toNumber(raw.multiTargetMax ?? 0),
+    multiTargetMaxByLevel:
+      raw.multiTargetMaxByLevel && typeof raw.multiTargetMaxByLevel === 'object'
+        ? { ...raw.multiTargetMaxByLevel }
+        : undefined,
+    bonusDamageIfTargetHasShieldByLevel:
+      raw.bonusDamageIfTargetHasShieldByLevel && typeof raw.bonusDamageIfTargetHasShieldByLevel === 'object'
+        ? { ...raw.bonusDamageIfTargetHasShieldByLevel }
+        : undefined,
+    directHpDamageOnFullyBlockedByLevel:
+      raw.directHpDamageOnFullyBlockedByLevel && typeof raw.directHpDamageOnFullyBlockedByLevel === 'object'
+        ? { ...raw.directHpDamageOnFullyBlockedByLevel }
+        : undefined,
+    nextAttackDamageBonusByLevel:
+      raw.nextAttackDamageBonusByLevel && typeof raw.nextAttackDamageBonusByLevel === 'object'
+        ? { ...raw.nextAttackDamageBonusByLevel }
+        : undefined,
+    allowSelfTarget: raw.allowSelfTarget !== false,
     constructDurationTurns: Math.max(
       1,
       Math.round(toNumber(raw.constructDurationTurns ?? raw.constructDuration ?? raw.durationTurns ?? 1, 1))
@@ -2962,6 +3332,16 @@ function normalizeCardPayload(raw = {}) {
       1,
       Math.round(toNumber(raw.constructStatusStacks ?? raw.statusStacks ?? 1, 1))
     ),
+    constructAp: Math.max(0, Math.round(toNumber(raw.constructAp ?? raw.constructApMax ?? 2, 2))),
+    constructMaxHp: Math.max(1, Math.round(toNumber(raw.constructMaxHp ?? raw.constructHp ?? 1, 1))),
+    constructMoveFt: Math.max(5, Math.round(toNumber(raw.constructMoveFt ?? raw.constructMove ?? 10, 10))),
+    constructCards: Array.isArray(raw.constructCards)
+      ? raw.constructCards.map((value) => String(value || '').trim()).filter(Boolean)
+      : String(raw.constructCards || raw.constructLinkedCard || '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+    constructLinkedCard: String(raw.constructLinkedCard || '').trim(),
     statusApply:
       raw.statusApply && typeof raw.statusApply === 'object'
         ? {
@@ -2987,6 +3367,21 @@ function normalizeCardPayload(raw = {}) {
       raw.shieldRestoreByLevel && typeof raw.shieldRestoreByLevel === 'object'
         ? { ...raw.shieldRestoreByLevel }
         : undefined,
+    healByLevel:
+      raw.healByLevel && typeof raw.healByLevel === 'object'
+        ? { ...raw.healByLevel }
+        : undefined,
+    heal: toNumber(raw.heal ?? 0),
+    chargesMax: Math.max(0, Math.round(toNumber(raw.chargesMax ?? raw.maxCharges ?? raw.charges ?? 0, 0))),
+    chargesCurrent: Math.max(
+      0,
+      Math.round(
+        toNumber(
+          raw.chargesCurrent ?? raw.remainingCharges ?? raw.chargesMax ?? raw.maxCharges ?? raw.charges ?? 0,
+          0
+        )
+      )
+    ),
     masteryLevel,
     masteryUses,
     masteryThresholds,
