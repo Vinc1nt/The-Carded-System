@@ -1,5 +1,15 @@
 import { CARD_PRESETS, RARITY_ORDER } from './card-presets.js';
 
+const CARD_TIER_SHIELD_BONUS = Object.freeze({
+  common: 1,
+  uncommon: 1,
+  rare: 2,
+  'very rare': 3,
+  veryrare: 3,
+  epic: 4,
+  legendary: 5
+});
+
 const state = {
   participants: [],
   selectedCardId: CARD_PRESETS[0]?.id || null,
@@ -130,6 +140,7 @@ function renderDetail() {
         <p><strong>AP Cost:</strong> ${Number(card.apCost || 0)}</p>
         <p><strong>Range:</strong> ${formatCardRange(card)}</p>
         <p><strong>Health Bonus:</strong> ${Number(card.healthBonus || 0)}</p>
+        <p><strong>Shield Bonus:</strong> ${Number(card.shieldBonus ?? getCardTierShieldBonus(card.tier))}</p>
         <p><strong>Damage:</strong> ${Number(card.damage || 0)} ${escapeHtml(card.damageType || '')}</p>
         <p><strong>Tags:</strong> ${escapeHtml((card.tags || []).join(', ') || '-')}</p>
       </div>
@@ -204,6 +215,13 @@ function normalizeCardForAdd(raw = {}) {
   const rangeRaw = raw.range;
   const parsedRange = Number(rangeRaw || 0);
   const rangeText = String(raw.rangeText || '').trim() || (!Number.isFinite(parsedRange) && String(rangeRaw || '').trim() ? String(rangeRaw).trim() : '');
+  const tier = String(raw.tier || 'Common').trim() || 'Common';
+  const explicitShieldSource = raw.shieldBonus ?? raw.bonusShield;
+  const explicitShieldBonus =
+    explicitShieldSource === '' || explicitShieldSource == null ? Number.NaN : Number(explicitShieldSource);
+  const shieldBonus = Number.isFinite(explicitShieldBonus)
+    ? explicitShieldBonus
+    : getCardTierShieldBonus(tier);
   const tags = Array.isArray(raw.tags)
     ? raw.tags.map((tag) => String(tag).trim()).filter(Boolean)
     : String(raw.tags || '')
@@ -216,11 +234,12 @@ function normalizeCardForAdd(raw = {}) {
     name: String(raw.name || 'Card').trim(),
     set: String(raw.set || '').trim(),
     type: String(raw.type || 'Attack').trim(),
-    tier: String(raw.tier || 'Common').trim(),
+    tier,
     apCost: Number(raw.apCost || 0),
     range: Number.isFinite(parsedRange) ? parsedRange : 0,
     rangeText,
     healthBonus: Number(raw.healthBonus || 0),
+    shieldBonus,
     damage: Number(raw.damage || 0),
     damageType: String(raw.damageType || '').trim(),
     tags,
@@ -235,6 +254,17 @@ function formatCardRange(card = {}) {
   if (text) return text;
   const range = Number(card.range || 0);
   return `${range} ft`;
+}
+
+function normalizeTierToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+}
+
+function getCardTierShieldBonus(tier = '') {
+  return CARD_TIER_SHIELD_BONUS[normalizeTierToken(tier)] ?? 0;
 }
 
 async function api(path, method = 'GET', payload) {

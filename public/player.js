@@ -14,6 +14,15 @@ const DAMAGE_TYPES = [
   'Thunder'
 ];
 const MAX_ACTIVE_CARDS = 10;
+const CARD_TIER_SHIELD_BONUS = Object.freeze({
+  common: 1,
+  uncommon: 1,
+  rare: 2,
+  'very rare': 3,
+  veryrare: 3,
+  epic: 4,
+  legendary: 5
+});
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
@@ -588,6 +597,9 @@ function renderPlayerCardsSection(participant) {
               </label>
               <label>Health Bonus
                 <input type="number" name="healthBonus" value="0" />
+              </label>
+              <label>Shield Bonus
+                <input type="number" name="shieldBonus" placeholder="Auto by tier" />
               </label>
               <label>Damage
                 <input type="number" name="damage" value="0" />
@@ -1778,6 +1790,7 @@ function renderPlayerCardAttributeTable(card = {}, participant = {}) {
     ['Type', card.type || '—'],
     ['Tier', card.tier || '—'],
     ['Health Bonus', formatSignedValue(card.healthBonus || 0)],
+    ['Shield Bonus', formatSignedValue(card.shieldBonus || 0)],
     ['AP Cost', Number(card.apCost || 0)],
     ['Range', formatCardRange(card)],
     ['Tags', (card.tags || []).join(', ') || '—']
@@ -3147,6 +3160,7 @@ function buildPlayerCardFromForm(formData) {
     tier: formData.get('tier') || 'Common',
     apCost: formData.get('apCost'),
     range: formData.get('range'),
+    shieldBonus: formData.get('shieldBonus'),
     damage: formData.get('damage'),
     damageType: formData.get('damageType'),
     constructDurationTurns: formData.get('constructDurationTurns') || 1,
@@ -3197,6 +3211,17 @@ function buildStatusFromForm(formData) {
   };
 }
 
+function normalizeTierToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+}
+
+function getCardTierShieldBonus(tier = '') {
+  return CARD_TIER_SHIELD_BONUS[normalizeTierToken(tier)] ?? 0;
+}
+
 function normalizeCardPayload(raw = {}) {
   const masteryThresholds = {
     level2: toNumber(raw.masteryThresholds?.level2 ?? raw.masteryTo2 ?? 25, 25),
@@ -3207,18 +3232,26 @@ function normalizeCardPayload(raw = {}) {
   const masteryLevel = Math.max(1, Math.min(3, Math.round(toNumber(raw.masteryLevel ?? 1, 1))));
   const masteryUses = Math.max(0, Math.round(toNumber(raw.masteryUses ?? 0, 0)));
   const baseDamage = Math.max(0, Math.round(toNumber(raw.damage ?? raw.baseDamage ?? 0, 0)));
+  const tier = String(raw.tier || 'Common').trim() || 'Common';
+  const explicitShieldSource = raw.shieldBonus ?? raw.bonusShield;
+  const explicitShieldBonus =
+    explicitShieldSource === '' || explicitShieldSource == null ? Number.NaN : Number(explicitShieldSource);
+  const shieldBonus = Number.isFinite(explicitShieldBonus)
+    ? explicitShieldBonus
+    : getCardTierShieldBonus(tier);
   return {
     id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
     name: (raw.name || 'Imported Card').trim(),
     set: raw.set || '',
     type: raw.type || 'Attack',
-    tier: raw.tier || 'Common',
+    tier,
     active: raw.active !== false,
     apCost: toNumber(raw.apCost ?? raw.ap ?? 0),
     range: toNumber(raw.range ?? 0),
     rangeText: String(raw.rangeText || '').trim(),
     rangeByLevel: raw.rangeByLevel && typeof raw.rangeByLevel === 'object' ? { ...raw.rangeByLevel } : undefined,
     healthBonus: toNumber(raw.healthBonus ?? raw.hpBonus ?? 0),
+    shieldBonus,
     damage: baseDamage,
     damageType: raw.damageType || raw.damage_type || '',
     secondaryDamage: toNumber(raw.secondaryDamage ?? 0),

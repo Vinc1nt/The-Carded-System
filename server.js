@@ -81,7 +81,21 @@ const STANDARD_ACTIONS = {
 };
 
 const DEFAULT_GUARD_RESTORE = 3;
-const MAX_ACTIVE_CARDS = 10;
+const GAME_LIMITS = Object.freeze({
+  maxActiveCards: 10,
+  maxActiveZones: 2
+});
+const CARD_TIER_SHIELD_BONUS = Object.freeze({
+  common: 1,
+  uncommon: 1,
+  rare: 2,
+  'very rare': 3,
+  veryrare: 3,
+  epic: 4,
+  legendary: 5
+});
+const MAX_ACTIVE_CARDS = GAME_LIMITS.maxActiveCards;
+const MAX_ACTIVE_ZONES = GAME_LIMITS.maxActiveZones;
 const SET_LIBRARY = {
   Machine: [
     {
@@ -853,6 +867,12 @@ function executeCardAction(body) {
   }
   if (secondaryTargetMode === 'adjacent' && secondaryTarget && primaryTarget && secondaryTarget.id === primaryTarget.id) {
     return { error: 'Secondary target must be different from the primary target' };
+  }
+  if (zoneCard) {
+    participant.zones = normalizeZones(participant.zones, participant.id);
+    if (participant.zones.length >= MAX_ACTIVE_ZONES) {
+      return { error: `You can only have ${MAX_ACTIVE_ZONES} active zones at once.` };
+    }
   }
 
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
@@ -2563,6 +2583,17 @@ function normalizeZones(list = [], ownerId = '') {
     .filter(Boolean);
 }
 
+function normalizeTierToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+}
+
+function getCardTierShieldBonus(tier = '') {
+  return CARD_TIER_SHIELD_BONUS[normalizeTierToken(tier)] ?? 0;
+}
+
 function normalizeCards(list = []) {
   if (!Array.isArray(list)) return [];
   const normalized = list
@@ -2597,6 +2628,13 @@ function normalizeCards(list = []) {
         cardChargesMax > 0 && Number.isFinite(cardChargesCurrentRaw)
           ? Math.max(0, Math.min(cardChargesMax, Math.round(cardChargesCurrentRaw)))
           : 0;
+      const tierName = String(card.tier || 'Common').trim() || 'Common';
+      const explicitShieldSource = card.shieldBonus ?? card.bonusShield;
+      const explicitShieldBonus =
+        explicitShieldSource === '' || explicitShieldSource == null ? Number.NaN : Number(explicitShieldSource);
+      const shieldBonus = Number.isFinite(explicitShieldBonus)
+        ? explicitShieldBonus
+        : getCardTierShieldBonus(tierName);
       const constructCards = Array.isArray(card.constructCards)
         ? card.constructCards
             .map((value) => String(value || '').trim())
@@ -2613,11 +2651,12 @@ function normalizeCards(list = []) {
         name: String(card.name || `Card ${index + 1}`).trim(),
         set: canonicalSetName(card.set),
         type: String(card.type || 'Attack').trim(),
-        tier: String(card.tier || 'Common').trim(),
+        tier: tierName,
         active: card.active !== false,
         apCost: Number.isFinite(Number(card.apCost)) ? Number(card.apCost) : 0,
         range: Number.isFinite(Number(card.range)) ? Number(card.range) : 0,
         healthBonus: Number.isFinite(Number(card.healthBonus)) ? Number(card.healthBonus) : 0,
+        shieldBonus,
         tags: Array.isArray(card.tags)
           ? card.tags.map((tag) => String(tag).trim()).filter(Boolean)
           : String(card.tags || '')
@@ -3367,6 +3406,10 @@ function recalculateParticipant(participant) {
     const healthBonus = Number(card.healthBonus ?? 0);
     if (Number.isFinite(healthBonus) && healthBonus !== 0) {
       modifiers.maxHp += healthBonus;
+    }
+    const shieldBonus = Number(card.shieldBonus ?? 0);
+    if (Number.isFinite(shieldBonus) && shieldBonus !== 0) {
+      modifiers.maxShield += shieldBonus;
     }
     if (hasModifierValue(modifiers)) {
       cardModifiers.push({
