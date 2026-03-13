@@ -17,6 +17,12 @@ const DAMAGE_TYPES = [
   'Thunder'
 ];
 const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
+const HELP_TOPIC_TITLES = Object.freeze({
+  statuses: 'Statuses',
+  combat: 'Combat Rules',
+  out_of_combat: 'Out of Combat',
+  cards: 'Cards'
+});
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
@@ -28,6 +34,7 @@ const detailSectionState = new Map();
 const detailDrawerState = new Map();
 
 let selectedParticipantId = null;
+let activeHelpTopic = 'combat';
 let eventSource;
 
 const els = {
@@ -48,8 +55,15 @@ const els = {
   refreshState: document.getElementById('refreshState'),
   gmMenuToggle: document.getElementById('gmMenuToggle'),
   gmMenuPanel: document.getElementById('gmMenuPanel'),
+  helpMenuToggle: document.getElementById('helpMenuToggle'),
+  helpMenuPanel: document.getElementById('helpMenuPanel'),
   journalMenuToggle: document.getElementById('journalMenuToggle'),
   journalMenuPanel: document.getElementById('journalMenuPanel'),
+  helpModal: document.getElementById('helpModal'),
+  helpModalClose: document.getElementById('helpModalClose'),
+  helpModalTitle: document.getElementById('helpModalTitle'),
+  helpModalBody: document.getElementById('helpModalBody'),
+  helpModalTabs: document.getElementById('helpModalTabs'),
   downloadEncounter: document.getElementById('downloadEncounter'),
   uploadEncounter: document.getElementById('uploadEncounter'),
   restAllShort: document.getElementById('restAllShort'),
@@ -104,23 +118,226 @@ function wireGlobalEvents() {
 
   els.gmMenuToggle?.addEventListener('click', (event) => {
     event.stopPropagation();
+    els.helpMenuPanel?.classList.remove('is-open');
     els.journalMenuPanel?.classList.remove('is-open');
     els.gmMenuPanel?.classList.toggle('is-open');
   });
   els.journalMenuToggle?.addEventListener('click', (event) => {
     event.stopPropagation();
+    els.helpMenuPanel?.classList.remove('is-open');
     els.gmMenuPanel?.classList.remove('is-open');
     els.journalMenuPanel?.classList.toggle('is-open');
+  });
+  els.helpMenuToggle?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    els.gmMenuPanel?.classList.remove('is-open');
+    els.journalMenuPanel?.classList.remove('is-open');
+    els.helpMenuPanel?.classList.toggle('is-open');
+  });
+  els.helpMenuPanel?.querySelectorAll('[data-help-open]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openHelpModal(button.dataset.helpOpen || 'combat');
+    });
+  });
+  els.helpModalClose?.addEventListener('click', closeHelpModal);
+  els.helpModalTabs?.querySelectorAll('[data-help-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openHelpModal(button.dataset.helpTab || 'combat');
+    });
   });
   document.addEventListener('click', (event) => {
     if (!event.target.closest('.gm-menu')) {
       els.gmMenuPanel?.classList.remove('is-open');
       els.journalMenuPanel?.classList.remove('is-open');
+      els.helpMenuPanel?.classList.remove('is-open');
+    }
+    if (event.target === els.helpModal) {
+      closeHelpModal();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !els.helpModal?.classList.contains('hidden')) {
+      closeHelpModal();
     }
   });
   els.downloadEncounter?.addEventListener('click', handleEncounterDownload);
   els.uploadEncounter?.addEventListener('change', handleEncounterImport);
   wireGlobalJournalForms();
+}
+
+function openHelpModal(topic = 'combat') {
+  activeHelpTopic = HELP_TOPIC_TITLES[topic] ? topic : 'combat';
+  renderHelpModal();
+  els.helpMenuPanel?.classList.remove('is-open');
+  els.helpModal?.classList.remove('hidden');
+}
+
+function closeHelpModal() {
+  els.helpModal?.classList.add('hidden');
+}
+
+function renderHelpModal() {
+  if (!els.helpModalBody || !els.helpModalTabs) return;
+  const title = HELP_TOPIC_TITLES[activeHelpTopic] || 'Help';
+  if (els.helpModalTitle) {
+    els.helpModalTitle.textContent = title;
+  }
+  els.helpModalTabs.querySelectorAll('[data-help-tab]').forEach((button) => {
+    const isActive = button.dataset.helpTab === activeHelpTopic;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+  els.helpModalBody.innerHTML = getHelpTopicContent(activeHelpTopic);
+}
+
+function getHelpTopicContent(topic) {
+  if (topic === 'statuses') {
+    return renderStatusHelpContent();
+  }
+  if (topic === 'combat') {
+    return `
+      <section class="help-section">
+        <h3>Damage Types</h3>
+        <div class="form-row">
+          <div>
+            <h4>Physical</h4>
+            <ul class="help-list">
+              <li>Bludgeoning</li>
+              <li>Piercing</li>
+              <li>Slashing</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Magical / Elemental</h4>
+            <ul class="help-list">
+              <li>Acid</li>
+              <li>Cold</li>
+              <li>Fire</li>
+              <li>Force</li>
+              <li>Lightning</li>
+              <li>Necrotic</li>
+              <li>Poison</li>
+              <li>Psychic</li>
+              <li>Radiant</li>
+              <li>Thunder</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+      <section class="help-section">
+        <h3>Core Combat Rules</h3>
+        <ul class="help-list">
+          <li>6 AP system by default.</li>
+          <li>Auto-hit attacks (no advantage/disadvantage).</li>
+          <li>Damage goes to Shield first, then HP.</li>
+          <li>Persistent Shield during combat.</li>
+          <li>Movement: 1 AP = 10 ft. Difficult terrain: 1 AP = 5 ft.</li>
+          <li>Guard can restore Shield but cannot exceed Max Shield.</li>
+          <li>Recover action reduces damaging status stacks.</li>
+        </ul>
+      </section>
+      <section class="help-section">
+        <h3>Combat Flow</h3>
+        <ul class="help-list">
+          <li>Start of combat: set Shield to Max Shield.</li>
+          <li>Start of turn: resolve status effects and escalation first.</li>
+          <li>Take actions by spending AP.</li>
+          <li>End of turn: resolve end-of-turn effects.</li>
+          <li>End of combat: restore Shield to Max Shield.</li>
+        </ul>
+      </section>
+    `;
+  }
+  if (topic === 'out_of_combat') {
+    return `
+      <section class="help-section">
+        <h3>Character Foundation</h3>
+        <ul class="help-list">
+          <li>No classes. Character role grows from cards, mastery, and fusion choices.</li>
+          <li>Uses the six standard abilities: STR, DEX, CON, INT, WIS, CHA.</li>
+          <li>Creation baseline: +2 to one ability and +1 to a different ability.</li>
+          <li>Choose 2 saving throw proficiencies and 5 skill proficiencies.</li>
+        </ul>
+      </section>
+      <section class="help-section">
+        <h3>Backgrounds and Story Perks</h3>
+        <ul class="help-list">
+          <li>Backgrounds define weapon/tool/language proficiencies.</li>
+          <li>Each character starts with 1 story perk.</li>
+          <li>Story perks should be flavorful and situational, not major combat power.</li>
+        </ul>
+      </section>
+      <section class="help-section">
+        <h3>Resting Outside Combat</h3>
+        <ul class="help-list">
+          <li>Short Rest (about 10-15 min): heal 5 + CON mod (minimum 1), recover short-rest resources, restore half Max Shield (table rules).</li>
+          <li>Long Rest (about 6-8 hrs): restore HP, Shield, and long-rest resources.</li>
+          <li>Long Rest is also the main loadout swap window (cards, relics, passives).</li>
+          <li>If rest is interrupted by combat/hazards/strenuous activity, no rest benefits unless at least 50% of duration completed.</li>
+        </ul>
+      </section>
+    `;
+  }
+  return `
+    <section class="help-section">
+      <h3>Core System Philosophy</h3>
+      <p>Characters are defined by the cards they collect, master, and fuse. There are no classes.</p>
+    </section>
+    <section class="help-section">
+      <h3>Card Hand</h3>
+      <ul class="help-list">
+        <li>Up to 10 cards can be active at one time.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Card Mastery</h3>
+      <table class="help-table">
+        <thead>
+          <tr><th>Level</th><th>Name</th><th>Effect</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Basic</td><td>Card functions normally.</td></tr>
+          <tr><td>2</td><td>Mastered</td><td>Card gains a small improvement.</td></tr>
+          <tr><td>3</td><td>Refined</td><td>Card becomes Fusion-eligible and may gain a minor perk.</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section class="help-section">
+      <h3>Auto-Hit and Range</h3>
+      <ul class="help-list">
+        <li>Attacks auto-hit unless prevented by positioning or cover.</li>
+        <li>Cards use flat damage modifiers and clear range values.</li>
+      </ul>
+    </section>
+  `;
+}
+
+function renderStatusHelpContent() {
+  const statuses = state.reference?.statuses || [];
+  if (!statuses.length) {
+    return '<p class="muted">Status reference is not loaded yet.</p>';
+  }
+  const entries = statuses
+    .map((status) => {
+      const tags = Array.isArray(status.tags) && status.tags.length ? status.tags.join(', ') : 'None';
+      const stacks = Number.isFinite(Number(status.defaultStacks)) ? Number(status.defaultStacks) : 1;
+      return `
+        <article class="help-status-item">
+          <h4>${escapeHtml(status.name || 'Status')}</h4>
+          <p><strong>Default Stacks:</strong> ${stacks}</p>
+          <p><strong>Tags:</strong> ${escapeHtml(tags)}</p>
+          <p>${escapeHtml(status.description || 'No description available.')}</p>
+        </article>
+      `;
+    })
+    .join('');
+  return `
+    <section class="help-section">
+      <h3>Status Reference</h3>
+      <p>These are the active status definitions used by the tracker.</p>
+      <div class="help-status-grid">${entries}</div>
+    </section>
+  `;
 }
 
 function subscribeToEvents() {
@@ -3608,6 +3825,7 @@ async function handleEncounterDownload() {
     if (data?.encounter) {
       downloadJson(data.encounter, `encounter-${new Date().toISOString().slice(0, 10)}.json`);
       els.gmMenuPanel?.classList.remove('is-open');
+      els.helpMenuPanel?.classList.remove('is-open');
     } else {
       notify('Unable to export encounter.');
     }
@@ -3633,6 +3851,7 @@ async function handleEncounterImport(event) {
   } finally {
     event.target.value = '';
     els.gmMenuPanel?.classList.remove('is-open');
+    els.helpMenuPanel?.classList.remove('is-open');
   }
 }
 

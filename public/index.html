@@ -126,6 +126,15 @@
               </label>
             </div>
           </div>
+          <div class="gm-menu">
+            <button type="button" id="helpMenuToggle">Help Menu ▾</button>
+            <div class="gm-menu-panel help-menu-panel" id="helpMenuPanel">
+              <button type="button" data-help-open="statuses">Statuses</button>
+              <button type="button" data-help-open="combat">Combat Rules</button>
+              <button type="button" data-help-open="out_of_combat">Out of Combat</button>
+              <button type="button" data-help-open="cards">Cards</button>
+            </div>
+          </div>
           <a href="/player?create=1" target="_blank" rel="noopener noreferrer">New Character Sheet</a>
           <a href="/cards" target="_blank" rel="noopener noreferrer">Card Library</a>
           <a href="/player" target="_blank" rel="noopener noreferrer">Open Player Dashboard</a>
@@ -184,6 +193,21 @@
           </section>
         </section>
       </main>
+    </div>
+    <div id="helpModal" class="help-modal hidden" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
+      <div class="help-modal-card">
+        <div class="help-modal-header">
+          <h2 id="helpModalTitle">Help</h2>
+          <button type="button" id="helpModalClose">Close</button>
+        </div>
+        <div class="help-tab-row" id="helpModalTabs">
+          <button type="button" class="help-tab" data-help-tab="statuses">Statuses</button>
+          <button type="button" class="help-tab" data-help-tab="combat">Combat Rules</button>
+          <button type="button" class="help-tab" data-help-tab="out_of_combat">Out of Combat</button>
+          <button type="button" class="help-tab" data-help-tab="cards">Cards</button>
+        </div>
+        <div id="helpModalBody" class="help-modal-body"></div>
+      </div>
     </div>
     <script type="module" src="/app.js"></script>
   </body>

@@ -6,6 +6,19 @@ import { randomUUID } from 'crypto';
 import { GAME_LIMITS } from './lib/game-config.js';
 import { getCardTierShieldBonus } from './lib/card-rules.js';
 import { startEncounterLifecycle, endEncounterLifecycle } from './lib/encounter-lifecycle.js';
+import { executeStandardActionForEncounter } from './lib/actions/standard.js';
+import { executeCustomActionForEncounter } from './lib/actions/custom.js';
+import {
+  executeRemoveConstructActionForEncounter,
+  executeRetargetConstructActionForEncounter,
+  executeMoveConstructActionForEncounter
+} from './lib/actions/construct.js';
+import {
+  executeAddZoneTargetActionForEncounter,
+  executeRemoveZoneTargetActionForEncounter
+} from './lib/actions/zone-targets.js';
+import { resolveCardActionContext } from './lib/actions/card-preflight.js';
+import { applyShortRestForEncounter, applyLongRestForEncounter } from './lib/rest.js';
 import {
   buildTurnEntriesForEncounter,
   getTurnEntryKeyForEncounter,
@@ -472,18 +485,11 @@ async function handleApi(req, res, pathname, method) {
 
     if (method === 'POST' && pathname === '/api/actions/custom') {
       const body = await readBody(req);
-      const participant = resolveActor(body.actorId);
-      const text = body.text?.trim();
-      if (!text) {
-        return sendJson(res, { error: 'Missing text' }, 400);
+      const result = executeCustomAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
       }
-      if (participant) {
-        markTurnActionTaken(participant);
-      }
-      pushLog(text, participant?.id || null);
-      touchState();
-      broadcastState('custom_action');
-      return sendJson(res, { ok: true });
+      return sendJson(res, result);
     }
 
     if (method === 'POST' && pathname === '/api/rest/short') {
@@ -642,73 +648,24 @@ function endEncounter() {
 }
 
 function executeStandardAction(body) {
-  const action = STANDARD_ACTIONS[body.actionId];
-  if (!action) {
-    return { error: 'Unknown action' };
-  }
-  const participant = resolveActor(body.participantId);
-  if (!participant) {
-    return { error: 'Participant required' };
-  }
-  if (action.id === 'guard' && participant.guardUsedThisTurn) {
-    return { error: 'Guard already used this turn' };
-  }
-  let apCost = action.apCost;
-  if (participant.apCurrent < apCost) {
-    return { error: 'Not enough AP' };
-  }
-  participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
-  if (action.id === 'guard') {
-    const before = participant.shield;
-    const restoreAmount = participant.guardRestore ?? DEFAULT_GUARD_RESTORE;
-    participant.shield = Math.min(participant.maxShield, participant.shield + restoreAmount);
-    participant.guardUsedThisTurn = true;
-    pushLog(
-      `${participant.name} guards (${before} → ${participant.shield} Shield, +${restoreAmount}).`,
-      participant.id
-    );
-  } else if (action.id === 'recover') {
-    const recovered = applyRecoverAction(participant, {
-      statusIndex: body.recoverStatusIndex,
-      statusId: body.recoverStatusId,
-      statusName: body.recoverStatusName,
-      statusType: body.recoverStatusType
-    });
-    if (recovered) {
-      pushLog(
-        `${participant.name} recovers and reduces ${recovered.name} by 1 stack.`,
-        participant.id
-      );
-    } else {
-      pushLog(`${participant.name} attempts to recover but has no eligible stacks.`, participant.id);
-    }
-  } else {
-    const text = `${participant.name} ${action.logText}`;
-    pushLog(text, participant.id);
-  }
-  markTurnActionTaken(participant);
-  touchState();
-  broadcastState('standard_action');
-  return { participant, action: { ...action, appliedApCost: apCost } };
+  return executeStandardActionForEncounter(body, {
+    standardActions: STANDARD_ACTIONS,
+    defaultGuardRestore: DEFAULT_GUARD_RESTORE,
+    resolveActor,
+    applyRecoverAction,
+    markTurnActionTaken,
+    pushLog,
+    touchState,
+    broadcastState
+  });
 }
 
 function executeCardAction(body) {
-  const participant = resolveActor(body.participantId);
-  if (!participant) {
-    return { error: 'Participant required' };
+  const context = resolveCardActionContext(body, { resolveActor, isCardActive });
+  if (context.error) {
+    return context;
   }
-  const cardId = String(body.cardId || '').trim();
-  if (!cardId) {
-    return { error: 'cardId is required' };
-  }
-  const cardIndex = (participant.cards || []).findIndex((entry) => String(entry.id) === cardId);
-  if (cardIndex === -1) {
-    return { error: 'Card not found' };
-  }
-  const card = participant.cards[cardIndex];
-  if (!isCardActive(card)) {
-    return { error: 'Card is inactive. Activate it in loadout first.' };
-  }
+  const { participant, card, cardIndex } = context;
   const masteryLevel = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
   const baseCost = Math.max(0, Number(card.apCost || 0));
   let apCost = baseCost;
@@ -1209,86 +1166,32 @@ function executeCardAction(body) {
 }
 
 function executeRemoveConstructAction(body) {
-  const participant = resolveActor(body.participantId);
-  if (!participant) {
-    return { error: 'Participant required' };
-  }
-  const constructId = String(body.constructId || '').trim();
-  if (!constructId) {
-    return { error: 'constructId is required' };
-  }
-  const list = Array.isArray(participant.constructs) ? participant.constructs : [];
-  const idx = list.findIndex((entry) => String(entry.id || '') === constructId);
-  if (idx < 0) {
-    return { error: 'Construct not found' };
-  }
-  const [removed] = list.splice(idx, 1);
-  participant.constructs = list;
-  pushLog(`${participant.name} removes construct ${removed.name}.`, participant.id);
-  touchState();
-  broadcastState('construct_removed');
-  return { participant, removed };
+  return executeRemoveConstructActionForEncounter(body, {
+    resolveActor,
+    pushLog,
+    touchState,
+    broadcastState
+  });
 }
 
 function executeRetargetConstructAction(body) {
-  const participant = resolveActor(body.participantId);
-  if (!participant) {
-    return { error: 'Participant required' };
-  }
-  const constructId = String(body.constructId || '').trim();
-  if (!constructId) {
-    return { error: 'constructId is required' };
-  }
-  const targetId = String(body.targetId || '').trim();
-  if (!targetId) {
-    return { error: 'targetId is required' };
-  }
-  const target = findParticipant(targetId);
-  if (!target) {
-    return { error: 'Target not found' };
-  }
-  const list = Array.isArray(participant.constructs) ? participant.constructs : [];
-  const construct = list.find((entry) => String(entry.id || '') === constructId);
-  if (!construct) {
-    return { error: 'Construct not found' };
-  }
-  construct.targetId = target.id;
-  pushLog(`${participant.name} retargets ${construct.name} to ${target.name}.`, participant.id);
-  touchState();
-  broadcastState('construct_retargeted');
-  return { participant, construct };
+  return executeRetargetConstructActionForEncounter(body, {
+    resolveActor,
+    findParticipant,
+    pushLog,
+    touchState,
+    broadcastState
+  });
 }
 
 function executeMoveConstructAction(body) {
-  const participant = resolveActor(body.participantId);
-  if (!participant) {
-    return { error: 'Participant required' };
-  }
-  const constructId = String(body.constructId || '').trim();
-  if (!constructId) {
-    return { error: 'constructId is required' };
-  }
-  const list = normalizeConstructs(participant.constructs, participant.id);
-  const construct = list.find((entry) => String(entry.id || '') === constructId);
-  if (!construct) {
-    return { error: 'Construct not found' };
-  }
-  const apCost = 1;
-  if (Number(construct.apCurrent || 0) < apCost) {
-    return { error: `${construct.name} does not have enough AP` };
-  }
-  const baseMove = Math.max(5, Math.round(Number(construct.moveFt || 10)));
-  const difficultTerrain = Boolean(body.difficultTerrain);
-  const distance = difficultTerrain ? Math.max(5, Math.floor(baseMove / 2)) : baseMove;
-  construct.apCurrent = Math.max(0, Number(construct.apCurrent || 0) - apCost);
-  participant.constructs = list;
-  pushLog(
-    `${participant.name} commands ${construct.name} to move ${distance} ft (${construct.apCurrent}/${construct.apMax} AP left).`,
-    participant.id
-  );
-  touchState();
-  broadcastState('construct_moved');
-  return { participant, construct, distance, apCost };
+  return executeMoveConstructActionForEncounter(body, {
+    resolveActor,
+    normalizeConstructs,
+    pushLog,
+    touchState,
+    broadcastState
+  });
 }
 
 function findZone(participant, zoneId) {
@@ -1298,74 +1201,40 @@ function findZone(participant, zoneId) {
 }
 
 function executeAddZoneTargetAction(body) {
-  const participant = resolveActor(body.participantId);
-  if (!participant) {
-    return { error: 'Participant required' };
-  }
-  const zoneId = String(body.zoneId || '').trim();
-  if (!zoneId) {
-    return { error: 'zoneId is required' };
-  }
-  const targetId = String(body.targetId || '').trim();
-  if (!targetId) {
-    return { error: 'targetId is required' };
-  }
-  const target = findParticipant(targetId);
-  if (!target) {
-    return { error: 'Target not found' };
-  }
-  const zone = findZone(participant, zoneId);
-  if (!zone) {
-    return { error: 'Zone not found' };
-  }
-  const ids = new Set(Array.isArray(zone.targetIds) ? zone.targetIds : []);
-  ids.add(target.id);
-  zone.targetIds = Array.from(ids);
-  pushLog(`${participant.name} adds ${target.name} to zone ${zone.name}.`, participant.id, {
-    zoneId: zone.id,
-    targetId: target.id
+  return executeAddZoneTargetActionForEncounter(body, {
+    resolveActor,
+    findParticipant,
+    findZone,
+    pushLog,
+    touchState,
+    broadcastState
   });
-  touchState();
-  broadcastState('zone_target_added');
-  return { participant, zone, target };
 }
 
 function executeRemoveZoneTargetAction(body) {
-  const participant = resolveActor(body.participantId);
-  if (!participant) {
-    return { error: 'Participant required' };
-  }
-  const zoneId = String(body.zoneId || '').trim();
-  if (!zoneId) {
-    return { error: 'zoneId is required' };
-  }
-  const targetId = String(body.targetId || '').trim();
-  if (!targetId) {
-    return { error: 'targetId is required' };
-  }
-  const zone = findZone(participant, zoneId);
-  if (!zone) {
-    return { error: 'Zone not found' };
-  }
-  const before = Array.isArray(zone.targetIds) ? zone.targetIds.length : 0;
-  zone.targetIds = (zone.targetIds || []).filter((id) => String(id) !== targetId);
-  if (zone.targetIds.length === before) {
-    return { error: 'Target was not assigned to this zone' };
-  }
-  const target = findParticipant(targetId);
-  pushLog(
-    `${participant.name} removes ${target?.name || 'a target'} from zone ${zone.name}.`,
-    participant.id,
-    { zoneId: zone.id, targetId }
-  );
-  touchState();
-  broadcastState('zone_target_removed');
-  return { participant, zone, targetId };
+  return executeRemoveZoneTargetActionForEncounter(body, {
+    resolveActor,
+    findParticipant,
+    findZone,
+    pushLog,
+    touchState,
+    broadcastState
+  });
 }
 
 function activateSetBonusAction(body) {
   void body;
   return { error: 'No active set abilities are currently configured.' };
+}
+
+function executeCustomAction(body) {
+  return executeCustomActionForEncounter(body, {
+    resolveActor,
+    markTurnActionTaken,
+    pushLog,
+    touchState,
+    broadcastState
+  });
 }
 
 function applyAdjustment(participant, adjustment) {
@@ -1671,12 +1540,6 @@ function clampParticipant(participant) {
   participant.shield = clampNumber(participant.shield, 0, participant.maxShield);
 }
 
-function abilityModifier(score = 10) {
-  const value = Number(score);
-  if (!Number.isFinite(value)) return 0;
-  return Math.floor((value - 10) / 2);
-}
-
 function getCurrentTurnEntry() {
   return getCurrentTurnEntryForEncounter(trackerState.encounter, normalizeZones);
 }
@@ -1712,44 +1575,16 @@ function pushLog(text, participantId = null, meta = {}) {
   }
 }
 
-function removeMinorStatus(participant) {
-  if (!Array.isArray(participant.statuses)) {
-    participant.statuses = [];
-  }
-  const minorTypes = new Set(['blinded', 'weakened', 'fatigued']);
-  const idx = participant.statuses.findIndex((status) => {
-    const type = detectStatusType(status);
-    if (minorTypes.has(type)) {
-      return true;
-    }
-    const normalizedName = normalizeStatusToken(status?.name);
-    return minorTypes.has(normalizedName);
-  });
-  if (idx !== -1) {
-    participant.statuses.splice(idx, 1);
-  }
-}
-
 function applyShortRest(participant) {
-  if (!participant) return;
-  const conScore = participant.stats?.constitution ?? participant.stats?.con ?? 10;
-  const conMod = abilityModifier(conScore);
-  const healAmount = Math.max(1, 5 + conMod);
-  participant.hp = Math.min(participant.maxHp, participant.hp + healAmount);
-  removeMinorStatus(participant);
-  pushLog(`${participant.name} completes a short rest and heals ${healAmount} HP.`, participant.id);
+  return applyShortRestForEncounter(participant, {
+    detectStatusType,
+    normalizeStatusToken,
+    pushLog
+  });
 }
 
 function applyLongRest(participant) {
-  if (!participant) return;
-  participant.hp = participant.maxHp;
-  participant.shield = participant.maxShield;
-  participant.statuses = [];
-  participant.constructs = [];
-  participant.zones = [];
-  participant.apCurrent = participant.apMax;
-  participant.guardUsedThisTurn = false;
-  pushLog(`${participant.name} takes a long rest and is fully restored.`, participant.id);
+  return applyLongRestForEncounter(participant, { pushLog });
 }
 
 function normalizeStatusToken(value) {
@@ -3180,16 +3015,44 @@ function getActiveParticipantCards(participant = {}) {
   return (participant.cards || []).filter((card) => isCardActive(card));
 }
 
-function getSetCardCount(participant, setName) {
-  const canonicalTarget = canonicalSetName(setName).toLowerCase();
-  return getActiveParticipantCards(participant).reduce((count, card) => {
-    if (canonicalSetName(card?.set).toLowerCase() !== canonicalTarget) return count;
-    return count + 1;
-  }, 0);
+function addCardToGroupMap(map, key, card) {
+  if (!key) return;
+  const existing = map.get(key);
+  if (existing) {
+    existing.push(card);
+  } else {
+    map.set(key, [card]);
+  }
 }
 
-function hasSetBonus(participant, setName, pieces) {
-  return getSetCardCount(participant, setName) >= pieces;
+function buildActiveCardGroups(participant = {}) {
+  const activeCards = [];
+  const bySet = new Map();
+  const byTier = new Map();
+  const bySetTier = new Map();
+  for (const card of participant.cards || []) {
+    if (!isCardActive(card)) continue;
+    activeCards.push(card);
+    const setName = canonicalSetName(card?.set);
+    const tierName = String(card?.tier || '').trim();
+    addCardToGroupMap(bySet, setName, card);
+    addCardToGroupMap(byTier, tierName.toLowerCase(), card);
+    if (setName && tierName) {
+      addCardToGroupMap(bySetTier, `${setName.toLowerCase()}|${tierName.toLowerCase()}`, card);
+    }
+  }
+  return { activeCards, bySet, byTier, bySetTier };
+}
+
+function getSetCardCount(participant, setName, groups = null) {
+  const canonicalTarget = canonicalSetName(setName);
+  if (!canonicalTarget) return 0;
+  const source = groups || buildActiveCardGroups(participant);
+  return source.bySet.get(canonicalTarget)?.length || 0;
+}
+
+function hasSetBonus(participant, setName, pieces, groups = null) {
+  return getSetCardCount(participant, setName, groups) >= pieces;
 }
 
 function isMachineCard(card) {
@@ -3262,16 +3125,12 @@ function addModifierTotals(target, addition) {
   }
 }
 
-function computeSetBonuses(participant) {
-  const counts = {};
-  for (const card of getActiveParticipantCards(participant)) {
-    const setName = canonicalSetName(card.set);
-    if (!setName) continue;
-    counts[setName] = (counts[setName] || 0) + 1;
-  }
+function computeSetBonuses(participant, groups = null) {
+  const source = groups || buildActiveCardGroups(participant);
   const appliedBonuses = [];
   const totals = createZeroModifier();
-  for (const [setName, count] of Object.entries(counts)) {
+  for (const [setName, cards] of source.bySet.entries()) {
+    const count = cards.length;
     const definitions = SET_LIBRARY[setName];
     if (!definitions) continue;
     definitions.forEach((bonus) => {
@@ -3296,6 +3155,7 @@ function recalculateParticipant(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const setRuntime = ensureSetRuntime(participant);
   participant.cards = normalizeCards(participant.cards);
+  const cardGroups = buildActiveCardGroups(participant);
   participant.constructs = normalizeConstructs(participant.constructs, participant.id);
   participant.zones = normalizeZones(participant.zones, participant.id);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
@@ -3315,7 +3175,7 @@ function recalculateParticipant(participant) {
   const totals = createZeroModifier();
   const cardModifiers = [];
   participant.relics = normalizeRelics(participant.relics);
-  for (const card of getActiveParticipantCards(participant)) {
+  for (const card of cardGroups.activeCards) {
     const modifiers = normalizeModifiers(card.modifiers);
     const healthBonus = Number(card.healthBonus ?? 0);
     if (Number.isFinite(healthBonus) && healthBonus !== 0) {
@@ -3344,21 +3204,21 @@ function recalculateParticipant(participant) {
     }
     addModifierTotals(totals, modifiers);
   }
-  const { appliedBonuses, setTotals } = computeSetBonuses(participant);
+  const { appliedBonuses, setTotals } = computeSetBonuses(participant, cardGroups);
   addModifierTotals(totals, setTotals);
 
-  if (!hasSetBonus(participant, 'Machine', 5)) {
+  if (!hasSetBonus(participant, 'Machine', 5, cardGroups)) {
     setRuntime.machine.autoLoaderPrimed = false;
     setRuntime.machine.autoLoaderTriggeredTurn = false;
     setRuntime.machine.autoLoaderDiscountUsedTurn = false;
   }
-  const machineConstructCap = hasSetBonus(participant, 'Machine', 10)
+  const machineConstructCap = hasSetBonus(participant, 'Machine', 10, cardGroups)
     ? 3
-    : hasSetBonus(participant, 'Machine', 5)
+    : hasSetBonus(participant, 'Machine', 5, cardGroups)
       ? 2
       : 1;
-  const machineConstructDamageBonus = hasSetBonus(participant, 'Machine', 7) ? 2 : 0;
-  const machineConstructDurationBonus = hasSetBonus(participant, 'Machine', 7) ? 1 : 0;
+  const machineConstructDamageBonus = hasSetBonus(participant, 'Machine', 7, cardGroups) ? 2 : 0;
+  const machineConstructDurationBonus = hasSetBonus(participant, 'Machine', 7, cardGroups) ? 1 : 0;
   if (participant.constructs.length > machineConstructCap) {
     participant.constructs = participant.constructs.slice(participant.constructs.length - machineConstructCap);
   }
@@ -3391,7 +3251,7 @@ function recalculateParticipant(participant) {
     cardModifiers,
     cardLoadout: {
       maxActive: MAX_ACTIVE_CARDS,
-      active: getActiveParticipantCards(participant).length,
+      active: cardGroups.activeCards.length,
       total: participant.cards.length
     },
     setBonuses: appliedBonuses,
