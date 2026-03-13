@@ -3,6 +3,20 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
+import { GAME_LIMITS } from './lib/game-config.js';
+import { getCardTierShieldBonus } from './lib/card-rules.js';
+import { startEncounterLifecycle, endEncounterLifecycle } from './lib/encounter-lifecycle.js';
+import {
+  buildTurnEntriesForEncounter,
+  getTurnEntryKeyForEncounter,
+  setCurrentTurnByIndexForEncounter,
+  ensureCurrentIndexForEncounter,
+  resolveCurrentTurnIndexForAdvanceForEncounter,
+  getCurrentTurnEntryForEncounter,
+  findParticipantInEncounter,
+  getCurrentParticipantForEncounter,
+  findZoneInOwner
+} from './lib/turn-order.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -81,19 +95,6 @@ const STANDARD_ACTIONS = {
 };
 
 const DEFAULT_GUARD_RESTORE = 3;
-const GAME_LIMITS = Object.freeze({
-  maxActiveCards: 10,
-  maxActiveZones: 2
-});
-const CARD_TIER_SHIELD_BONUS = Object.freeze({
-  common: 1,
-  uncommon: 1,
-  rare: 2,
-  'very rare': 3,
-  veryrare: 3,
-  epic: 4,
-  legendary: 5
-});
 const MAX_ACTIVE_CARDS = GAME_LIMITS.maxActiveCards;
 const MAX_ACTIVE_ZONES = GAME_LIMITS.maxActiveZones;
 const SET_LIBRARY = {
@@ -392,6 +393,11 @@ async function handleApi(req, res, pathname, method) {
       return sendJson(res, { encounter: trackerState.encounter });
     }
 
+    if (method === 'POST' && pathname === '/api/turn/end') {
+      endEncounter();
+      return sendJson(res, { encounter: trackerState.encounter });
+    }
+
     if (method === 'POST' && pathname === '/api/actions/standard') {
       const body = await readBody(req);
       const result = executeStandardAction(body);
@@ -615,23 +621,24 @@ async function handleApi(req, res, pathname, method) {
 }
 
 function startEncounter(startingRound = 1) {
-  trackerState.encounter.round = Number(startingRound) || 1;
-  trackerState.encounter.started = true;
-  trackerState.encounter.participants.forEach((participant) => {
-    resetSetCombatState(participant);
-    participant.turnActionCount = 0;
+  startEncounterLifecycle(trackerState, startingRound, {
+    resetSetCombatState,
+    ensureCurrentIndex,
+    getCurrentParticipant,
+    resetTurn,
+    pushLog,
+    touchState,
+    broadcastState
   });
-  trackerState.encounter.currentIndex = -1;
-  trackerState.encounter.currentTurnKey = '';
-  ensureCurrentIndex();
-  const actor = getCurrentParticipant();
-  if (actor) {
-    const startEvents = resetTurn(actor, { applyStatusTick: true });
-    startEvents.forEach((event) => pushLog(`${actor.name} ${event}`, actor.id));
-    pushLog(`Encounter starts. ${actor.name} takes the first turn.`);
-  }
-  touchState();
-  broadcastState('encounter_started');
+}
+
+function endEncounter() {
+  endEncounterLifecycle(trackerState, {
+    resetSetCombatState,
+    pushLog,
+    touchState,
+    broadcastState
+  });
 }
 
 function executeStandardAction(body) {
@@ -1287,7 +1294,7 @@ function executeMoveConstructAction(body) {
 function findZone(participant, zoneId) {
   if (!participant || !zoneId) return null;
   participant.zones = normalizeZones(participant.zones, participant.id);
-  return participant.zones.find((entry) => String(entry.id || '') === String(zoneId || '')) || null;
+  return findZoneInOwner(participant, String(zoneId || ''));
 }
 
 function executeAddZoneTargetAction(body) {
@@ -1567,66 +1574,19 @@ function sortParticipants() {
 }
 
 function buildTurnEntries() {
-  const entries = [];
-  for (const participant of trackerState.encounter.participants || []) {
-    entries.push({
-      kind: 'participant',
-      participantId: participant.id
-    });
-    participant.zones = normalizeZones(participant.zones, participant.id);
-    for (const zone of participant.zones) {
-      entries.push({
-        kind: 'zone',
-        participantId: participant.id,
-        zoneId: zone.id
-      });
-    }
-  }
-  return entries;
+  return buildTurnEntriesForEncounter(trackerState.encounter, normalizeZones);
 }
 
 function getTurnEntryKey(entry) {
-  if (!entry) return '';
-  if (entry.kind === 'zone') {
-    return `zone:${entry.participantId}:${entry.zoneId}`;
-  }
-  return `participant:${entry.participantId}`;
+  return getTurnEntryKeyForEncounter(entry);
 }
 
 function setCurrentTurnByIndex(entries, index) {
-  if (!entries.length) {
-    trackerState.encounter.currentIndex = -1;
-    trackerState.encounter.currentTurnKey = '';
-    return null;
-  }
-  const safeIndex = Math.min(Math.max(Number(index) || 0, 0), entries.length - 1);
-  const entry = entries[safeIndex];
-  trackerState.encounter.currentIndex = safeIndex;
-  trackerState.encounter.currentTurnKey = getTurnEntryKey(entry);
-  return entry;
+  return setCurrentTurnByIndexForEncounter(trackerState.encounter, entries, index);
 }
 
 function ensureCurrentIndex() {
-  const entries = buildTurnEntries();
-  if (!entries.length) {
-    trackerState.encounter.currentIndex = -1;
-    trackerState.encounter.currentTurnKey = '';
-    return;
-  }
-  const currentKey = String(trackerState.encounter.currentTurnKey || '');
-  if (currentKey) {
-    const keyedIndex = entries.findIndex((entry) => getTurnEntryKey(entry) === currentKey);
-    if (keyedIndex >= 0) {
-      setCurrentTurnByIndex(entries, keyedIndex);
-      return;
-    }
-  }
-  const currentIndex = Number(trackerState.encounter.currentIndex);
-  if (Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < entries.length) {
-    setCurrentTurnByIndex(entries, currentIndex);
-    return;
-  }
-  setCurrentTurnByIndex(entries, 0);
+  ensureCurrentIndexForEncounter(trackerState.encounter, normalizeZones);
 }
 
 function fixCurrentIndexAfterRemoval() {
@@ -1634,17 +1594,7 @@ function fixCurrentIndexAfterRemoval() {
 }
 
 function resolveCurrentTurnIndexForAdvance(entries, direction = 1) {
-  const key = String(trackerState.encounter.currentTurnKey || '');
-  if (key) {
-    const keyedIndex = entries.findIndex((entry) => getTurnEntryKey(entry) === key);
-    if (keyedIndex >= 0) return keyedIndex;
-  }
-  const rawIndex = Number(trackerState.encounter.currentIndex);
-  if (!Number.isInteger(rawIndex)) return -1;
-  if (direction > 0) {
-    return Math.min(entries.length - 1, Math.max(-1, rawIndex - 1));
-  }
-  return Math.min(entries.length - 1, Math.max(0, rawIndex));
+  return resolveCurrentTurnIndexForAdvanceForEncounter(trackerState.encounter, entries, direction);
 }
 
 function advanceTurn(direction = 1) {
@@ -1728,40 +1678,15 @@ function abilityModifier(score = 10) {
 }
 
 function getCurrentTurnEntry() {
-  const entries = buildTurnEntries();
-  if (!entries.length) {
-    trackerState.encounter.currentIndex = -1;
-    trackerState.encounter.currentTurnKey = '';
-    return null;
-  }
-  const currentKey = String(trackerState.encounter.currentTurnKey || '');
-  let index = -1;
-  if (currentKey) {
-    index = entries.findIndex((entry) => getTurnEntryKey(entry) === currentKey);
-    if (index < 0) {
-      return null;
-    }
-  } else {
-    const raw = Number(trackerState.encounter.currentIndex);
-    if (Number.isInteger(raw) && raw >= 0 && raw < entries.length) {
-      index = raw;
-    }
-  }
-  if (index < 0) {
-    index = 0;
-  }
-  setCurrentTurnByIndex(entries, index);
-  return entries[index];
+  return getCurrentTurnEntryForEncounter(trackerState.encounter, normalizeZones);
 }
 
 function getCurrentParticipant() {
-  const entry = getCurrentTurnEntry();
-  if (!entry) return null;
-  return findParticipant(entry.participantId) || null;
+  return getCurrentParticipantForEncounter(trackerState.encounter, normalizeZones);
 }
 
 function findParticipant(id) {
-  return trackerState.encounter.participants.find((entry) => entry.id === id);
+  return findParticipantInEncounter(trackerState.encounter, id);
 }
 
 function resolveActor(id) {
@@ -2581,17 +2506,6 @@ function normalizeZones(list = [], ownerId = '') {
       };
     })
     .filter(Boolean);
-}
-
-function normalizeTierToken(value = '') {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ');
-}
-
-function getCardTierShieldBonus(tier = '') {
-  return CARD_TIER_SHIELD_BONUS[normalizeTierToken(tier)] ?? 0;
 }
 
 function normalizeCards(list = []) {

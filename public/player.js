@@ -1,3 +1,6 @@
+import { UI_LIMITS } from './shared/game-config.js';
+import { getCardTierShieldBonus } from './shared/card-rules.js';
+
 const DAMAGE_TYPES = [
   'Acid',
   'Bludgeoning',
@@ -13,16 +16,7 @@ const DAMAGE_TYPES = [
   'Slashing',
   'Thunder'
 ];
-const MAX_ACTIVE_CARDS = 10;
-const CARD_TIER_SHIELD_BONUS = Object.freeze({
-  common: 1,
-  uncommon: 1,
-  rare: 2,
-  'very rare': 3,
-  veryrare: 3,
-  epic: 4,
-  legendary: 5
-});
+const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
@@ -3209,17 +3203,6 @@ function buildStatusFromForm(formData) {
     stacks: Number(formData.get('stacks') || 1),
     notes: formData.get('notes') || ''
   };
-}
-
-function normalizeTierToken(value = '') {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ');
-}
-
-function getCardTierShieldBonus(tier = '') {
-  return CARD_TIER_SHIELD_BONUS[normalizeTierToken(tier)] ?? 0;
 }
 
 function normalizeCardPayload(raw = {}) {

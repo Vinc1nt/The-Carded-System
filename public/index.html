@@ -17,6 +17,7 @@
         </div>
         <div class="turn-controls">
           <button type="button" id="startEncounter">Start Encounter</button>
+          <button type="button" id="endEncounter">End Encounter</button>
           <button type="button" id="prevTurn">Prev Turn</button>
           <button type="button" class="primary" id="nextTurn">Next Turn</button>
         </div>
@@ -29,7 +30,7 @@
           <div class="gm-menu journal-menu">
             <button type="button" id="journalMenuToggle">Quest & Achievement ▾</button>
             <div class="gm-menu-panel journal-menu-panel" id="journalMenuPanel">
-              <details class="journal-manager-group" open>
+              <details class="journal-manager-group">
                 <summary><strong>Create Quest</strong></summary>
                 <form data-global-journal-form="quest" class="stacked-form">
                   <div class="form-row">
@@ -84,7 +85,7 @@
                 </form>
               </details>
 
-              <details class="journal-manager-group" open>
+              <details class="journal-manager-group">
                 <summary><strong>Create Achievement</strong></summary>
                 <form data-global-journal-form="achievement" class="stacked-form">
                   <div class="form-row">

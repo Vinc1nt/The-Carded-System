@@ -1,14 +1,5 @@
 import { CARD_PRESETS, RARITY_ORDER } from './card-presets.js';
-
-const CARD_TIER_SHIELD_BONUS = Object.freeze({
-  common: 1,
-  uncommon: 1,
-  rare: 2,
-  'very rare': 3,
-  veryrare: 3,
-  epic: 4,
-  legendary: 5
-});
+import { getCardTierShieldBonus } from './shared/card-rules.js';
 
 const state = {
   participants: [],
@@ -97,7 +88,7 @@ function renderList() {
             )
             .join('');
           return `
-            <details class="library-rarity-group" open>
+            <details class="library-rarity-group">
               <summary>${escapeHtml(rarity)} (${cards.length})</summary>
               <div class="library-card-links">${items}</div>
             </details>
@@ -105,7 +96,7 @@ function renderList() {
         })
         .join('');
       return `
-        <details class="library-set-group" open>
+        <details class="library-set-group">
           <summary>${escapeHtml(setName)}</summary>
           <div class="library-set-body">${rarityBlocks}</div>
         </details>
@@ -254,17 +245,6 @@ function formatCardRange(card = {}) {
   if (text) return text;
   const range = Number(card.range || 0);
   return `${range} ft`;
-}
-
-function normalizeTierToken(value = '') {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ');
-}
-
-function getCardTierShieldBonus(tier = '') {
-  return CARD_TIER_SHIELD_BONUS[normalizeTierToken(tier)] ?? 0;
 }
 
 async function api(path, method = 'GET', payload) {
