@@ -107,8 +107,15 @@ function renderList() {
   els.list.querySelectorAll('[data-library-card]').forEach((button) => {
     button.addEventListener('click', () => {
       state.selectedCardId = button.dataset.libraryCard;
-      render();
+      syncLibrarySelectionState();
+      renderDetail();
     });
+  });
+}
+
+function syncLibrarySelectionState() {
+  els.list.querySelectorAll('[data-library-card]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.libraryCard === state.selectedCardId);
   });
 }
 

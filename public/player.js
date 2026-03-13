@@ -20,7 +20,7 @@ const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
-  reference: { standardActions: [], sets: [], statuses: [] },
+  reference: { standardActions: [], sets: [], statuses: [], teams: [] },
   updatedAt: null
 };
 
@@ -266,7 +266,15 @@ function renderStats() {
           <h2>${participant.name}</h2>
           <p class="muted">Set Focus: ${participant.setFocus || '—'}</p>
         </div>
-        <div class="muted">Round ${state.encounter.round}</div>
+        <div class="player-header-actions">
+          <div class="muted">Round ${state.encounter.round}</div>
+          <label class="team-select-inline">
+            Team
+            <select data-player-team-select>
+              ${renderPlayerTeamOptions(participant)}
+            </select>
+          </label>
+        </div>
       </div>
       <div class="vitals-grid">
         ${renderPlayerVital('HP', participant.hp, participant.maxHp, 'hp')}
@@ -347,6 +355,15 @@ function renderCharacterCreator() {
         <div class="form-row">
           <label>Proficiency Bonus
             <input type="number" name="proficiencyBonus" value="2" />
+          </label>
+          <label>Team
+            <select name="team">
+              <option value="">Unassigned</option>
+              <option value="Team 1">Team 1</option>
+              <option value="Team 2">Team 2</option>
+              <option value="Team 3">Team 3</option>
+              <option value="Team 4">Team 4</option>
+            </select>
           </label>
         </div>
         <div class="ability-input-grid">
@@ -499,6 +516,7 @@ function buildParticipantFromCreateForm(formData) {
   const vulnerabilities = dedupeTypes(formData.getAll('vulnerabilities'));
   return {
     name: formData.get('name')?.trim() || 'New Character',
+    team: formData.get('team') || '',
     setFocus: formData.get('setFocus') || '',
     maxHp,
     hp: maxHp,
@@ -769,6 +787,8 @@ function renderPlayerAbilitiesSection(participant, manageMode = false) {
         <div class="ability-list">
           ${renderPlayerAbilityEntries(participant, manageMode)}
         </div>
+        ${renderPlayerTextListEditor('Proficiencies', participant.proficiencies || [], 'proficiency', manageMode)}
+        ${renderPlayerTextListEditor('Languages', participant.languages || [], 'language', manageMode)}
         ${
           manageMode
             ? `
@@ -786,6 +806,44 @@ function renderPlayerAbilitiesSection(participant, manageMode = false) {
         }
       </div>
     </details>
+  `;
+}
+
+function renderPlayerTextListEditor(label, values = [], key = 'entry', manageMode = false) {
+  const pills = (values || [])
+    .map(
+      (value, index) => `
+        <span class="tag-pill">
+          ${escapeHtml(value)}
+          ${
+            manageMode
+              ? `<button type="button" aria-label="Remove" data-player-remove-${key}="${index}">×</button>`
+              : ''
+          }
+        </span>`
+    )
+    .join('');
+  return `
+    <div class="damage-group">
+      <div class="damage-group-header">
+        <h4>${label}</h4>
+      </div>
+      <div class="tag-list">
+        ${pills || '<span class="muted">None</span>'}
+      </div>
+      ${
+        manageMode
+          ? `
+          <form data-player-${key}-form>
+            <label class="compact-label">Add ${label.slice(0, -1)}
+              <input type="text" name="${key}" placeholder="Add ${label.slice(0, -1).toLowerCase()}" />
+            </label>
+            <button type="submit">Add</button>
+          </form>
+        `
+          : ''
+      }
+    </div>
   `;
 }
 
@@ -1500,6 +1558,67 @@ function getPlayerCardBuckets(participant = {}) {
   return { active, inactive, total: entries.length };
 }
 
+function getPlayerTeamOptionValues(participant = null) {
+  const options = [];
+  const pushUnique = (value) => {
+    const team = String(value || '').trim();
+    if (!team || options.includes(team)) return;
+    options.push(team);
+  };
+  for (const entry of state.reference?.teams || []) {
+    pushUnique(entry);
+  }
+  for (const entry of state.encounter?.participants || []) {
+    pushUnique(entry?.team);
+  }
+  if (participant) {
+    pushUnique(participant.team);
+  }
+  return options;
+}
+
+function renderPlayerTeamOptions(participant = null) {
+  const options = ['<option value="">Unassigned</option>'];
+  for (const team of getPlayerTeamOptionValues(participant)) {
+    const selected = String(participant?.team || '').trim() === team ? ' selected' : '';
+    options.push(`<option value="${escapeHtml(team)}"${selected}>${escapeHtml(team)}</option>`);
+  }
+  return options.join('');
+}
+
+function getPlayerAllies(participant) {
+  if (!participant?.id) return [];
+  const sourceId = participant.id;
+  const sourceTeam = String(participant.team || '').trim().toLowerCase();
+  const manualIds = new Set(participant?.setRuntime?.allies?.targetIds || []);
+  return (state.encounter.participants || []).filter((entry) => {
+    if (!entry || entry.id === sourceId) return false;
+    const sameTeam =
+      sourceTeam &&
+      String(entry.team || '')
+        .trim()
+        .toLowerCase() === sourceTeam;
+    return sameTeam || manualIds.has(entry.id);
+  });
+}
+
+function mergePlayerUniqueText(existing = [], value = '') {
+  const token = String(value || '').trim();
+  if (!token) return existing;
+  const already = existing.some((entry) => String(entry || '').trim().toLowerCase() === token.toLowerCase());
+  if (already) return existing;
+  return [...existing, token];
+}
+
+function playerHasSetBonus(participant = {}, setName = '', pieces = 1) {
+  const target = String(setName || '').trim().toLowerCase();
+  if (!target) return false;
+  const count = getPlayerCardBuckets(participant).active.reduce((total, { card }) => {
+    return String(card?.set || '').trim().toLowerCase() === target ? total + 1 : total;
+  }, 0);
+  return count >= Math.max(1, Number(pieces || 1));
+}
+
 function renderSetTracker(participant) {
   const counts = {};
   for (const { card } of getPlayerCardBuckets(participant).active) {
@@ -1507,10 +1626,7 @@ function renderSetTracker(participant) {
     counts[card.set] = (counts[card.set] || 0) + 1;
   }
   const entries = Object.entries(counts);
-  if (!entries.length) {
-    return '<p class="muted">No set bonuses equipped.</p>';
-  }
-  return entries
+  const rows = entries
     .map(([setName, count]) => {
       const ref = (state.reference.sets || []).find((entry) => entry.name === setName);
       const bonuses = ref?.bonuses || [];
@@ -1534,10 +1650,66 @@ function renderSetTracker(participant) {
         </div>`;
     })
     .join('');
+  const allyManager =
+    playerHasSetBonus(participant, 'Divine', 3) || playerHasSetBonus(participant, 'Nature', 5)
+      ? renderPlayerSetAllyTargetManager(participant)
+      : '';
+  if (!rows) {
+    return allyManager || '<p class="muted">No set bonuses equipped.</p>';
+  }
+  return `${rows}${allyManager}`;
+}
+
+function renderPlayerSetAllyTargetManager(participant) {
+  const allyIds = participant?.setRuntime?.allies?.targetIds || [];
+  const automaticAllies = getPlayerAllies(participant).filter((entry) => !allyIds.includes(entry.id));
+  const participants = state.encounter.participants || [];
+  const assigned = allyIds
+    .map((id) => participants.find((entry) => entry.id === id))
+    .filter(Boolean);
+  const options = participants
+    .filter((entry) => entry.id !== participant.id && !allyIds.includes(entry.id))
+    .map((entry) => `<option value="${entry.id}">${escapeHtml(entry.name)}</option>`)
+    .join('');
+  const pills = assigned
+    .map(
+      (entry) => `
+        <span class="status-pill">
+          ${escapeHtml(entry.name)}
+          <button type="button" data-player-set-ally-remove="${entry.id}">Remove</button>
+        </span>`
+    )
+    .join('');
+  return `
+    <div class="set-block">
+      <div class="set-header">
+        <strong>Set Ally Targets</strong>
+        <span>${assigned.length + automaticAllies.length} total</span>
+      </div>
+      <p class="muted small-note">Characters on the same team are auto-allies. Manual allies are optional overrides.</p>
+      ${
+        automaticAllies.length
+          ? `<p class="muted small-note">Auto-allies: ${escapeHtml(automaticAllies.map((entry) => entry.name).join(', '))}</p>`
+          : ''
+      }
+      <div class="status-list">
+        ${pills || '<span class="muted">No allies selected.</span>'}
+      </div>
+      <div class="form-row">
+        <label>Add Ally
+          <select data-player-set-ally-add>
+            <option value="">Select ally…</option>
+            ${options}
+          </select>
+        </label>
+        <button type="button" data-player-set-ally-add-button>Add</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderPlayerSetBonusStatus(setName, bonus, participant) {
-  if (String(setName).toLowerCase() !== 'machine') return '';
+  const abilityId = bonus?.activatable?.id || bonus?.id;
   const machine = participant.setRuntime?.machine || {};
   if (bonus.id === 'machine_5_auto_loader') {
     if (machine.autoLoaderPrimed) {
@@ -1545,21 +1717,139 @@ function renderPlayerSetBonusStatus(setName, bonus, participant) {
     }
     return ` <small class="muted">[${machine.autoLoaderTriggeredTurn ? 'Triggered this turn' : 'Ready'}]</small>`;
   }
+  if (abilityId === 'arcane_7_temp_copy') {
+    return participant?.setRuntime?.arcane?.copyUsedEncounter
+      ? ' <small class="muted">[Used this encounter]</small>'
+      : ' <small class="muted">[Ready]</small>';
+  }
+  if (abilityId === 'arcane_10_modify_card') {
+    const modified = participant?.setRuntime?.arcane?.modifiedCard;
+    return modified?.cardId
+      ? ` <small class="muted">[Active: ${escapeHtml(modified.mode || 'modified')}]</small>`
+      : ' <small class="muted">[Ready]</small>';
+  }
+  if (abilityId === 'divine_10_sacred_overcharge') {
+    return participant?.setRuntime?.divine?.sacredOverchargeUsed
+      ? ' <small class="muted">[Used this long rest]</small>'
+      : ' <small class="muted">[Ready]</small>';
+  }
+  if (abilityId === 'divine_5_cleanse_heal') {
+    return ' <small class="muted">[Select ally and activate]</small>';
+  }
   return '';
 }
 
 function renderPlayerSetActivationButton(setName, bonus, participant) {
   if (!bonus?.activatable?.id) return '';
-  if (String(setName).toLowerCase() !== 'machine') return '';
+  void setName;
   const canActivate = canPlayerActivateSetBonus(bonus, participant);
   const disabled = canActivate ? '' : ' disabled';
   return ` <button type="button" data-player-activate-set="${bonus.activatable.id}"${disabled}>Activate</button>`;
 }
 
 function canPlayerActivateSetBonus(bonus, participant) {
-  void bonus;
-  void participant;
+  const abilityId = bonus?.activatable?.id || bonus?.id;
+  if (!abilityId || !participant) return false;
+  if (abilityId === 'arcane_7_temp_copy') {
+    const used = Boolean(participant?.setRuntime?.arcane?.copyUsedEncounter);
+    const activeCount = getPlayerCardBuckets(participant).active.length;
+    return !used && activeCount < MAX_ACTIVE_CARDS;
+  }
+  if (abilityId === 'arcane_10_modify_card') {
+    const modified = participant?.setRuntime?.arcane?.modifiedCard;
+    return !modified?.cardId;
+  }
+  if (abilityId === 'divine_10_sacred_overcharge') {
+    const used = Boolean(participant?.setRuntime?.divine?.sacredOverchargeUsed);
+    const allies = getPlayerAllies(participant);
+    return !used && allies.length > 0;
+  }
+  if (abilityId === 'divine_5_cleanse_heal') {
+    const allies = getPlayerAllies(participant);
+    return allies.length > 0;
+  }
   return false;
+}
+
+function buildPlayerSetActivationPayload(participant, abilityId) {
+  const id = String(abilityId || '').trim();
+  if (!id || !participant?.id) return null;
+  const payload = {
+    participantId: participant.id,
+    abilityId: id
+  };
+  if (id === 'arcane_7_temp_copy') {
+    const cardId = promptForPlayerSetCardSelection(participant, 'Arcane Copy');
+    if (!cardId) return null;
+    payload.cardId = cardId;
+    return payload;
+  }
+  if (id === 'arcane_10_modify_card') {
+    const cardId = promptForPlayerSetCardSelection(participant, 'Arcane Card Modification');
+    if (!cardId) return null;
+    const mode = promptForPlayerArcaneMode();
+    if (!mode) return null;
+    payload.cardId = cardId;
+    payload.mode = mode;
+    return payload;
+  }
+  if (id === 'divine_5_cleanse_heal') {
+    const targetId = promptForPlayerSetAllySelection(participant, 'Divine Cleanse');
+    if (!targetId) return null;
+    payload.targetId = targetId;
+    return payload;
+  }
+  return payload;
+}
+
+function promptForPlayerSetCardSelection(participant, label) {
+  const activeCards = getPlayerCardBuckets(participant).active;
+  if (!activeCards.length) {
+    notify('No active cards available.');
+    return '';
+  }
+  const lines = activeCards.map(({ card }, index) => `${index + 1}. ${card.name}`).join('\n');
+  const raw = window.prompt(`${label}\n${lines}\nEnter card number:`) || '';
+  const selectedIndex = Number(raw);
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex > activeCards.length) {
+    notify('Invalid card selection.');
+    return '';
+  }
+  return activeCards[selectedIndex - 1].card.id;
+}
+
+function promptForPlayerArcaneMode() {
+  const raw = window.prompt(
+    'Arcane modification mode:\n1 = range (+10 ft)\n2 = radius (+5 ft)\n3 = damage (+2)\n4 = ap (-1, min 1)\nEnter 1-4:'
+  );
+  const modeMap = {
+    1: 'range',
+    2: 'radius',
+    3: 'damage',
+    4: 'ap'
+  };
+  const mode = modeMap[Number(raw)];
+  if (!mode) {
+    notify('Invalid mode selection.');
+    return '';
+  }
+  return mode;
+}
+
+function promptForPlayerSetAllySelection(participant, label) {
+  const allyOptions = getPlayerAllies(participant);
+  if (!allyOptions.length) {
+    notify('No allies available.');
+    return '';
+  }
+  const lines = allyOptions.map((entry, index) => `${index + 1}. ${entry.name}`).join('\n');
+  const raw = window.prompt(`${label}\n${lines}\nEnter ally number:`) || '';
+  const selectedIndex = Number(raw);
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex > allyOptions.length) {
+    notify('Invalid ally selection.');
+    return '';
+  }
+  return allyOptions[selectedIndex - 1].id;
 }
 
 function renderPlayerStatusForm() {
@@ -1721,6 +2011,15 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
   const secondaryDamage = getCardSecondaryDamage(card);
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
   const showSecondaryTarget = secondaryDamage > 0 && secondaryTargetMode === 'adjacent';
+  const arcaneSplitEnabled =
+    playerHasSetBonus(participant, 'Arcane', 5) && !selfOnly && targetMode === 'single';
+  const arcaneShiftEnabled =
+    playerHasSetBonus(participant, 'Arcane', 3) &&
+    (getCardDisplayDamage(card) > 0 || secondaryDamage > 0);
+  const arcaneControls = renderPlayerArcaneCardControls(card, participant, {
+    splitEnabled: arcaneSplitEnabled,
+    shiftEnabled: arcaneShiftEnabled
+  });
   const selfId = participant.id || '';
   if (selfOnly || targetMode === 'all_others') {
     const label = targetMode === 'all_others' ? 'All other combatants' : 'Self';
@@ -1739,14 +2038,16 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
       </select>
     </label>`
         : ''
-    }`;
+    }
+    ${arcaneControls}`;
   }
   if (targetMode === 'multi_select') {
     return `<label>Targets (up to ${multiTargetCap})
     <select data-player-card-targets="${card.id}" multiple size="${Math.max(3, Math.min(6, multiTargetCap + 1))}">
       ${renderPlayerTargetOptions(participant.id, allowSelfTarget)}
     </select>
-  </label>`;
+  </label>
+  ${arcaneControls}`;
   }
   return `<label>Target
     <select data-player-card-target="${card.id}">
@@ -1763,7 +2064,33 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
     </select>
   </label>`
       : ''
-  }`;
+  }
+  ${arcaneControls}`;
+}
+
+function renderPlayerArcaneCardControls(card = {}, participant = {}, options = {}) {
+  const cardId = card.id || '';
+  const controls = [];
+  if (options.splitEnabled) {
+    controls.push(`
+      <label>Arcane Split Target
+        <select data-player-card-arcane-split-target="${cardId}">
+          <option value="">No split</option>
+          ${renderPlayerTargetOptions(participant.id, false)}
+        </select>
+      </label>`);
+  }
+  if (options.shiftEnabled) {
+    controls.push(`
+      <label>Arcane Damage Type
+        <select data-player-card-override-damage-type="${cardId}">
+          <option value="">No change</option>
+          ${DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')}
+        </select>
+      </label>`);
+  }
+  if (!controls.length) return '';
+  return `<div class="form-row">${controls.join('')}</div>`;
 }
 
 function renderPlayerTargetOptions(actorId, includeSelf = false) {
@@ -2122,6 +2449,7 @@ function renderPlayerZones(participant) {
           const targets = assigned
             .map((targetId) => (state.encounter.participants || []).find((entry) => entry.id === targetId))
             .filter(Boolean);
+          const targetNames = targets.map((entry) => entry.name);
           const targetPills = targets
             .map(
               (target) => `
@@ -2143,6 +2471,7 @@ function renderPlayerZones(participant) {
             <article class="card-item construct-item">
               <h4>${escapeHtml(zone.name || 'Zone')}</h4>
               <p>${Number(zone.damage || 0)} ${escapeHtml(zone.damageType || 'damage')} · ${Number(zone.radiusFt || 0)} ft radius${remaining}</p>
+              <p class="muted small-note">Currently in zone: ${targetNames.length ? escapeHtml(targetNames.join(', ')) : 'No targets assigned'}</p>
               <div class="status-list">
                 ${targetPills || '<span class="muted">No targets assigned.</span>'}
               </div>
@@ -2237,13 +2566,17 @@ function wirePlayerCardUses(participant) {
         article?.querySelector(`[data-player-card-targets="${cardId}"]`)?.selectedOptions || []
       ).map((option) => option.value);
       const secondaryTargetId = article?.querySelector(`[data-player-card-secondary-target="${cardId}"]`)?.value || '';
+      const arcaneSplitTargetId = article?.querySelector(`[data-player-card-arcane-split-target="${cardId}"]`)?.value || '';
+      const overrideDamageType = article?.querySelector(`[data-player-card-override-damage-type="${cardId}"]`)?.value || '';
       try {
         await api('/api/actions/card', 'POST', {
           participantId: participant.id,
           cardId,
           targetId,
           targetIds,
-          secondaryTargetId
+          secondaryTargetId,
+          arcaneSplitTargetId,
+          overrideDamageType
         });
         fetchState();
       } catch (err) {
@@ -2793,6 +3126,11 @@ function togglePlayerManageState(participantId, key) {
 
 function wirePlayerSheetEvents(participant) {
   const panel = els.stats;
+  panel.querySelector('[data-player-team-select]')?.addEventListener('change', async (event) => {
+    const team = String(event.currentTarget.value || '').trim();
+    await patchParticipant(participant.id, { team });
+    fetchState();
+  });
   panel.querySelectorAll('[data-player-standard]').forEach((button) => {
     button.onclick = () => handlePlayerStandardAction(button.dataset.playerStandard);
   });
@@ -2800,10 +3138,39 @@ function wirePlayerSheetEvents(participant) {
     button.onclick = async () => {
       if (button.disabled) return;
       try {
-        await api('/api/set/activate', 'POST', {
+        const activation = buildPlayerSetActivationPayload(participant, button.dataset.playerActivateSet);
+        if (!activation) return;
+        await api('/api/set/activate', 'POST', activation);
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    };
+  });
+  panel.querySelectorAll('[data-player-set-ally-add-button]').forEach((button) => {
+    button.onclick = async () => {
+      const select = panel.querySelector('[data-player-set-ally-add]');
+      const targetId = select?.value || '';
+      if (!targetId) return;
+      try {
+        await api('/api/set/allies/add', 'POST', {
           participantId: participant.id,
-          set: 'Machine',
-          abilityId: button.dataset.playerActivateSet
+          targetId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    };
+  });
+  panel.querySelectorAll('[data-player-set-ally-remove]').forEach((button) => {
+    button.onclick = async () => {
+      const targetId = button.dataset.playerSetAllyRemove;
+      if (!targetId) return;
+      try {
+        await api('/api/set/allies/remove', 'POST', {
+          participantId: participant.id,
+          targetId
         });
         fetchState();
       } catch (err) {
@@ -2941,6 +3308,54 @@ function wirePlayerSheetEvents(participant) {
       if (idx < 0 || idx >= abilities.length) return;
       abilities.splice(idx, 1);
       await patchParticipant(participant.id, { abilities });
+      fetchState();
+    };
+  });
+  panel.querySelector('[data-player-proficiency-form]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const token = String(formData.get('proficiency') || '').trim();
+    if (!token) return;
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const current = Array.isArray(latest?.proficiencies) ? latest.proficiencies : [];
+    const proficiencies = mergePlayerUniqueText(current, token);
+    await patchParticipant(participant.id, { proficiencies });
+    event.target.reset();
+    fetchState();
+  });
+  panel.querySelectorAll('[data-player-remove-proficiency]').forEach((button) => {
+    button.onclick = async () => {
+      const index = Number(button.dataset.playerRemoveProficiency);
+      if (!Number.isInteger(index) || index < 0) return;
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const proficiencies = [...(latest?.proficiencies || [])];
+      if (index >= proficiencies.length) return;
+      proficiencies.splice(index, 1);
+      await patchParticipant(participant.id, { proficiencies });
+      fetchState();
+    };
+  });
+  panel.querySelector('[data-player-language-form]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const token = String(formData.get('language') || '').trim();
+    if (!token) return;
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const current = Array.isArray(latest?.languages) ? latest.languages : [];
+    const languages = mergePlayerUniqueText(current, token);
+    await patchParticipant(participant.id, { languages });
+    event.target.reset();
+    fetchState();
+  });
+  panel.querySelectorAll('[data-player-remove-language]').forEach((button) => {
+    button.onclick = async () => {
+      const index = Number(button.dataset.playerRemoveLanguage);
+      if (!Number.isInteger(index) || index < 0) return;
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const languages = [...(latest?.languages || [])];
+      if (index >= languages.length) return;
+      languages.splice(index, 1);
+      await patchParticipant(participant.id, { languages });
       fetchState();
     };
   });

@@ -27,13 +27,20 @@ Node + vanilla JS encounter tracker for a card-based tactical system. GM and pla
 - Card actions with mastery scaling and automation fields.
 - Construct deployment/retarget/remove/move APIs.
 - Zone creation from cards, zone turns in initiative, and target management from GM/player dashboards.
+- Set automation runtime:
+  - Arcane split-target + damage-type shift controls on card use.
+  - Team-based allies for Divine/Nature effects (manual ally targets still supported as optional overrides).
+  - Additional passive set triggers for damage/heal/status/zone interactions.
+- Team selector on GM/player character headers (same-team characters are treated as allies).
 - Max active zone cap per participant (currently 2). Casting beyond cap is blocked with an error.
 - Max active card cap per participant (currently 10).
+- Abilities now include Proficiencies and Languages lists (editable in GM and player manage mode).
 - Short/Long rest (single participant and all-participants).
 - Journal entries (quests/achievements), player ack flow.
 - Card import/export, encounter import/export, participant import.
 - End Encounter button/API to reset encounter turn state.
 - All collapsible UI sections default to closed for GM/player/library.
+- Card Library set/rarity dropdowns stay open until manually toggled.
 - GM Help Menu with popup tabs for Statuses, Combat Rules, Out of Combat, and Cards.
 
 ## Card Bonus Rules
@@ -54,6 +61,8 @@ Node + vanilla JS encounter tracker for a card-based tactical system. GM and pla
   - `maxActiveCards`
   - `maxActiveZones`
 - Server tier rules: [lib/card-rules.js](lib/card-rules.js)
+- Team dropdown defaults: `TEAM_OPTIONS` in `server.js`
+- Set bonus library: [lib/set-library.js](lib/set-library.js)
 - Frontend shared tier rules: [public/shared/card-rules.js](public/shared/card-rules.js)
 - Frontend UI limits: [public/shared/game-config.js](public/shared/game-config.js)
 
@@ -91,6 +100,8 @@ All routes accept/return JSON.
   - `POST /api/zones/target/remove`
 - Set actions
   - `POST /api/set/activate`
+  - `POST /api/set/allies/add`
+  - `POST /api/set/allies/remove`
 - Rest
   - `POST /api/rest/short`
   - `POST /api/rest/long`
@@ -109,6 +120,7 @@ All routes accept/return JSON.
 - `lib/`
   - `game-config.js`: shared server limits.
   - `card-rules.js`: server card tier rules/helpers.
+  - `set-library.js`: centralized set definitions and lookup builder.
   - `encounter-lifecycle.js`: start/end encounter behavior.
   - `turn-order.js`: turn entry/index helpers.
   - `rest.js`: short/long rest mechanics.

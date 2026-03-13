@@ -19,6 +19,7 @@ import {
 } from './lib/actions/zone-targets.js';
 import { resolveCardActionContext } from './lib/actions/card-preflight.js';
 import { applyShortRestForEncounter, applyLongRestForEncounter } from './lib/rest.js';
+import { SET_LIBRARY, buildSetNameLookup } from './lib/set-library.js';
 import {
   buildTurnEntriesForEncounter,
   getTurnEntryKeyForEncounter,
@@ -110,45 +111,7 @@ const STANDARD_ACTIONS = {
 const DEFAULT_GUARD_RESTORE = 3;
 const MAX_ACTIVE_CARDS = GAME_LIMITS.maxActiveCards;
 const MAX_ACTIVE_ZONES = GAME_LIMITS.maxActiveZones;
-const SET_LIBRARY = {
-  Machine: [
-    {
-      id: 'machine_3_reinforced_restore',
-      pieces: 3,
-      effect:
-        'When you restore Shield, restore +2 additional Shield.',
-      modifiers: { guardRestore: 2 }
-    },
-    {
-      id: 'machine_5_auto_loader',
-      pieces: 5,
-      effect:
-        'Once per turn, after you play a Machine card, your next Machine Attack this turn costs 1 less AP (min 1). You may also have 2 constructs active at the same time.',
-      modifiers: {}
-    },
-    {
-      id: 'machine_7_construct_boost',
-      pieces: 7,
-      effect:
-        'Constructs and turrets you deploy gain +2 damage and last 1 turn longer.',
-      modifiers: {}
-    },
-    {
-      id: 'machine_10_construct_cap',
-      pieces: 10,
-      effect: 'You may have 3 constructs active at the same time.',
-      modifiers: {}
-    }
-  ],
-  Elemental: [],
-  Goblinoid: [],
-  Human: []
-};
-
-const SET_NAME_LOOKUP = Object.keys(SET_LIBRARY).reduce((acc, key) => {
-  acc[String(key).toLowerCase()] = key;
-  return acc;
-}, {});
+const SET_NAME_LOOKUP = buildSetNameLookup(SET_LIBRARY);
 
 const STATUS_LIBRARY = [
   {
@@ -223,6 +186,33 @@ const STATUS_LIBRARY = [
   }
 ];
 
+const ARCANE_DAMAGE_TYPE_OPTIONS = new Set([
+  'acid',
+  'bludgeoning',
+  'cold',
+  'fire',
+  'force',
+  'lightning',
+  'necrotic',
+  'piercing',
+  'poison',
+  'psychic',
+  'radiant',
+  'slashing',
+  'thunder'
+]);
+
+const SHADOW_FINISHER_STATUS_TYPES = new Set([
+  'blinded',
+  'weakened',
+  'fatigued',
+  'rooted',
+  'restrained',
+  'stunned'
+]);
+
+const TEAM_OPTIONS = Object.freeze(['Team 1', 'Team 2', 'Team 3', 'Team 4']);
+
 const JOURNAL_FIELD_BY_CATEGORY = {
   quest: 'quests',
   achievement: 'achievements'
@@ -235,7 +225,8 @@ function buildReferenceData() {
       name,
       bonuses
     })),
-    statuses: STATUS_LIBRARY
+    statuses: STATUS_LIBRARY,
+    teams: TEAM_OPTIONS
   };
 }
 
@@ -346,8 +337,15 @@ async function handleApi(req, res, pathname, method) {
 
       if (method === 'PATCH' && !subresource) {
         const body = await readBody(req);
-        Object.assign(participant, sanitizeParticipantUpdate(body, participant));
-        recalculateParticipant(participant);
+        const update = sanitizeParticipantUpdate(body, participant);
+        Object.assign(participant, update);
+        if (Object.prototype.hasOwnProperty.call(update, 'team')) {
+          for (const entry of trackerState.encounter.participants || []) {
+            recalculateParticipant(entry);
+          }
+        } else {
+          recalculateParticipant(participant);
+        }
         sortParticipants();
         ensureCurrentIndex();
         touchState();
@@ -477,6 +475,24 @@ async function handleApi(req, res, pathname, method) {
     if (method === 'POST' && pathname === '/api/set/activate') {
       const body = await readBody(req);
       const result = activateSetBonusAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/set/allies/add') {
+      const body = await readBody(req);
+      const result = executeAddSetAllyAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/set/allies/remove') {
+      const body = await readBody(req);
+      const result = executeRemoveSetAllyAction(body);
       if (result.error) {
         return sendJson(res, result, 400);
       }
@@ -648,7 +664,7 @@ function endEncounter() {
 }
 
 function executeStandardAction(body) {
-  return executeStandardActionForEncounter(body, {
+  const result = executeStandardActionForEncounter(body, {
     standardActions: STANDARD_ACTIONS,
     defaultGuardRestore: DEFAULT_GUARD_RESTORE,
     resolveActor,
@@ -658,6 +674,25 @@ function executeStandardAction(body) {
     touchState,
     broadcastState
   });
+  if (result?.error || !result?.participant || !result?.action) {
+    return result;
+  }
+  const participant = result.participant;
+  const actionId = String(result.action.id || '').toLowerCase();
+  let changed = false;
+  if (actionId === 'move') {
+    changed = applyShadowMovementProgress(participant, 10) > 0 || changed;
+  } else if (actionId === 'move_difficult' || actionId === 'slip') {
+    changed = applyShadowMovementProgress(participant, 5) > 0 || changed;
+  }
+  if (actionId === 'recover') {
+    changed = maybeApplyDivineRecoverHealing(participant, participant, { triggeredBySelfRecover: true, silent: true }) > 0 || changed;
+  }
+  if (changed) {
+    touchState();
+    broadcastState('standard_action_set_bonus');
+  }
+  return result;
 }
 
 function executeCardAction(body) {
@@ -665,11 +700,39 @@ function executeCardAction(body) {
   if (context.error) {
     return context;
   }
-  const { participant, card, cardIndex } = context;
+  const { participant, card } = context;
+  const setRuntime = ensureSetRuntime(participant);
+  const machine = setRuntime.machine;
+  const arcane = setRuntime.arcane;
+  const beast = setRuntime.beast;
+  const demonic = setRuntime.demonic;
+  const divine = setRuntime.divine;
+  const elemental = setRuntime.elemental;
+  const nature = setRuntime.nature;
+  const shadow = setRuntime.shadow;
+  const setGroups = buildActiveCardGroups(participant);
+  const hasArcane3 = hasSetBonus(participant, 'Arcane', 3, setGroups);
+  const hasArcane5 = hasSetBonus(participant, 'Arcane', 5, setGroups);
+  const hasBeast3 = hasSetBonus(participant, 'Beast', 3, setGroups);
+  const hasBeast5 = hasSetBonus(participant, 'Beast', 5, setGroups);
+  const hasBeast10 = hasSetBonus(participant, 'Beast', 10, setGroups);
+  const hasDemonic3 = hasSetBonus(participant, 'Demonic', 3, setGroups);
+  const hasDemonic5 = hasSetBonus(participant, 'Demonic', 5, setGroups);
+  const hasDemonic10 = hasSetBonus(participant, 'Demonic', 10, setGroups);
+  const hasDivine3 = hasSetBonus(participant, 'Divine', 3, setGroups);
+  const hasElemental3 = hasSetBonus(participant, 'Elemental', 3, setGroups);
+  const hasElemental5 = hasSetBonus(participant, 'Elemental', 5, setGroups);
+  const hasElemental7 = hasSetBonus(participant, 'Elemental', 7, setGroups);
+  const hasElemental10 = hasSetBonus(participant, 'Elemental', 10, setGroups);
+  const hasNature3 = hasSetBonus(participant, 'Nature', 3, setGroups);
+  const hasNature10 = hasSetBonus(participant, 'Nature', 10, setGroups);
+  const hasShadow3 = hasSetBonus(participant, 'Shadow', 3, setGroups);
+  const hasShadow7 = hasSetBonus(participant, 'Shadow', 7, setGroups);
+  const hasShadow10 = hasSetBonus(participant, 'Shadow', 10, setGroups);
+  const isElementalAttack = String(card?.set || '').toLowerCase() === 'elemental' && getCardDamageAtCurrentMastery(card) > 0;
   const masteryLevel = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
   const baseCost = Math.max(0, Number(card.apCost || 0));
   let apCost = baseCost;
-  const machine = getMachineSetRuntime(participant);
   const notes = [];
   const chargesMax = Math.max(
     0,
@@ -701,8 +764,25 @@ function executeCardAction(body) {
     return { error: 'Not enough AP' };
   }
 
-  const damageType = String(card.damageType || '').trim();
-  const secondaryDamageType = String(card.secondaryDamageType || '').trim() || damageType;
+  let damageType = String(card.damageType || '').trim();
+  let secondaryDamageType = String(card.secondaryDamageType || '').trim() || damageType;
+  const overrideDamageTypeRaw = String(body.overrideDamageType || '').trim();
+  const overrideDamageType = normalizeDamageTypeOverride(overrideDamageTypeRaw);
+  if (overrideDamageTypeRaw && !overrideDamageType) {
+    return { error: `Unsupported damage type: ${overrideDamageTypeRaw}` };
+  }
+  if (overrideDamageType) {
+    if (!hasArcane3) {
+      return { error: 'Arcane 3-piece bonus is required to change damage type.' };
+    }
+    if (arcane.damageTypeShiftUsedTurn) {
+      return { error: 'Arcane damage-type shift has already been used this turn.' };
+    }
+    damageType = overrideDamageType;
+    secondaryDamageType = overrideDamageType;
+    arcane.damageTypeShiftUsedTurn = true;
+    notes.push(`Arcane Shift changes damage type to ${overrideDamageType}.`);
+  }
   const baseDamage = getCardDamageAtCurrentMastery(card);
   const secondaryBaseDamage = getCardSecondaryDamageAtCurrentMastery(card);
   const isConstruct = isConstructCard(card);
@@ -717,27 +797,40 @@ function executeCardAction(body) {
   const constructStatusId = String(card.constructStatusId || '').trim();
   const constructStatusName = String(card.constructStatusName || '').trim();
   const constructStatusStacks = Math.max(1, Number(card.constructStatusStacks || 1));
+  const arcaneModifiedCard = arcane.modifiedCard?.cardId === card.id ? arcane.modifiedCard : null;
+  if (arcaneModifiedCard?.mode === 'ap') {
+    apCost = Math.max(1, apCost - 1);
+  }
   const nextAttackBonus = !isConstruct && baseDamage > 0
     ? Math.max(0, Number(participant.nextAttackDamageBonus || 0))
     : 0;
   const zoneTickDamage = zoneCard
-    ? Math.max(0, baseDamage + (participant.damageBonus || 0))
+    ? Math.max(
+        0,
+        baseDamage + (participant.damageBonus || 0) + (hasElemental7 ? 2 : 0) + (arcaneModifiedCard?.mode === 'damage' ? 2 : 0)
+      )
     : 0;
   const rawDamage = isConstruct
     ? 0
     : zoneCard
       ? 0
     : baseDamage > 0
-      ? Math.max(0, baseDamage + (participant.damageBonus || 0) + nextAttackBonus)
+      ? Math.max(
+          0,
+          baseDamage + (participant.damageBonus || 0) + nextAttackBonus + (arcaneModifiedCard?.mode === 'damage' ? 2 : 0)
+        )
       : 0;
   const secondaryRawDamage = isConstruct ? 0 : Math.max(0, secondaryBaseDamage);
   const shieldRestoreBase = getCardScaledValue(card.shieldRestoreByLevel, masteryLevel, 0);
   const shieldRestoreBonus = getGlobalShieldRestoreBonus(participant);
   const shieldRestoreTotal = Math.max(0, shieldRestoreBase + (shieldRestoreBase > 0 ? shieldRestoreBonus : 0));
-  const healTotal = Math.max(
+  let healTotal = Math.max(
     0,
     Math.round(getCardScaledValue(card.healByLevel, masteryLevel, Number(card.heal || 0)))
   );
+  if (healTotal > 0 && hasNature3) {
+    healTotal += 2;
+  }
   const moveDistance = getCardScaledValue(card.movementByLevel, masteryLevel, 0);
   const pushDistance = getCardScaledValue(card.pushDistanceByLevel, masteryLevel, 0);
   const pullDistance = getCardScaledValue(card.pullDistanceByLevel, masteryLevel, 0);
@@ -793,6 +886,34 @@ function executeCardAction(body) {
       : primaryTarget
         ? [primaryTarget]
         : [];
+  const arcaneSplitTargetId = String(body.arcaneSplitTargetId || '').trim();
+  const arcaneSplitTarget = arcaneSplitTargetId ? findParticipant(arcaneSplitTargetId) : null;
+  const canArcaneSplit =
+    hasArcane5 &&
+    !arcane.splitUsedTurn &&
+    !isConstruct &&
+    !zoneCard &&
+    !selfTarget &&
+    targetMode === 'single' &&
+    primaryTarget &&
+    arcaneSplitTarget &&
+    arcaneSplitTarget.id !== primaryTarget.id;
+  if (arcaneSplitTargetId && !arcaneSplitTarget) {
+    return { error: 'Arcane split target not found' };
+  }
+  if (arcaneSplitTargetId && !hasArcane5) {
+    return { error: 'Arcane 5-piece bonus is required for split targeting.' };
+  }
+  if (arcaneSplitTargetId && arcane.splitUsedTurn) {
+    return { error: 'Arcane split has already been used this turn.' };
+  }
+  if (arcaneSplitTarget && arcaneSplitTarget.id === participant.id && !allowSelfTarget) {
+    return { error: 'This card cannot target self for Arcane split.' };
+  }
+  if (arcaneSplitTargetId && !canArcaneSplit) {
+    return { error: 'Arcane split requires a single-target non-self card with a valid second target.' };
+  }
+  const effectivePrimaryTargets = canArcaneSplit ? [primaryTarget, arcaneSplitTarget] : primaryTargets;
 
   const secondaryTargetId = String(body.secondaryTargetId || '').trim();
   const secondaryTarget = secondaryTargetId ? findParticipant(secondaryTargetId) : null;
@@ -845,18 +966,48 @@ function executeCardAction(body) {
   const damageResults = [];
   let constructDeployResult = null;
   let zoneDeployResult = null;
+  const shadowBleedTargets = [];
+  const splitDamage = canArcaneSplit && rawDamage > 0 ? splitAmountBetweenTwo(rawDamage) : null;
+  const splitShieldRestore = canArcaneSplit && shieldRestoreTotal > 0 ? splitAmountBetweenTwo(shieldRestoreTotal) : null;
+  const splitHealing = canArcaneSplit && healTotal > 0 ? splitAmountBetweenTwo(healTotal) : null;
+  const demonicStatusProc = Boolean(statusApply) && ['bleeding', 'poisoned', 'burning'].includes(statusApply?.id);
   const addDamageResult = (damageTarget, amount, type, source = 'primary', options = {}) => {
     if (!damageTarget || amount <= 0) return;
     const shieldConditionalBonus = Math.max(0, Number(options.bonusIfTargetHasShield || 0));
     const directHpOnFullyBlocked = Math.max(0, Number(options.directHpOnFullyBlocked || 0));
+    const bleedingBefore = getStatusStacks(damageTarget, 'bleeding');
+    const hadStatusesBefore = Array.isArray(damageTarget.statuses) && damageTarget.statuses.length > 0;
+    let setDamageBonus = 0;
+    if (hasBeast5 && bleedingBefore > 0 && isParticipantEnemy(participant, damageTarget)) {
+      setDamageBonus += 2;
+    }
+    if (hasShadow3 && isParticipantEnemy(participant, damageTarget) && !hasParticipantActedThisRound(damageTarget)) {
+      setDamageBonus += 2;
+    }
+    const hasShadowFinisherDebuff = hasShadow7 && targetHasShadowFinisherDebuff(damageTarget) && isParticipantEnemy(participant, damageTarget);
+    if (hasShadowFinisherDebuff) {
+      setDamageBonus += 3;
+    }
+    if (hasElemental5 && isElementalAttack && targetIsInsideAnyZone(damageTarget.id) && isParticipantEnemy(participant, damageTarget)) {
+      setDamageBonus += 2;
+    }
+    if (hasDemonic3 && demonicStatusProc) {
+      setDamageBonus += 2;
+    }
     let appliedAmount = Math.max(0, Number(amount || 0));
     let shieldBonusApplied = 0;
+    if (setDamageBonus > 0) {
+      appliedAmount += setDamageBonus;
+    }
     if (shieldConditionalBonus > 0 && damageTarget.shield > 0) {
       appliedAmount += shieldConditionalBonus;
       shieldBonusApplied = shieldConditionalBonus;
     }
     const result = applyCardDamageWithType(damageTarget, appliedAmount, type);
     result.shieldBonusDamage = shieldBonusApplied;
+    result.setBonusDamage = setDamageBonus;
+    result.bleedingBefore = bleedingBefore;
+    result.hadStatusesBefore = hadStatusesBefore;
     result.directHpDamage = 0;
     if (directHpOnFullyBlocked > 0 && result.shieldBefore > 0 && damageTarget.shield > 0) {
       const hpBypass = Math.min(damageTarget.hp, directHpOnFullyBlocked);
@@ -877,6 +1028,11 @@ function executeCardAction(body) {
       damageType: type,
       source
     });
+    if (hasShadowFinisherDebuff) {
+      addStatusStacks(damageTarget, 'bleeding', 1);
+      enforceControlHierarchy(damageTarget);
+      shadowBleedTargets.push(damageTarget.name);
+    }
   };
   const others = trackerState.encounter.participants.filter((entry) => entry.id !== participant.id);
   if (isConstruct) {
@@ -903,7 +1059,8 @@ function executeCardAction(body) {
       masteryLevel,
       damage: zoneTickDamage,
       damageType,
-      targetIds: primaryTargets.map((entry) => entry.id)
+      targetIds: effectivePrimaryTargets.map((entry) => entry.id),
+      radiusBonusFt: arcaneModifiedCard?.mode === 'radius' ? 5 : 0
     });
     const zone = zoneDeployResult.zone;
     const durationText =
@@ -916,8 +1073,9 @@ function executeCardAction(body) {
     );
   } else {
     if (rawDamage > 0) {
-      for (const damageTarget of primaryTargets) {
-        addDamageResult(damageTarget, rawDamage, damageType, 'primary', {
+      for (const [index, damageTarget] of effectivePrimaryTargets.entries()) {
+        const amount = splitDamage ? splitDamage[index] : rawDamage;
+        addDamageResult(damageTarget, amount, damageType, 'primary', {
           bonusIfTargetHasShield: conditionalShieldDamageBonus,
           directHpOnFullyBlocked: fullyBlockedHpDamage
         });
@@ -927,7 +1085,7 @@ function executeCardAction(body) {
     if (secondaryRawDamage > 0) {
       let secondaryTargets = [];
       if (secondaryTargetMode === 'same') {
-        secondaryTargets = primaryTargets;
+        secondaryTargets = effectivePrimaryTargets;
       } else if (secondaryTargetMode === 'adjacent') {
         if (secondaryTarget && (!primaryTarget || secondaryTarget.id !== primaryTarget.id)) {
           secondaryTargets = [secondaryTarget];
@@ -949,6 +1107,45 @@ function executeCardAction(body) {
     notes.push(`Consumes +${nextAttackBonus} next-attack damage bonus.`);
   }
 
+  if (shadowBleedTargets.length) {
+    notes.push(`Shadow finisher applies Bleeding 1 to ${Array.from(new Set(shadowBleedTargets)).join(', ')}.`);
+  }
+
+  if (hasBeast10 && !beast.bleedAttackApUsedTurn) {
+    const proc = damageResults.some(
+      (entry) => entry.result.bleedingBefore > 0 && isParticipantEnemy(participant, entry.target)
+    );
+    if (proc) {
+      participant.apCurrent += 1;
+      beast.bleedAttackApUsedTurn = true;
+      notes.push('Beast set grants +1 AP for attacking a Bleeding enemy.');
+    }
+  }
+  if (hasDemonic5 && !demonic.statusHealUsedTurn) {
+    const proc = damageResults.some(
+      (entry) => entry.result.hadStatusesBefore && isParticipantEnemy(participant, entry.target)
+    );
+    if (proc) {
+      const beforeHp = participant.hp;
+      participant.hp = Math.min(participant.maxHp, participant.hp + 2);
+      const healed = participant.hp - beforeHp;
+      demonic.statusHealUsedTurn = true;
+      if (healed > 0) {
+        notes.push(`Demonic set restores ${healed} HP.`);
+      }
+    }
+  }
+  if (hasDemonic10 && !demonic.nearbyKillApUsedTurn) {
+    const proc = damageResults.some(
+      (entry) => entry.result.hpBefore > 0 && entry.target.hp <= 0 && isParticipantEnemy(participant, entry.target)
+    );
+    if (proc) {
+      participant.apCurrent += 1;
+      demonic.nearbyKillApUsedTurn = true;
+      notes.push('Demonic set grants +1 AP for a nearby kill.');
+    }
+  }
+
   if (!isConstruct && shieldRestoreTotal > 0) {
     const shieldTarget = selfTarget
       ? participant
@@ -956,7 +1153,7 @@ function executeCardAction(body) {
         ? null
         : primaryTarget || participant;
     if (targetMode === 'all_others' || targetMode === 'multi_select') {
-      const recipients = targetMode === 'all_others' ? others : primaryTargets;
+      const recipients = targetMode === 'all_others' ? others : effectivePrimaryTargets;
       const restoredTargets = [];
       recipients.forEach((entry) => {
         const beforeShield = entry.shield;
@@ -968,6 +1165,17 @@ function executeCardAction(body) {
       });
       if (restoredTargets.length) {
         notes.push(`Restores Shield to ${restoredTargets.join(', ')}.`);
+      }
+    } else if (splitShieldRestore && effectivePrimaryTargets.length === 2) {
+      const restoredTargets = [];
+      effectivePrimaryTargets.forEach((entry, index) => {
+        const beforeShield = entry.shield;
+        entry.shield = Math.min(entry.maxShield, entry.shield + splitShieldRestore[index]);
+        const restored = entry.shield - beforeShield;
+        if (restored > 0) restoredTargets.push(`${entry.name} (+${restored})`);
+      });
+      if (restoredTargets.length) {
+        notes.push(`Arcane split restores Shield to ${restoredTargets.join(', ')}.`);
       }
     } else if (shieldTarget) {
       const beforeShield = shieldTarget.shield;
@@ -983,8 +1191,9 @@ function executeCardAction(body) {
       : targetMode === 'all_others'
         ? null
         : primaryTarget || participant;
+    const healedAllies = [];
     if (targetMode === 'all_others' || targetMode === 'multi_select') {
-      const recipients = targetMode === 'all_others' ? others : primaryTargets;
+      const recipients = targetMode === 'all_others' ? others : effectivePrimaryTargets;
       const healedTargets = [];
       recipients.forEach((entry) => {
         const beforeHp = entry.hp;
@@ -992,30 +1201,77 @@ function executeCardAction(body) {
         const healed = entry.hp - beforeHp;
         if (healed > 0) {
           healedTargets.push(`${entry.name} (+${healed})`);
+          if (isParticipantAlly(participant, entry)) {
+            healedAllies.push(entry);
+          }
         }
       });
       if (healedTargets.length) {
         notes.push(`Restores HP to ${healedTargets.join(', ')}.`);
+      }
+    } else if (splitHealing && effectivePrimaryTargets.length === 2) {
+      const healedTargets = [];
+      effectivePrimaryTargets.forEach((entry, index) => {
+        const beforeHp = entry.hp;
+        entry.hp = Math.min(entry.maxHp, entry.hp + splitHealing[index]);
+        const healed = entry.hp - beforeHp;
+        if (healed > 0) {
+          healedTargets.push(`${entry.name} (+${healed})`);
+          if (isParticipantAlly(participant, entry)) {
+            healedAllies.push(entry);
+          }
+        }
+      });
+      if (healedTargets.length) {
+        notes.push(`Arcane split restores HP to ${healedTargets.join(', ')}.`);
       }
     } else if (healTarget) {
       const beforeHp = healTarget.hp;
       healTarget.hp = Math.min(healTarget.maxHp, healTarget.hp + healTotal);
       const healed = healTarget.hp - beforeHp;
       notes.push(`Restores ${healed} HP${healTarget.id === participant.id ? '' : ` to ${healTarget.name}`}.`);
+      if (healed > 0 && isParticipantAlly(participant, healTarget)) {
+        healedAllies.push(healTarget);
+      }
+    }
+    if (healedAllies.length && hasDivine3) {
+      const shieldRecipients = [];
+      for (const ally of healedAllies) {
+        const beforeShield = ally.shield;
+        ally.shield = Math.min(ally.maxShield, ally.shield + 2);
+        const granted = ally.shield - beforeShield;
+        if (granted > 0) {
+          shieldRecipients.push(`${ally.name} (+${granted})`);
+        }
+      }
+      if (shieldRecipients.length) {
+        notes.push(`Divine set grants Shield to ${shieldRecipients.join(', ')}.`);
+      }
+    }
+    if (healedAllies.length && hasNature10 && !nature.cleanseUsedTurn) {
+      const cleanseTarget = healedAllies.find((entry) => (entry.statuses || []).length > 0);
+      if (cleanseTarget) {
+        const removed = clearOneStatusEffect(cleanseTarget);
+        if (removed) {
+          nature.cleanseUsedTurn = true;
+          notes.push(`Nature set removes ${removed} from ${cleanseTarget.name}.`);
+        }
+      }
     }
   }
 
   if (!isConstruct && moveDistance > 0) {
     notes.push(`Moves ${moveDistance} ft.`);
+    applyShadowMovementProgress(participant, moveDistance, notes);
   }
   if (!isConstruct && pushDistance > 0) {
     const pushTargets =
       targetMode === 'all_others'
         ? others
         : targetMode === 'multi_select'
-          ? primaryTargets
+          ? effectivePrimaryTargets
           : primaryTarget
-            ? [primaryTarget]
+            ? effectivePrimaryTargets
             : [];
     if (pushTargets.length === 1) {
       notes.push(`Pushes ${pushTargets[0].name} ${pushDistance} ft.`);
@@ -1028,9 +1284,9 @@ function executeCardAction(body) {
       targetMode === 'all_others'
         ? others
         : targetMode === 'multi_select'
-          ? primaryTargets
+          ? effectivePrimaryTargets
           : primaryTarget
-            ? [primaryTarget]
+            ? effectivePrimaryTargets
             : [];
     if (pullTargets.length === 1) {
       notes.push(`Pulls ${pullTargets[0].name} ${pullDistance} ft.`);
@@ -1040,23 +1296,45 @@ function executeCardAction(body) {
   }
 
   if (!isConstruct && statusApply) {
+    const statusStacks = resolveStatusStacksForCard(statusApply, {
+      hasBeast3,
+      hasElemental3,
+      beastRuntime: beast,
+      elementalRuntime: elemental
+    });
     const statusTargets =
       targetMode === 'all_others'
         ? others
         : targetMode === 'multi_select'
-          ? primaryTargets
+          ? effectivePrimaryTargets
         : selfTarget
           ? [participant]
           : primaryTarget
-            ? [primaryTarget]
+            ? effectivePrimaryTargets
             : [];
     if (statusTargets.length) {
       statusTargets.forEach((statusTarget) => {
-        addStatusStacks(statusTarget, statusApply.id, statusApply.stacks);
+        addStatusStacks(statusTarget, statusApply.id, statusStacks);
         enforceControlHierarchy(statusTarget);
       });
       const names = statusTargets.map((entry) => entry.name).join(', ');
-      notes.push(`Applies ${statusDisplayName(statusApply.id)} ${statusApply.stacks} to ${names}.`);
+      notes.push(`Applies ${statusDisplayName(statusApply.id)} ${statusStacks} to ${names}.`);
+      if (hasElemental10 && !elemental.burstUsedTurn) {
+        const burstTargets = Array.from(
+          new Map(
+            statusTargets
+              .filter((entry) => entry.id !== participant.id)
+              .map((entry) => [entry.id, entry])
+          ).values()
+        );
+        if (burstTargets.length) {
+          burstTargets.forEach((entry) => {
+            addDamageResult(entry, 3, damageType || 'Elemental', 'elemental_burst');
+          });
+          notes.push(`Elemental burst hits ${burstTargets.length} target${burstTargets.length === 1 ? '' : 's'} for 3.`);
+        }
+        elemental.burstUsedTurn = true;
+      }
     }
   }
 
@@ -1065,11 +1343,11 @@ function executeCardAction(body) {
       targetMode === 'all_others'
         ? others
         : targetMode === 'multi_select'
-          ? primaryTargets
+          ? effectivePrimaryTargets
           : selfTarget
             ? [participant]
             : primaryTarget
-              ? [primaryTarget]
+              ? effectivePrimaryTargets
               : [];
     if (recipients.length) {
       recipients.forEach((entry) => {
@@ -1085,6 +1363,14 @@ function executeCardAction(body) {
     machine.autoLoaderPrimed = true;
     machine.autoLoaderTriggeredTurn = true;
     notes.push('Auto-Loader primed for your next Machine Attack this turn.');
+  }
+  if (canArcaneSplit) {
+    arcane.splitUsedTurn = true;
+    notes.push(`Arcane split applies this card to ${primaryTarget.name} and ${arcaneSplitTarget.name}.`);
+  }
+  if (hasShadow10 && damageResults.length && !shadow.postAttackMoveUsedTurn) {
+    shadow.postAttackMoveUsedTurn = true;
+    notes.push('Shadow set lets you move 10 ft after attacking.');
   }
 
   card.masteryUses = Math.max(0, Number(card.masteryUses || 0)) + 1;
@@ -1127,7 +1413,9 @@ function executeCardAction(body) {
             entry.result.directHpDamage > 0
               ? ` [Fully Blocked: +${entry.result.directHpDamage} direct HP]`
               : '';
-          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${fullyBlocked}`;
+          const setBonus = entry.result.setBonusDamage > 0 ? ` [+${entry.result.setBonusDamage} set bonus]` : '';
+          const divineReverse = entry.result.preventedByDivine ? ' [Reversed by Divine]' : '';
+          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${fullyBlocked}${setBonus}${divineReverse}`;
         })
         .join(' ')}`
     : '';
@@ -1137,8 +1425,9 @@ function executeCardAction(body) {
     apCost,
     baseCost,
     targetId: primaryTarget?.id || null,
-    targetIds: primaryTargets.map((entry) => entry.id),
+    targetIds: effectivePrimaryTargets.map((entry) => entry.id),
     secondaryTargetId: secondaryTarget?.id || null,
+    arcaneSplitTargetId: arcaneSplitTarget?.id || null,
     targetMode,
     damageType,
     secondaryDamageType,
@@ -1156,7 +1445,7 @@ function executeCardAction(body) {
     apCost,
     baseCost,
     target: primaryTarget,
-    targets: primaryTargets,
+    targets: effectivePrimaryTargets,
     secondaryTarget,
     damageResult,
     damageResults,
@@ -1222,9 +1511,209 @@ function executeRemoveZoneTargetAction(body) {
   });
 }
 
+function executeAddSetAllyAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const targetId = String(body.targetId || '').trim();
+  if (!targetId) {
+    return { error: 'targetId is required' };
+  }
+  const target = findParticipant(targetId);
+  if (!target) {
+    return { error: 'Target not found' };
+  }
+  if (target.id === participant.id) {
+    return { error: 'You cannot add yourself as an ally target' };
+  }
+  const runtime = ensureSetRuntime(participant);
+  const current = new Set(runtime.allies.targetIds || []);
+  current.add(target.id);
+  runtime.allies.targetIds = Array.from(current);
+  sanitizeSetAllyTargets(participant);
+  recalculateParticipant(participant);
+  pushLog(`${participant.name} adds ${target.name} as an ally target for set effects.`, participant.id, {
+    targetId: target.id
+  });
+  touchState();
+  broadcastState('set_allies_updated');
+  return { participant, target, allies: getSetAllyTargets(participant) };
+}
+
+function executeRemoveSetAllyAction(body) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const targetId = String(body.targetId || '').trim();
+  if (!targetId) {
+    return { error: 'targetId is required' };
+  }
+  const runtime = ensureSetRuntime(participant);
+  const before = runtime.allies.targetIds.length;
+  runtime.allies.targetIds = runtime.allies.targetIds.filter((id) => String(id) !== targetId);
+  sanitizeSetAllyTargets(participant);
+  recalculateParticipant(participant);
+  if (runtime.allies.targetIds.length === before) {
+    return { error: 'Target was not assigned as an ally' };
+  }
+  const target = findParticipant(targetId);
+  pushLog(`${participant.name} removes ${target?.name || 'a target'} from ally set targets.`, participant.id, {
+    targetId
+  });
+  touchState();
+  broadcastState('set_allies_updated');
+  return { participant, targetId, allies: getSetAllyTargets(participant) };
+}
+
 function activateSetBonusAction(body) {
-  void body;
-  return { error: 'No active set abilities are currently configured.' };
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const abilityId = String(body.abilityId || '').trim().toLowerCase();
+  if (!abilityId) {
+    return { error: 'abilityId is required' };
+  }
+  const runtime = ensureSetRuntime(participant);
+  if (abilityId === 'arcane_7_temp_copy') {
+    if (!hasSetBonus(participant, 'Arcane', 7)) {
+      return { error: 'Arcane 7-piece bonus is required.' };
+    }
+    if (runtime.arcane.copyUsedEncounter) {
+      return { error: 'Arcane copy has already been used this encounter.' };
+    }
+    const sourceCardId = String(body.cardId || '').trim();
+    if (!sourceCardId) {
+      return { error: 'cardId is required for Arcane copy.' };
+    }
+    const sourceCard = (participant.cards || []).find((card) => String(card.id) === sourceCardId);
+    if (!sourceCard) {
+      return { error: 'Selected card not found.' };
+    }
+    const activeCount = getActiveParticipantCards(participant).length;
+    if (activeCount >= MAX_ACTIVE_CARDS) {
+      return { error: `No open active-card slot. Max ${MAX_ACTIVE_CARDS}.` };
+    }
+    const copy = normalizeCards([{
+      ...sourceCard,
+      id: randomUUID(),
+      name: `${sourceCard.name} (Arcane Copy)`,
+      temporarySource: 'arcane_7_temp_copy',
+      active: true,
+      masteryUses: 0
+    }])[0];
+    participant.cards = normalizeCards([...(participant.cards || []), copy]);
+    runtime.arcane.copyUsedEncounter = true;
+    recalculateParticipant(participant);
+    pushLog(`${participant.name} uses Arcane 7-piece to copy ${sourceCard.name}.`, participant.id, {
+      abilityId,
+      cardId: copy.id,
+      sourceCardId
+    });
+    touchState();
+    broadcastState('set_activate_arcane_copy');
+    return { participant, card: copy };
+  }
+  if (abilityId === 'arcane_10_modify_card') {
+    if (!hasSetBonus(participant, 'Arcane', 10)) {
+      return { error: 'Arcane 10-piece bonus is required.' };
+    }
+    if (runtime.arcane.modifiedCard?.cardId) {
+      return { error: 'Arcane 10-piece card modification is already set for this encounter.' };
+    }
+    const cardId = String(body.cardId || '').trim();
+    const mode = String(body.mode || '').trim().toLowerCase();
+    if (!cardId) {
+      return { error: 'cardId is required.' };
+    }
+    if (!['range', 'radius', 'damage', 'ap'].includes(mode)) {
+      return { error: 'mode must be one of: range, radius, damage, ap' };
+    }
+    const selectedCard = (participant.cards || []).find((card) => String(card.id) === cardId);
+    if (!selectedCard) {
+      return { error: 'Selected card not found.' };
+    }
+    runtime.arcane.modifiedCard = { cardId, mode };
+    pushLog(`${participant.name} applies Arcane 10-piece modification (${mode}) to ${selectedCard.name}.`, participant.id, {
+      abilityId,
+      cardId,
+      mode
+    });
+    touchState();
+    broadcastState('set_activate_arcane_modify');
+    return { participant, cardId, mode };
+  }
+  if (abilityId === 'divine_10_sacred_overcharge') {
+    if (!hasSetBonus(participant, 'Divine', 10)) {
+      return { error: 'Divine 10-piece bonus is required.' };
+    }
+    if (runtime.divine.sacredOverchargeUsed) {
+      return { error: 'Sacred Overcharge is available once per long rest.' };
+    }
+    const allyIds = getSetAllyTargets(participant);
+    const allies = allyIds.map((id) => findParticipant(id)).filter(Boolean);
+    if (!allies.length) {
+      return { error: 'No allies found. Assign team members or add ally targets before using Sacred Overcharge.' };
+    }
+    participant.hp = 0;
+    participant.shield = 0;
+    const affectedAllies = [];
+    allies.forEach((ally) => {
+      const allyRuntime = ensureSetRuntime(ally);
+      allyRuntime.divine.overchargeMultiplier = Math.max(1.5, Number(allyRuntime.divine.overchargeMultiplier || 1));
+      recalculateParticipant(ally);
+      ally.hp = ally.maxHp;
+      ally.shield = ally.maxShield;
+      ally.apCurrent = ally.apMax;
+      affectedAllies.push(ally.name);
+    });
+    runtime.divine.sacredOverchargeUsed = true;
+    recalculateParticipant(participant);
+    pushLog(
+      `${participant.name} uses Sacred Overcharge on ${affectedAllies.join(', ')}, sacrificing all current HP and Shield.`,
+      participant.id,
+      { abilityId, allyIds }
+    );
+    touchState();
+    broadcastState('set_activate_divine_overcharge');
+    return { participant, allies };
+  }
+  if (abilityId === 'divine_5_cleanse_heal') {
+    if (!hasSetBonus(participant, 'Divine', 5)) {
+      return { error: 'Divine 5-piece bonus is required.' };
+    }
+    const targetId = String(body.targetId || '').trim();
+    if (!targetId) {
+      return { error: 'targetId is required.' };
+    }
+    const target = findParticipant(targetId);
+    if (!target) {
+      return { error: 'Target not found.' };
+    }
+    if (!isParticipantAlly(participant, target)) {
+      return { error: 'Target must be one of your allies.' };
+    }
+    const removed = clearOneStatusEffect(target);
+    if (!removed) {
+      return { error: `${target.name} has no removable statuses.` };
+    }
+    const beforeHp = target.hp;
+    target.hp = Math.min(target.maxHp, target.hp + 4);
+    const healed = target.hp - beforeHp;
+    enforceControlHierarchy(target);
+    recalculateParticipant(target);
+    pushLog(
+      `${participant.name} uses Divine cleanse on ${target.name}, removing ${removed}${healed > 0 ? ` and restoring ${healed} HP` : ''}.`,
+      participant.id,
+      { abilityId, targetId: target.id }
+    );
+    touchState();
+    broadcastState('set_activate_divine_cleanse');
+    return { participant, target, removedStatus: removed, healed };
+  }
+  return { error: `No activation handler configured for ${abilityId}.` };
 }
 
 function executeCustomAction(body) {
@@ -1299,6 +1788,7 @@ function sanitizeParticipantUpdate(body, current) {
   }
   if (typeof body.name === 'string') update.name = body.name;
   if (typeof body.setFocus === 'string') update.setFocus = body.setFocus;
+  if (typeof body.team === 'string') update.team = normalizeTeamName(body.team);
   if (typeof body.notes === 'string') update.notes = body.notes;
   if (Array.isArray(body.cards)) update.cards = normalizeCards(body.cards);
   if (Array.isArray(body.constructs)) update.constructs = normalizeConstructs(body.constructs, current.id);
@@ -1307,6 +1797,12 @@ function sanitizeParticipantUpdate(body, current) {
   if (Array.isArray(body.statuses)) update.statuses = body.statuses;
   if (Array.isArray(body.abilities)) {
     update.abilities = normalizeAbilityEntries(body.abilities);
+  }
+  if (Array.isArray(body.proficiencies)) {
+    update.proficiencies = normalizeTextList(body.proficiencies);
+  }
+  if (Array.isArray(body.languages)) {
+    update.languages = normalizeTextList(body.languages);
   }
   if (Array.isArray(body.inventory)) {
     update.inventory = normalizeInventoryEntries(body.inventory);
@@ -1368,6 +1864,7 @@ function createParticipant(body = {}) {
   const participant = {
     id,
     name: body.name?.trim() || `Combatant ${trackerState.encounter.participants.length + 1}`,
+    team: normalizeTeamName(body.team),
     initiative: typeof body.initiative === 'number' ? body.initiative : 0,
     apMax,
     apCurrent: typeof body.apCurrent === 'number' ? body.apCurrent : apMax,
@@ -1382,6 +1879,8 @@ function createParticipant(body = {}) {
     tags: Array.isArray(body.tags) ? body.tags : [],
     statuses: Array.isArray(body.statuses) ? body.statuses : [],
     abilities: normalizeAbilityEntries(body.abilities),
+    proficiencies: normalizeTextList(body.proficiencies),
+    languages: normalizeTextList(body.languages),
     inventory: normalizeInventoryEntries(body.inventory),
     currencies: normalizeCurrencyEntries(body.currencies),
     quests: normalizeJournalEntries(body.quests, 'quest'),
@@ -1404,6 +1903,7 @@ function createParticipant(body = {}) {
     skills: normalizeSkills(body.skills),
     relics: normalizeRelics(body.relics),
     turnActionCount: Number.isFinite(Number(body.turnActionCount)) ? Math.max(0, Number(body.turnActionCount)) : 0,
+    lastActedRound: Number.isFinite(Number(body.lastActedRound)) ? Number(body.lastActedRound) : 0,
     setRuntime: normalizeSetRuntime(body.setRuntime),
     guardUsedThisTurn: false,
     guardRestore: baseStats.guardRestore,
@@ -1525,13 +2025,24 @@ function resetTurn(participant, options = {}) {
   participant.apCurrent = participant.apMax;
   participant.guardUsedThisTurn = false;
   participant.turnActionCount = 0;
+  participant.lastActedRound = trackerState.encounter.round;
   resetSetTurnState(participant);
+  const runtime = ensureSetRuntime(participant);
+  const events = [];
+  if (runtime.demonic.pendingNextTurnAp > 0) {
+    const bonus = Math.max(0, Math.round(Number(runtime.demonic.pendingNextTurnAp || 0)));
+    participant.apCurrent += bonus;
+    runtime.demonic.pendingNextTurnAp = 0;
+    if (bonus > 0) {
+      events.push(`gains +${bonus} AP from Demonic momentum.`);
+    }
+  }
   if (options.applyStatusTick) {
     const statusEvents = applyStartOfTurnStatusEffects(participant);
     const constructEvents = applyConstructStartOfTurnEffects(participant);
-    return [...statusEvents, ...constructEvents];
+    return [...events, ...statusEvents, ...constructEvents];
   }
-  return [];
+  return events;
 }
 
 function clampParticipant(participant) {
@@ -1584,7 +2095,11 @@ function applyShortRest(participant) {
 }
 
 function applyLongRest(participant) {
-  return applyLongRestForEncounter(participant, { pushLog });
+  const result = applyLongRestForEncounter(participant, { pushLog });
+  const runtime = ensureSetRuntime(participant);
+  runtime.divine.sacredOverchargeUsed = false;
+  runtime.divine.overchargeMultiplier = 1;
+  return result;
 }
 
 function normalizeStatusToken(value) {
@@ -1754,6 +2269,12 @@ function enforceControlHierarchy(participant) {
 function applyStatusDamage(participant, type, damage) {
   const amount = Math.max(0, Number(damage || 0));
   if (!amount) return;
+  const runtime = ensureSetRuntime(participant);
+  if (hasSetBonus(participant, 'Divine', 7) && !runtime.divine.reverseDamageUsedEncounter) {
+    runtime.divine.reverseDamageUsedEncounter = true;
+    return;
+  }
+  let totalDamageTaken = 0;
   if (type === 'burning') {
     const shieldHit = Math.min(participant.shield, amount);
     participant.shield -= shieldHit;
@@ -1761,9 +2282,35 @@ function applyStatusDamage(participant, type, damage) {
     if (hpHit > 0) {
       participant.hp = Math.max(0, participant.hp - hpHit);
     }
-    return;
+    totalDamageTaken = shieldHit + hpHit;
+  } else {
+    const beforeHp = participant.hp;
+    participant.hp = Math.max(0, participant.hp - amount);
+    totalDamageTaken = beforeHp - participant.hp;
   }
-  participant.hp = Math.max(0, participant.hp - amount);
+  if (totalDamageTaken >= 5 && hasSetBonus(participant, 'Demonic', 7)) {
+    if (!runtime.demonic.damageTakenApQueuedTurn) {
+      runtime.demonic.damageTakenApQueuedTurn = true;
+      runtime.demonic.pendingNextTurnAp += 1;
+    }
+  }
+}
+
+function triggerBeastBleedingRestore(victim) {
+  for (const owner of trackerState.encounter.participants || []) {
+    if (!owner || owner.id === victim.id) continue;
+    if (!hasSetBonus(owner, 'Beast', 7)) continue;
+    if (!isParticipantEnemy(owner, victim)) continue;
+    const beforeShield = owner.shield;
+    owner.shield = Math.min(owner.maxShield, owner.shield + 2);
+    const restored = owner.shield - beforeShield;
+    if (restored > 0) {
+      pushLog(`${owner.name} restores ${restored} Shield from Beast set as Bleeding damages ${victim.name}.`, owner.id, {
+        source: 'beast_7_bleed_restore_shield',
+        targetId: victim.id
+      });
+    }
+  }
 }
 
 function applyStartOfTurnStatusEffects(participant) {
@@ -1787,6 +2334,9 @@ function applyStartOfTurnStatusEffects(participant) {
     const stacks = startingStacks[type] || 0;
     if (stacks <= 0) return;
     applyStatusDamage(participant, type, stacks);
+    if (type === 'bleeding') {
+      triggerBeastBleedingRestore(participant);
+    }
     events.push(`takes ${stacks} ${statusDisplayName(type)} damage at start of turn.`);
   });
 
@@ -1943,22 +2493,36 @@ function applyZoneTurnEffects(participant, zone) {
     return [`${participant.name}'s zone ${entry.name} has no targets.`];
   }
   const events = [];
+  const nature5 = hasSetBonus(participant, 'Nature', 5);
+  const nature7 = hasSetBonus(participant, 'Nature', 7);
   for (const target of targets) {
+    const allied = isParticipantAlly(participant, target);
     const amount = Math.max(0, Number(entry.damage || 0));
-    if (amount <= 0) {
+    if (amount <= 0 || (allied && nature5)) {
+      if (allied && nature5 && amount > 0) {
+        events.push(`${participant.name}'s zone ${entry.name} does not damage ally ${target.name}.`);
+      }
       events.push(`${participant.name}'s zone ${entry.name} affects ${target.name}.`);
-      continue;
+    } else {
+      const result = applyCardDamageWithType(target, amount, entry.damageType);
+      const mitigation =
+        result.resisted && !result.vulnerable
+          ? ' [Resisted]'
+          : result.vulnerable && !result.resisted
+            ? ' [Vulnerable]'
+            : '';
+      events.push(
+        `${participant.name}'s zone ${entry.name} hits ${target.name} for ${result.finalDamage} ${entry.damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+      );
     }
-    const result = applyCardDamageWithType(target, amount, entry.damageType);
-    const mitigation =
-      result.resisted && !result.vulnerable
-        ? ' [Resisted]'
-        : result.vulnerable && !result.resisted
-          ? ' [Vulnerable]'
-          : '';
-    events.push(
-      `${participant.name}'s zone ${entry.name} hits ${target.name} for ${result.finalDamage} ${entry.damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
-    );
+    if (allied && nature7) {
+      const beforeShield = target.shield;
+      target.shield = Math.min(target.maxShield, target.shield + 4);
+      const restored = target.shield - beforeShield;
+      if (restored > 0) {
+        events.push(`${participant.name}'s Nature set restores ${restored} Shield to ${target.name} inside ${entry.name}.`);
+      }
+    }
   }
   if (Number(entry.remainingTurns || 0) > 0) {
     entry.remainingTurns = Math.max(0, Number(entry.remainingTurns || 0) - 1);
@@ -2101,6 +2665,25 @@ function createZeroModifier() {
     guardRestore: 0,
     damageBonus: 0
   };
+}
+
+function normalizeTeamName(value) {
+  return String(value || '').trim().slice(0, 32);
+}
+
+function normalizeTextList(list = []) {
+  if (!Array.isArray(list)) return [];
+  const normalized = [];
+  const seen = new Set();
+  for (const entry of list) {
+    const value = String(entry || '').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(value);
+  }
+  return normalized;
 }
 
 function defaultSavingThrows() {
@@ -2567,12 +3150,24 @@ function applyCardDamageWithType(target, rawDamage, damageType = '') {
   } else if (vulnerable && !resisted) {
     finalDamage = baseDamage * 2;
   }
+  let preventedByDivine = false;
+  const runtime = ensureSetRuntime(target);
+  if (finalDamage > 0 && hasSetBonus(target, 'Divine', 7) && !runtime.divine.reverseDamageUsedEncounter) {
+    runtime.divine.reverseDamageUsedEncounter = true;
+    finalDamage = 0;
+    preventedByDivine = true;
+  }
   const shieldBefore = target.shield;
   const hpBefore = target.hp;
   const shieldDamage = Math.min(target.shield, finalDamage);
   target.shield = Math.max(0, target.shield - shieldDamage);
   const hpDamage = Math.max(0, finalDamage - shieldDamage);
   target.hp = Math.max(0, target.hp - hpDamage);
+  const totalDamageTaken = shieldDamage + hpDamage;
+  if (totalDamageTaken >= 5 && hasSetBonus(target, 'Demonic', 7) && !runtime.demonic.damageTakenApQueuedTurn) {
+    runtime.demonic.damageTakenApQueuedTurn = true;
+    runtime.demonic.pendingNextTurnAp += 1;
+  }
   return {
     baseDamage,
     finalDamage,
@@ -2582,6 +3177,8 @@ function applyCardDamageWithType(target, rawDamage, damageType = '') {
     vulnerable,
     shieldBefore,
     hpBefore,
+    preventedByDivine,
+    totalDamageTaken,
     shieldAfter: target.shield,
     hpAfter: target.hp
   };
@@ -2842,11 +3439,63 @@ function resolveJournalTargets(body = {}) {
 function normalizeSetRuntime(runtime = {}) {
   const source = runtime && typeof runtime === 'object' ? runtime : {};
   const machine = source.machine && typeof source.machine === 'object' ? source.machine : {};
+  const allies = source.allies && typeof source.allies === 'object' ? source.allies : {};
+  const arcane = source.arcane && typeof source.arcane === 'object' ? source.arcane : {};
+  const beast = source.beast && typeof source.beast === 'object' ? source.beast : {};
+  const demonic = source.demonic && typeof source.demonic === 'object' ? source.demonic : {};
+  const divine = source.divine && typeof source.divine === 'object' ? source.divine : {};
+  const elemental = source.elemental && typeof source.elemental === 'object' ? source.elemental : {};
+  const nature = source.nature && typeof source.nature === 'object' ? source.nature : {};
+  const shadow = source.shadow && typeof source.shadow === 'object' ? source.shadow : {};
   return {
     machine: {
       autoLoaderPrimed: Boolean(machine.autoLoaderPrimed),
       autoLoaderTriggeredTurn: Boolean(machine.autoLoaderTriggeredTurn),
       autoLoaderDiscountUsedTurn: Boolean(machine.autoLoaderDiscountUsedTurn)
+    },
+    allies: {
+      targetIds: normalizeIdList(allies.targetIds || divine.allyTargetIds || [])
+    },
+    arcane: {
+      damageTypeShiftUsedTurn: Boolean(arcane.damageTypeShiftUsedTurn),
+      splitUsedTurn: Boolean(arcane.splitUsedTurn),
+      copyUsedEncounter: Boolean(arcane.copyUsedEncounter),
+      modifiedCard:
+        arcane.modifiedCard && typeof arcane.modifiedCard === 'object'
+          ? {
+              cardId: String(arcane.modifiedCard.cardId || '').trim(),
+              mode: String(arcane.modifiedCard.mode || '').trim().toLowerCase()
+            }
+          : null
+    },
+    beast: {
+      extraBleedUsedTurn: Boolean(beast.extraBleedUsedTurn),
+      bleedAttackApUsedTurn: Boolean(beast.bleedAttackApUsedTurn)
+    },
+    demonic: {
+      statusHealUsedTurn: Boolean(demonic.statusHealUsedTurn),
+      damageTakenApQueuedTurn: Boolean(demonic.damageTakenApQueuedTurn),
+      nearbyKillApUsedTurn: Boolean(demonic.nearbyKillApUsedTurn),
+      pendingNextTurnAp: Math.max(0, Number(demonic.pendingNextTurnAp || 0))
+    },
+    divine: {
+      reverseDamageUsedEncounter: Boolean(divine.reverseDamageUsedEncounter),
+      sacredOverchargeUsed: Boolean(divine.sacredOverchargeUsed),
+      overchargeMultiplier: Number.isFinite(Number(divine.overchargeMultiplier))
+        ? Math.max(1, Number(divine.overchargeMultiplier))
+        : 1
+    },
+    elemental: {
+      extraStatusUsedTurn: Boolean(elemental.extraStatusUsedTurn),
+      burstUsedTurn: Boolean(elemental.burstUsedTurn)
+    },
+    nature: {
+      cleanseUsedTurn: Boolean(nature.cleanseUsedTurn)
+    },
+    shadow: {
+      moveDistanceThisTurn: Math.max(0, Number(shadow.moveDistanceThisTurn || 0)),
+      moveBonusGrantedTurn: Boolean(shadow.moveBonusGrantedTurn),
+      postAttackMoveUsedTurn: Boolean(shadow.postAttackMoveUsedTurn)
     }
   };
 }
@@ -2859,7 +3508,178 @@ function canonicalSetName(value) {
 
 function ensureSetRuntime(participant) {
   participant.setRuntime = normalizeSetRuntime(participant.setRuntime);
+  sanitizeSetAllyTargets(participant);
   return participant.setRuntime;
+}
+
+function normalizeIdList(value) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+  const seen = new Set();
+  const normalized = [];
+  for (const entry of source) {
+    const id = String(entry || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    normalized.push(id);
+  }
+  return normalized;
+}
+
+function sanitizeSetAllyTargets(participant) {
+  if (!participant) return [];
+  const runtime = participant.setRuntime || normalizeSetRuntime();
+  runtime.allies.targetIds = normalizeIdList(runtime.allies.targetIds).filter(
+    (id) => id !== participant.id
+  );
+  participant.setRuntime = runtime;
+  return runtime.allies.targetIds;
+}
+
+function getSetAllyTargets(participant) {
+  const runtime = ensureSetRuntime(participant);
+  const manual = runtime.allies.targetIds || [];
+  const teamAllies = getTeamAllyTargets(participant);
+  return normalizeIdList([...manual, ...teamAllies]);
+}
+
+function getTeamAllyTargets(participant) {
+  if (!participant?.id) return [];
+  const sourceTeam = normalizeTeamName(participant.team).toLowerCase();
+  if (!sourceTeam) return [];
+  const allies = [];
+  for (const entry of trackerState.encounter.participants || []) {
+    if (!entry || entry.id === participant.id) continue;
+    if (normalizeTeamName(entry.team).toLowerCase() === sourceTeam) {
+      allies.push(entry.id);
+    }
+  }
+  return allies;
+}
+
+function isParticipantAlly(source, target) {
+  if (!source || !target) return false;
+  const targetId = typeof target === 'string' ? target : target.id;
+  if (!targetId || targetId === source.id) return false;
+  if (!findParticipant(targetId)) return false;
+  const allyIds = getSetAllyTargets(source);
+  return allyIds.includes(targetId);
+}
+
+function isParticipantEnemy(source, target) {
+  if (!source || !target) return false;
+  const targetId = typeof target === 'string' ? target : target.id;
+  if (!targetId || targetId === source.id) return false;
+  return !isParticipantAlly(source, targetId);
+}
+
+function hasParticipantActedThisRound(participant) {
+  return Number(participant?.lastActedRound || 0) === Number(trackerState.encounter.round || 0);
+}
+
+function targetIsInsideAnyZone(targetId) {
+  const id = String(targetId || '').trim();
+  if (!id) return false;
+  for (const owner of trackerState.encounter.participants || []) {
+    owner.zones = normalizeZones(owner.zones, owner.id);
+    for (const zone of owner.zones) {
+      if ((zone.targetIds || []).includes(id)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function targetHasShadowFinisherDebuff(target) {
+  if (!target) return false;
+  for (const status of target.statuses || []) {
+    const type = detectStatusType(status);
+    if (type && SHADOW_FINISHER_STATUS_TYPES.has(type)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function splitAmountBetweenTwo(amount) {
+  const total = Math.max(0, Math.round(Number(amount || 0)));
+  const first = Math.floor(total / 2);
+  const second = total - first;
+  return [first, second];
+}
+
+function normalizeDamageTypeOverride(value) {
+  const token = String(value || '').trim();
+  if (!token) return '';
+  const lower = token.toLowerCase();
+  if (!ARCANE_DAMAGE_TYPE_OPTIONS.has(lower)) return '';
+  return token;
+}
+
+function clearOneStatusEffect(target) {
+  if (!target || !Array.isArray(target.statuses) || !target.statuses.length) return '';
+  target.statuses = normalizeStatuses(target.statuses);
+  if (!target.statuses.length) return '';
+  const [removed] = target.statuses.splice(0, 1);
+  return removed?.name || 'a status effect';
+}
+
+function resolveStatusStacksForCard(statusApply, deps = {}) {
+  if (!statusApply) return 0;
+  let stacks = Math.max(1, Number(statusApply.stacks || 1));
+  if (deps.hasBeast3 && statusApply.id === 'bleeding' && !deps.beastRuntime.extraBleedUsedTurn) {
+    stacks += 1;
+    deps.beastRuntime.extraBleedUsedTurn = true;
+  }
+  if (
+    deps.hasElemental3 &&
+    ['burning', 'rooted', 'shock'].includes(statusApply.id) &&
+    !deps.elementalRuntime.extraStatusUsedTurn
+  ) {
+    stacks += 1;
+    deps.elementalRuntime.extraStatusUsedTurn = true;
+  }
+  return stacks;
+}
+
+function applyShadowMovementProgress(participant, distanceFt, notes = null) {
+  const runtime = ensureSetRuntime(participant);
+  if (!hasSetBonus(participant, 'Shadow', 5)) return 0;
+  const increment = Math.max(0, Number(distanceFt || 0));
+  if (!increment) return 0;
+  runtime.shadow.moveDistanceThisTurn += increment;
+  if (runtime.shadow.moveDistanceThisTurn >= 15 && !runtime.shadow.moveBonusGrantedTurn) {
+    participant.nextAttackDamageBonus = Math.max(0, Number(participant.nextAttackDamageBonus || 0)) + 3;
+    runtime.shadow.moveBonusGrantedTurn = true;
+    if (Array.isArray(notes)) {
+      notes.push('Shadow set grants +3 damage on your next attack (moved 15+ ft).');
+    }
+    return 3;
+  }
+  return 0;
+}
+
+function maybeApplyDivineRecoverHealing(actor, target, options = {}) {
+  if (!actor || !target) return 0;
+  if (!hasSetBonus(actor, 'Divine', 5)) return 0;
+  if (!isParticipantAlly(actor, target)) return 0;
+  const before = target.hp;
+  target.hp = Math.min(target.maxHp, target.hp + 4);
+  const healed = target.hp - before;
+  if (healed > 0 && !options.silent) {
+    pushLog(`${actor.name}'s Divine set restores ${healed} HP to ${target.name}.`, actor.id, {
+      targetId: target.id,
+      source: 'divine_5_cleanse_heal'
+    });
+    touchState();
+    broadcastState('set_divine_heal');
+  }
+  return healed;
 }
 
 function getMachineSetRuntime(participant) {
@@ -2977,7 +3797,12 @@ function deployConstructFromCard(participant, card, options = {}) {
 function deployZoneFromCard(participant, card, options = {}) {
   const level = Math.max(1, Math.min(3, Number(options.masteryLevel || card?.masteryLevel || 1)));
   const radiusRaw = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
-  const radiusFt = Number.isFinite(Number(radiusRaw)) ? Math.max(0, Math.round(Number(radiusRaw))) : 0;
+  const radiusBonusFt = Number.isFinite(Number(options.radiusBonusFt))
+    ? Math.max(0, Math.round(Number(options.radiusBonusFt)))
+    : 0;
+  const radiusFt = Number.isFinite(Number(radiusRaw))
+    ? Math.max(0, Math.round(Number(radiusRaw)) + radiusBonusFt)
+    : radiusBonusFt;
   const durationRaw = Number(card.zoneDurationTurns ?? options.zoneDurationTurns ?? 0);
   const remainingTurns = Number.isFinite(durationRaw) ? Math.max(0, Math.round(durationRaw)) : 0;
   const targetIds = Array.from(
@@ -3070,16 +3895,36 @@ function isMachineAttackCard(card) {
 }
 
 function resetSetTurnState(participant) {
-  const machine = getMachineSetRuntime(participant);
+  const runtime = ensureSetRuntime(participant);
+  const machine = runtime.machine;
   machine.autoLoaderPrimed = false;
   machine.autoLoaderTriggeredTurn = false;
   machine.autoLoaderDiscountUsedTurn = false;
+  runtime.arcane.damageTypeShiftUsedTurn = false;
+  runtime.arcane.splitUsedTurn = false;
+  runtime.beast.extraBleedUsedTurn = false;
+  runtime.beast.bleedAttackApUsedTurn = false;
+  runtime.demonic.statusHealUsedTurn = false;
+  runtime.demonic.damageTakenApQueuedTurn = false;
+  runtime.demonic.nearbyKillApUsedTurn = false;
+  runtime.elemental.extraStatusUsedTurn = false;
+  runtime.elemental.burstUsedTurn = false;
+  runtime.nature.cleanseUsedTurn = false;
+  runtime.shadow.moveDistanceThisTurn = 0;
+  runtime.shadow.moveBonusGrantedTurn = false;
+  runtime.shadow.postAttackMoveUsedTurn = false;
 }
 
 function resetSetCombatState(participant) {
   resetSetTurnState(participant);
+  const runtime = ensureSetRuntime(participant);
+  runtime.arcane.copyUsedEncounter = false;
+  runtime.arcane.modifiedCard = null;
+  runtime.divine.reverseDamageUsedEncounter = false;
   participant.constructs = [];
   participant.zones = [];
+  participant.lastActedRound = 0;
+  participant.cards = normalizeCards((participant.cards || []).filter((card) => card?.temporarySource !== 'arcane_7_temp_copy'));
 }
 
 function markTurnActionTaken(participant) {
@@ -3154,8 +3999,15 @@ function computeSetBonuses(participant, groups = null) {
 function recalculateParticipant(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const setRuntime = ensureSetRuntime(participant);
+  sanitizeSetAllyTargets(participant);
   participant.cards = normalizeCards(participant.cards);
   const cardGroups = buildActiveCardGroups(participant);
+  if (
+    setRuntime.arcane.modifiedCard?.cardId &&
+    !participant.cards.some((entry) => entry.id === setRuntime.arcane.modifiedCard.cardId)
+  ) {
+    setRuntime.arcane.modifiedCard = null;
+  }
   participant.constructs = normalizeConstructs(participant.constructs, participant.id);
   participant.zones = normalizeZones(participant.zones, participant.id);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
@@ -3212,6 +4064,9 @@ function recalculateParticipant(participant) {
     setRuntime.machine.autoLoaderTriggeredTurn = false;
     setRuntime.machine.autoLoaderDiscountUsedTurn = false;
   }
+  if (!hasSetBonus(participant, 'Arcane', 10, cardGroups)) {
+    setRuntime.arcane.modifiedCard = null;
+  }
   const machineConstructCap = hasSetBonus(participant, 'Machine', 10, cardGroups)
     ? 3
     : hasSetBonus(participant, 'Machine', 5, cardGroups)
@@ -3223,15 +4078,16 @@ function recalculateParticipant(participant) {
     participant.constructs = participant.constructs.slice(participant.constructs.length - machineConstructCap);
   }
 
-  participant.apMax = Math.max(1, Math.round((base.apMax ?? 0) + totals.apMax));
+  const overchargeMultiplier = Math.max(1, Number(setRuntime.divine.overchargeMultiplier || 1));
+  participant.apMax = Math.max(1, Math.round(((base.apMax ?? 0) + totals.apMax) * overchargeMultiplier));
   participant.apCurrent = clampNumber(
     participant.apCurrent ?? participant.apMax,
     0,
     participant.apMax
   );
-  participant.maxHp = Math.max(1, Math.round((base.maxHp ?? 0) + totals.maxHp));
+  participant.maxHp = Math.max(1, Math.round(((base.maxHp ?? 0) + totals.maxHp) * overchargeMultiplier));
   participant.hp = clampNumber(participant.hp ?? participant.maxHp, 0, participant.maxHp);
-  participant.maxShield = Math.max(0, Math.round((base.maxShield ?? 0) + totals.maxShield));
+  participant.maxShield = Math.max(0, Math.round(((base.maxShield ?? 0) + totals.maxShield) * overchargeMultiplier));
   participant.shield = clampNumber(
     participant.shield ?? participant.maxShield,
     0,
@@ -3259,6 +4115,10 @@ function recalculateParticipant(participant) {
       maxActive: machineConstructCap,
       damageBonus: machineConstructDamageBonus,
       durationBonusTurns: machineConstructDurationBonus
+    },
+    setAutomation: {
+      allyTargets: getSetAllyTargets(participant),
+      overchargeMultiplier
     }
   };
   clampParticipant(participant);

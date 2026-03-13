@@ -282,6 +282,21 @@ body {
   align-items: center;
 }
 
+.team-select-inline {
+  display: inline-flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.team-select-inline select {
+  padding: 0.28rem 0.5rem;
+  font-size: 0.78rem;
+  min-width: 95px;
+}
+
 .detail-actions a {
   color: var(--accent);
   text-decoration: none;
@@ -1197,6 +1212,12 @@ textarea {
 
 .player-top {
   align-items: center;
+}
+
+.player-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
 }
 
 .player-select {

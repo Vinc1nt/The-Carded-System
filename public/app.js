@@ -26,7 +26,7 @@ const HELP_TOPIC_TITLES = Object.freeze({
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
-  reference: { standardActions: [], sets: [], statuses: [] },
+  reference: { standardActions: [], sets: [], statuses: [], teams: [] },
   updatedAt: null
 };
 
@@ -82,6 +82,7 @@ function wireGlobalEvents() {
     const data = new FormData(event.target);
     const payload = {
       name: data.get('name'),
+      team: data.get('team') || '',
       initiative: Number(data.get('initiative') || 0),
       maxHp: Number(data.get('maxHp') || 0),
       maxShield: Number(data.get('maxShield') || 0),
@@ -609,6 +610,12 @@ function renderDetailPanel() {
         <p class="muted">Set Focus: ${participant.setFocus || '—'}</p>
       </div>
       <div class="detail-actions">
+        <label class="team-select-inline">
+          Team
+          <select data-team-select>
+            ${renderTeamOptions(participant)}
+          </select>
+        </label>
         <a href="/player?id=${participant.id}" target="_blank" rel="noopener noreferrer">Player View</a>
         <a href="/cards?participantId=${participant.id}" target="_blank" rel="noopener noreferrer">Card Library</a>
         <button type="button" data-toggle-base-stats>Edit Base Stats</button>
@@ -623,17 +630,17 @@ function renderDetailPanel() {
       ${renderVitalCard('Shield', participant.shield, participant.maxShield, 'shield')}
       ${renderVitalCard('AP', participant.apCurrent, participant.apMax, 'ap')}
     </div>
+    ${renderActionsSection(participant)}
     ${renderStatusSection(participant)}
     ${renderZoneSection(participant)}
     ${renderCardsSection(participant, drawers)}
-    ${renderConstructSection(participant)}
     ${renderSetTrackerSection(participant)}
+    ${renderConstructSection(participant)}
     ${renderMitigationSection(participant)}
     ${renderAbilitiesSection(participant)}
-    ${renderActionsSection(participant)}
-    ${renderJournalSection(participant)}
-    ${renderRelicSection(participant, drawers)}
     ${renderInventorySection(participant, drawers)}
+    ${renderRelicSection(participant, drawers)}
+    ${renderJournalSection(participant)}
     ${renderAutomationSection(participant)}
     ${renderAdvancedSection(participant, base)}
   `;
@@ -729,6 +736,9 @@ function renderZoneCards(participant, zones = []) {
         })
         .filter(Boolean)
         .join('');
+      const targetNames = targetIds
+        .map((targetId) => (state.encounter.participants || []).find((entry) => entry.id === targetId)?.name || '')
+        .filter(Boolean);
       const options = (state.encounter.participants || [])
         .filter((entry) => !targetIds.includes(entry.id))
         .map((entry) => `<option value="${entry.id}">${escapeHtml(entry.name)}</option>`)
@@ -741,6 +751,7 @@ function renderZoneCards(participant, zones = []) {
         <article class="card-item construct-item">
           <h4>${escapeHtml(zone.name || 'Zone')}</h4>
           <p>${Number(zone.damage || 0)} ${escapeHtml(zone.damageType || 'damage')} · ${Number(zone.radiusFt || 0)} ft radius${remaining}</p>
+          <p class="muted small-note">Currently in zone: ${targetNames.length ? escapeHtml(targetNames.join(', ')) : 'No targets assigned'}</p>
           <div class="status-list">
             ${targetBadges || '<span class="muted">No targets assigned.</span>'}
           </div>
@@ -1188,14 +1199,67 @@ function renderSetTrackerSection(participant) {
     })
     .filter(Boolean)
     .join('');
+  const allyManager =
+    participantHasSetBonus(participant, 'Divine', 3) || participantHasSetBonus(participant, 'Nature', 5)
+      ? renderSetAllyTargetManager(participant)
+      : '';
 
   return `
     <details class="collapsible-block" data-section="setTracker">
       <summary><strong>Set Tracker</strong></summary>
       <div class="collapsible-body">
         ${rows || '<p class="muted">No set bonuses equipped.</p>'}
+        ${allyManager}
       </div>
     </details>
+  `;
+}
+
+function renderSetAllyTargetManager(participant) {
+  const allyIds = participant?.setRuntime?.allies?.targetIds || [];
+  const automaticAllies = getParticipantAllies(participant).filter((entry) => !allyIds.includes(entry.id));
+  const participants = state.encounter.participants || [];
+  const assigned = allyIds
+    .map((id) => participants.find((entry) => entry.id === id))
+    .filter(Boolean);
+  const options = participants
+    .filter((entry) => entry.id !== participant.id && !allyIds.includes(entry.id))
+    .map((entry) => `<option value="${entry.id}">${escapeHtml(entry.name)}</option>`)
+    .join('');
+  const assignedBadges = assigned
+    .map(
+      (entry) => `
+        <span class="status-pill">
+          ${escapeHtml(entry.name)}
+          <button type="button" data-set-ally-remove="${entry.id}">Remove</button>
+        </span>`
+    )
+    .join('');
+  return `
+    <div class="set-block">
+      <div class="set-header">
+        <strong>Set Ally Targets</strong>
+        <span>${assigned.length + automaticAllies.length} total</span>
+      </div>
+      <p class="muted small-note">Characters on the same team are auto-allies. Manual allies are optional overrides.</p>
+      ${
+        automaticAllies.length
+          ? `<p class="muted small-note">Auto-allies: ${escapeHtml(automaticAllies.map((entry) => entry.name).join(', '))}</p>`
+          : ''
+      }
+      <div class="status-list">
+        ${assignedBadges || '<span class="muted">No allies selected.</span>'}
+      </div>
+      <div class="form-row">
+        <label>Add Ally
+          <select data-set-ally-add>
+            <option value="">Select ally…</option>
+            ${options}
+          </select>
+        </label>
+        <button type="button" data-set-ally-add-button>Add</button>
+      </div>
+    </div>
   `;
 }
 
@@ -1280,6 +1344,8 @@ function renderAbilitiesSection(participant) {
         <strong>Abilities</strong>
       </summary>
       <div class="collapsible-body">
+        ${renderAbilityTextListEditor('Proficiencies', participant.proficiencies || [], 'proficiency')}
+        ${renderAbilityTextListEditor('Languages', participant.languages || [], 'language')}
         <div class="ability-list">
           ${renderAbilityEntries(participant)}
         </div>
@@ -1296,6 +1362,34 @@ function renderAbilitiesSection(participant) {
         </form>
       </div>
     </details>
+  `;
+}
+
+function renderAbilityTextListEditor(label, values = [], key = 'entry') {
+  const pills = (values || [])
+    .map(
+      (value, index) => `
+        <span class="tag-pill">
+          ${escapeHtml(value)}
+          <button type="button" aria-label="Remove" data-remove-${key}="${index}">×</button>
+        </span>`
+    )
+    .join('');
+  return `
+    <div class="damage-group">
+      <div class="damage-group-header">
+        <h4>${label}</h4>
+      </div>
+      <div class="tag-list">
+        ${pills || '<span class="muted">None</span>'}
+      </div>
+      <form data-form="${key}">
+        <label class="compact-label">Add ${label.slice(0, -1)}
+          <input type="text" name="${key}" placeholder="Add ${label.slice(0, -1).toLowerCase()}" />
+        </label>
+        <button type="submit">Add</button>
+      </form>
+    </div>
   `;
 }
 
@@ -1701,12 +1795,32 @@ function renderAutomationSetList(entries = [], participant) {
 }
 
 function renderSetBonusStatus(entry, participant) {
+  const abilityId = entry?.activatable?.id || entry?.id;
   const machine = participant?.setRuntime?.machine || {};
   if (entry.id === 'machine_5_auto_loader') {
     if (machine.autoLoaderPrimed) {
       return ' <small class="muted">[Primed]</small>';
     }
     return ` <small class="muted">[${machine.autoLoaderTriggeredTurn ? 'Triggered this turn' : 'Ready'}]</small>`;
+  }
+  if (abilityId === 'arcane_7_temp_copy') {
+    return participant?.setRuntime?.arcane?.copyUsedEncounter
+      ? ' <small class="muted">[Used this encounter]</small>'
+      : ' <small class="muted">[Ready]</small>';
+  }
+  if (abilityId === 'arcane_10_modify_card') {
+    const modified = participant?.setRuntime?.arcane?.modifiedCard;
+    return modified?.cardId
+      ? ` <small class="muted">[Active: ${escapeHtml(modified.mode || 'modified')}]</small>`
+      : ' <small class="muted">[Ready]</small>';
+  }
+  if (abilityId === 'divine_10_sacred_overcharge') {
+    return participant?.setRuntime?.divine?.sacredOverchargeUsed
+      ? ' <small class="muted">[Used this long rest]</small>'
+      : ' <small class="muted">[Ready]</small>';
+  }
+  if (abilityId === 'divine_5_cleanse_heal') {
+    return ' <small class="muted">[Select ally and activate]</small>';
   }
   return '';
 }
@@ -1720,15 +1834,166 @@ function renderSetActivationButton(entry, participant, attrName) {
 }
 
 function canActivateSetBonus(entry, participant) {
-  void entry;
-  void participant;
+  const abilityId = entry?.activatable?.id || entry?.id;
+  if (!abilityId || !participant) return false;
+  if (abilityId === 'arcane_7_temp_copy') {
+    const used = Boolean(participant?.setRuntime?.arcane?.copyUsedEncounter);
+    const activeCount = getCardBuckets(participant).active.length;
+    return !used && activeCount < MAX_ACTIVE_CARDS;
+  }
+  if (abilityId === 'arcane_10_modify_card') {
+    const modified = participant?.setRuntime?.arcane?.modifiedCard;
+    return !modified?.cardId;
+  }
+  if (abilityId === 'divine_10_sacred_overcharge') {
+    const used = Boolean(participant?.setRuntime?.divine?.sacredOverchargeUsed);
+    const allies = getParticipantAllies(participant);
+    return !used && allies.length > 0;
+  }
+  if (abilityId === 'divine_5_cleanse_heal') {
+    const allies = getParticipantAllies(participant);
+    return allies.length > 0;
+  }
   return false;
+}
+
+function buildSetActivationPayload(participant, abilityId) {
+  const id = String(abilityId || '').trim();
+  if (!id || !participant?.id) return null;
+  const payload = {
+    participantId: participant.id,
+    abilityId: id
+  };
+  if (id === 'arcane_7_temp_copy') {
+    const cardId = promptForSetCardSelection(participant, 'Arcane Copy');
+    if (!cardId) return null;
+    payload.cardId = cardId;
+    return payload;
+  }
+  if (id === 'arcane_10_modify_card') {
+    const cardId = promptForSetCardSelection(participant, 'Arcane Card Modification');
+    if (!cardId) return null;
+    const mode = promptForArcaneModifyMode();
+    if (!mode) return null;
+    payload.cardId = cardId;
+    payload.mode = mode;
+    return payload;
+  }
+  if (id === 'divine_5_cleanse_heal') {
+    const targetId = promptForSetAllySelection(participant, 'Divine Cleanse');
+    if (!targetId) return null;
+    payload.targetId = targetId;
+    return payload;
+  }
+  return payload;
+}
+
+function promptForSetCardSelection(participant, label) {
+  const activeCards = getCardBuckets(participant).active;
+  if (!activeCards.length) {
+    notify('No active cards available.');
+    return '';
+  }
+  const lines = activeCards.map(({ card }, index) => `${index + 1}. ${card.name}`).join('\n');
+  const raw = window.prompt(`${label}\n${lines}\nEnter card number:`) || '';
+  const selectedIndex = Number(raw);
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex > activeCards.length) {
+    notify('Invalid card selection.');
+    return '';
+  }
+  return activeCards[selectedIndex - 1].card.id;
+}
+
+function promptForArcaneModifyMode() {
+  const raw = window.prompt(
+    'Arcane modification mode:\n1 = range (+10 ft)\n2 = radius (+5 ft)\n3 = damage (+2)\n4 = ap (-1, min 1)\nEnter 1-4:'
+  );
+  const modeMap = {
+    1: 'range',
+    2: 'radius',
+    3: 'damage',
+    4: 'ap'
+  };
+  const mode = modeMap[Number(raw)];
+  if (!mode) {
+    notify('Invalid mode selection.');
+    return '';
+  }
+  return mode;
+}
+
+function promptForSetAllySelection(participant, label) {
+  const allyOptions = getParticipantAllies(participant);
+  if (!allyOptions.length) {
+    notify('No allies available.');
+    return '';
+  }
+  const lines = allyOptions.map((entry, index) => `${index + 1}. ${entry.name}`).join('\n');
+  const raw = window.prompt(`${label}\n${lines}\nEnter ally number:`) || '';
+  const selectedIndex = Number(raw);
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex > allyOptions.length) {
+    notify('Invalid ally selection.');
+    return '';
+  }
+  return allyOptions[selectedIndex - 1].id;
 }
 
 function renderSetOptions() {
   return (state.reference?.sets || [])
     .map((entry) => `<option value="${entry.name}"></option>`)
     .join('');
+}
+
+function getTeamOptionValues(participant = null) {
+  const options = [];
+  const pushUnique = (value) => {
+    const team = String(value || '').trim();
+    if (!team || options.includes(team)) return;
+    options.push(team);
+  };
+  for (const entry of state.reference?.teams || []) {
+    pushUnique(entry);
+  }
+  for (const entry of state.encounter?.participants || []) {
+    pushUnique(entry?.team);
+  }
+  if (participant) {
+    pushUnique(participant.team);
+  }
+  return options;
+}
+
+function renderTeamOptions(participant = null) {
+  const options = ['<option value="">Unassigned</option>'];
+  for (const team of getTeamOptionValues(participant)) {
+    const selected = String(participant?.team || '').trim() === team ? ' selected' : '';
+    options.push(`<option value="${escapeHtml(team)}"${selected}>${escapeHtml(team)}</option>`);
+  }
+  return options.join('');
+}
+
+function getParticipantAllies(participant) {
+  if (!participant?.id) return [];
+  const sourceId = participant.id;
+  const sourceTeam = String(participant.team || '').trim().toLowerCase();
+  const manualIds = new Set(participant?.setRuntime?.allies?.targetIds || []);
+  return (state.encounter.participants || []).filter((entry) => {
+    if (!entry || entry.id === sourceId) return false;
+    const sameTeam =
+      sourceTeam &&
+      String(entry.team || '')
+        .trim()
+        .toLowerCase() === sourceTeam;
+    return sameTeam || manualIds.has(entry.id);
+  });
+}
+
+function mergeUniqueText(existing = [], value = '') {
+  const token = String(value || '').trim();
+  if (!token) return existing;
+  const already = existing.some((entry) => String(entry || '').trim().toLowerCase() === token.toLowerCase());
+  if (already) return existing;
+  return [...existing, token];
 }
 
 function isCardActive(card = {}) {
@@ -1747,6 +2012,15 @@ function getCardBuckets(participant = {}) {
     }
   });
   return { active, inactive, total: entries.length };
+}
+
+function participantHasSetBonus(participant = {}, setName = '', pieces = 1) {
+  const target = String(setName || '').trim().toLowerCase();
+  if (!target) return false;
+  const count = getCardBuckets(participant).active.reduce((total, { card }) => {
+    return String(card?.set || '').trim().toLowerCase() === target ? total + 1 : total;
+  }, 0);
+  return count >= Math.max(1, Number(pieces || 1));
 }
 
 function getDrawerState(participantId) {
@@ -1818,6 +2092,15 @@ function wireDetailEvents(participant) {
     }
     downloadJson({ cards: latest.cards || [] }, `${slugify(latest.name)}-deck.json`);
   });
+  panel.querySelector('[data-team-select]')?.addEventListener('change', async (event) => {
+    const team = String(event.currentTarget.value || '').trim();
+    try {
+      await api(`/api/participants/${participant.id}`, 'PATCH', { team });
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
 
   panel.querySelectorAll('[data-standard]').forEach((button) => {
     button.addEventListener('click', () => handleStandardAction(button.dataset.standard));
@@ -1827,10 +2110,41 @@ function wireDetailEvents(participant) {
     button.addEventListener('click', async () => {
       if (button.disabled) return;
       try {
-        await api('/api/set/activate', 'POST', {
+        const activation = buildSetActivationPayload(participant, button.dataset.activateSet);
+        if (!activation) return;
+        await api('/api/set/activate', 'POST', activation);
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-set-ally-add-button]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const select = panel.querySelector('[data-set-ally-add]');
+      const targetId = select?.value || '';
+      if (!targetId) return;
+      try {
+        await api('/api/set/allies/add', 'POST', {
           participantId: participant.id,
-          set: 'Machine',
-          abilityId: button.dataset.activateSet
+          targetId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-set-ally-remove]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const targetId = button.dataset.setAllyRemove;
+      if (!targetId) return;
+      try {
+        await api('/api/set/allies/remove', 'POST', {
+          participantId: participant.id,
+          targetId
         });
         fetchState();
       } catch (err) {
@@ -2206,13 +2520,17 @@ function wireDetailEvents(participant) {
         article?.querySelector(`[data-card-targets="${cardId}"]`)?.selectedOptions || []
       ).map((option) => option.value);
       const secondaryTargetId = article?.querySelector(`[data-card-secondary-target="${cardId}"]`)?.value || '';
+      const arcaneSplitTargetId = article?.querySelector(`[data-card-arcane-split-target="${cardId}"]`)?.value || '';
+      const overrideDamageType = article?.querySelector(`[data-card-override-damage-type="${cardId}"]`)?.value || '';
       try {
         await api('/api/actions/card', 'POST', {
           participantId: participant.id,
           cardId,
           targetId,
           targetIds,
-          secondaryTargetId
+          secondaryTargetId,
+          arcaneSplitTargetId,
+          overrideDamageType
         });
         fetchState();
       } catch (err) {
@@ -2516,6 +2834,71 @@ function wireDetailEvents(participant) {
     });
   });
 
+  panel.querySelector('[data-form="proficiency"]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const token = String(formData.get('proficiency') || '').trim();
+    if (!token) return;
+    try {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const current = Array.isArray(latest?.proficiencies) ? latest.proficiencies : [];
+      const proficiencies = mergeUniqueText(current, token);
+      await api(`/api/participants/${participant.id}`, 'PATCH', { proficiencies });
+      event.target.reset();
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
+  panel.querySelectorAll('[data-remove-proficiency]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const index = Number(button.dataset.removeProficiency);
+      if (!Number.isInteger(index) || index < 0) return;
+      try {
+        const latest = (await getServerParticipant(participant.id)) || participant;
+        const proficiencies = [...(latest?.proficiencies || [])];
+        if (index >= proficiencies.length) return;
+        proficiencies.splice(index, 1);
+        await api(`/api/participants/${participant.id}`, 'PATCH', { proficiencies });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelector('[data-form="language"]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const token = String(formData.get('language') || '').trim();
+    if (!token) return;
+    try {
+      const latest = (await getServerParticipant(participant.id)) || participant;
+      const current = Array.isArray(latest?.languages) ? latest.languages : [];
+      const languages = mergeUniqueText(current, token);
+      await api(`/api/participants/${participant.id}`, 'PATCH', { languages });
+      event.target.reset();
+      fetchState();
+    } catch (err) {
+      notify(err.message);
+    }
+  });
+  panel.querySelectorAll('[data-remove-language]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const index = Number(button.dataset.removeLanguage);
+      if (!Number.isInteger(index) || index < 0) return;
+      try {
+        const latest = (await getServerParticipant(participant.id)) || participant;
+        const languages = [...(latest?.languages || [])];
+        if (index >= languages.length) return;
+        languages.splice(index, 1);
+        await api(`/api/participants/${participant.id}`, 'PATCH', { languages });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+
   panel.querySelectorAll('[data-journal-form]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -2749,6 +3132,15 @@ function renderCardTargetControl(card = {}, participant = {}) {
   const secondaryDamage = getCardSecondaryDamage(card);
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
   const showSecondaryTarget = secondaryDamage > 0 && secondaryTargetMode === 'adjacent';
+  const arcaneSplitEnabled =
+    participantHasSetBonus(participant, 'Arcane', 5) && !selfOnly && targetMode === 'single';
+  const arcaneShiftEnabled =
+    participantHasSetBonus(participant, 'Arcane', 3) &&
+    (getCardDisplayDamage(card) > 0 || secondaryDamage > 0);
+  const arcaneControls = renderArcaneCardControls(card, participant, {
+    splitEnabled: arcaneSplitEnabled,
+    shiftEnabled: arcaneShiftEnabled
+  });
   const selfId = participant.id || '';
   if (selfOnly || targetMode === 'all_others') {
     const label = targetMode === 'all_others' ? 'All other combatants' : 'Self';
@@ -2767,14 +3159,16 @@ function renderCardTargetControl(card = {}, participant = {}) {
       </select>
     </label>`
         : ''
-    }`;
+    }
+    ${arcaneControls}`;
   }
   if (targetMode === 'multi_select') {
     return `<label>Targets (up to ${multiTargetCap})
       <select data-card-targets="${card.id || ''}" multiple size="${Math.max(3, Math.min(6, multiTargetCap + 1))}">
         ${renderParticipantTargetOptions(participant.id, allowSelfTarget)}
       </select>
-    </label>`;
+    </label>
+    ${arcaneControls}`;
   }
   return `<label>Target
     <select data-card-target="${card.id || ''}">
@@ -2791,7 +3185,33 @@ function renderCardTargetControl(card = {}, participant = {}) {
     </select>
   </label>`
       : ''
-  }`;
+  }
+  ${arcaneControls}`;
+}
+
+function renderArcaneCardControls(card = {}, participant = {}, options = {}) {
+  const cardId = card.id || '';
+  const controls = [];
+  if (options.splitEnabled) {
+    controls.push(`
+      <label>Arcane Split Target
+        <select data-card-arcane-split-target="${cardId}">
+          <option value="">No split</option>
+          ${renderParticipantTargetOptions(participant.id, false)}
+        </select>
+      </label>`);
+  }
+  if (options.shiftEnabled) {
+    controls.push(`
+      <label>Arcane Damage Type
+        <select data-card-override-damage-type="${cardId}">
+          <option value="">No change</option>
+          ${DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')}
+        </select>
+      </label>`);
+  }
+  if (!controls.length) return '';
+  return `<div class="form-row">${controls.join('')}</div>`;
 }
 
 function renderParticipantTargetOptions(actorId, includeSelf = false) {
