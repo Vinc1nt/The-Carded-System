@@ -257,6 +257,7 @@ function renderStats() {
   }
   const stats = participant.stats || {};
   const manageState = getPlayerManageState(participant.id);
+  const showZoneSection = participantHasActiveZoneCard(participant);
   const showConstructSection = participantHasActiveConstructCard(participant);
   els.stats.innerHTML = `
     <div class="panel player-sheet">
@@ -286,7 +287,7 @@ function renderStats() {
       </div>
       ${renderPlayerStandardActionsSection()}
       ${renderPlayerStatusSection(participant)}
-      ${renderPlayerZoneSection()}
+      ${showZoneSection ? renderPlayerZoneSection() : ''}
       ${renderPlayerCardsSection(participant)}
       ${renderPlayerSetSection(participant)}
       ${showConstructSection ? renderPlayerConstructSection() : ''}
@@ -1544,6 +1545,12 @@ function participantHasActiveConstructCard(participant = {}) {
   return getPlayerCardBuckets(participant).active.some(({ card }) => isConstructCard(card));
 }
 
+function participantHasActiveZoneCard(participant = {}) {
+  return getPlayerCardBuckets(participant).active.some(({ card }) =>
+    isZoneCard(card, Number(card?.masteryLevel || 1))
+  );
+}
+
 function getPlayerCardBuckets(participant = {}) {
   const entries = (participant.cards || []).map((card, index) => ({ card, index }));
   const active = [];
@@ -2372,6 +2379,14 @@ function isConstructCard(card = {}) {
   });
 }
 
+function isZoneCard(card = {}, level = 1) {
+  if (card?.isZone === true) return true;
+  const radius = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
+  if (Number(radius || 0) > 0) return true;
+  if (Number(card.zoneDurationTurns || 0) > 0) return true;
+  return false;
+}
+
 function detectConstructMode(card = {}) {
   const explicit = String(card?.constructMode || '').trim().toLowerCase();
   if (explicit === 'damage' || explicit === 'status' || explicit === 'utility') return explicit;
@@ -2433,16 +2448,27 @@ function renderCardDamageLine(card = {}, participant = {}) {
 function renderConstructMetaLine(card = {}, participant = {}) {
   if (!isConstructCard(card)) return '';
   const mode = detectConstructMode(card);
-  const baseDuration = Math.max(1, Number(card.constructDurationTurns || 1));
+  const baseDuration = Math.max(0, Math.round(Number(card.constructDurationTurns ?? 1) || 0));
   const durationBonus = getConstructSetBonus(participant).durationBonusTurns;
-  const effective = Math.max(1, baseDuration + durationBonus);
+  const effective = baseDuration > 0 ? Math.max(1, baseDuration + durationBonus) : 0;
   const detail = durationBonus ? `${baseDuration} (+${durationBonus})` : `${baseDuration}`;
   const statusId = String(card.constructStatusId || '').trim();
   const statusName = String(card.constructStatusName || '').trim();
   const statusLabel = statusName || statusId;
   const stacks = Math.max(1, Number(card.constructStatusStacks || 1));
   const constructAp = Math.max(0, Math.round(Number(card.constructAp ?? 2) || 0));
-  const constructHp = Math.max(1, Math.round(Number(card.constructMaxHp ?? 1) || 1));
+  const constructHp = Math.max(
+    1,
+    Math.round(
+      Number(
+        getCardScaledValue(
+          card.constructMaxHpByLevel,
+          Number(card.masteryLevel || 1),
+          Number(card.constructMaxHp ?? 1)
+        )
+      ) || 1
+    )
+  );
   const constructCards = Array.isArray(card.constructCards)
     ? card.constructCards
     : String(card.constructLinkedCard || '')
@@ -2501,7 +2527,10 @@ function renderConstructMetaLine(card = {}, participant = {}) {
           return 'Utility construct';
         })()
       : 'Damage construct';
-  return `<p>Construct: ${modeText} • Duration ${detail} turn${effective === 1 ? '' : 's'} (effective ${effective}) • HP ${constructHp} • AP ${constructAp}${constructCards.length ? ` • Cards: ${constructCards.join(', ')}` : ''}</p>`;
+  const durationText = effective > 0
+    ? `Duration ${detail} turn${effective === 1 ? '' : 's'} (effective ${effective})`
+    : 'Duration until removed';
+  return `<p>Construct: ${modeText} • ${durationText} • HP ${constructHp} • AP ${constructAp}${constructCards.length ? ` • Cards: ${constructCards.join(', ')}` : ''}</p>`;
 }
 
 function renderPlayerZones(participant) {
@@ -2807,7 +2836,11 @@ function renderPlayerConstructs(participant) {
             <article class="card-item construct-item">
               <h4>${escapeHtml(construct.name || 'Construct')}</h4>
               <p>${escapeHtml(renderConstructCardSummary(construct))}</p>
-              <p>Turns Remaining: ${Number(construct.remainingTurns || 0)}</p>
+              <p>${
+                Number(construct.remainingTurns || 0) > 0
+                  ? `Turns Remaining: ${Number(construct.remainingTurns || 0)}`
+                  : 'Duration: Until removed'
+              }</p>
               <p>HP: ${Number(construct.hp || 0)}/${Number(construct.maxHp || 0)} • AP: ${Number(construct.apCurrent || 0)}/${Number(construct.apMax || 0)}</p>
               <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
               <label>Target

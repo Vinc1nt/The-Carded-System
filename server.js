@@ -818,6 +818,14 @@ function executeCardAction(body) {
     card.constructMaxHpFromCasterConMod === true
       ? getAbilityModifier(participant, 'constitution')
       : 0;
+  const constructBaseMaxHpRaw = getCardScaledValue(
+    card.constructMaxHpByLevel,
+    masteryLevel,
+    Number(card.constructMaxHp ?? card.constructHp ?? 1)
+  );
+  const constructBaseMaxHp = Number.isFinite(Number(constructBaseMaxHpRaw))
+    ? Math.max(1, Math.round(Number(constructBaseMaxHpRaw)))
+    : 1;
   const constructAuraRadiusFt = Math.max(
     0,
     Math.round(
@@ -908,7 +916,6 @@ function executeCardAction(body) {
         Math.round(getCardScaledValue(card.zoneHealByLevel, masteryLevel, Number(card.zoneHeal || 0)))
       )
     : 0;
-  const zoneDamageEnemiesOnly = zoneCard && card.zoneDamageEnemiesOnly === true;
   const zoneShieldRestoreAlliesOnly = zoneCard ? card.zoneShieldRestoreAlliesOnly !== false : false;
   const zoneHealAlliesOnly = zoneCard ? card.zoneHealAlliesOnly !== false : false;
   const zoneDetectDc = zoneCard
@@ -1304,14 +1311,19 @@ function executeCardAction(body) {
       healTargetOnly: constructHealTargetOnly,
       triggerOnTargetTurn: constructTriggerOnTargetTurn,
       maxHpCasterConBonus: constructMaxHpCasterConBonus,
+      maxHpOverride: constructBaseMaxHp,
       auraRadiusFt: constructAuraRadiusFt,
       detectDc: constructDetectDc,
       visionRangeFt: constructVisionRangeFt,
       utilityKind: constructUtilityKind,
       utilityNote: constructUtilityNote
     });
+    const constructDurationText =
+      constructDeployResult.construct.remainingTurns > 0
+        ? `${constructDeployResult.construct.remainingTurns} turn${constructDeployResult.construct.remainingTurns === 1 ? '' : 's'}`
+        : 'until removed';
     notes.push(
-      `Deploys ${constructDeployResult.construct.name} (${describeConstructSummary(constructDeployResult.construct)}, ${constructDeployResult.construct.remainingTurns} turn${constructDeployResult.construct.remainingTurns === 1 ? '' : 's'}).`
+      `Deploys ${constructDeployResult.construct.name} (${describeConstructSummary(constructDeployResult.construct)}, ${constructDurationText}).`
     );
     if (constructDeployResult.displaced.length) {
       const displacedNames = constructDeployResult.displaced.map((entry) => entry.name).join(', ');
@@ -1335,7 +1347,6 @@ function executeCardAction(body) {
       triggerMode: zoneTriggerMode,
       shieldRestore: zoneShieldRestore,
       heal: zoneHeal,
-      damageEnemiesOnly: zoneDamageEnemiesOnly,
       shieldRestoreAlliesOnly: zoneShieldRestoreAlliesOnly,
       healAlliesOnly: zoneHealAlliesOnly
     });
@@ -3007,11 +3018,16 @@ function applyConstructStartOfTurnEffects(participant) {
         events.push(`${refreshed.name} remains active.`);
       }
     }
-    const remainingTurns = Math.max(0, Number(refreshed.remainingTurns || 0) - 1);
-    if (remainingTurns > 0) {
-      nextConstructs.push({ ...refreshed, remainingTurns });
+    const currentTurns = Math.max(0, Number(refreshed.remainingTurns || 0));
+    if (currentTurns > 0) {
+      const remainingTurns = Math.max(0, currentTurns - 1);
+      if (remainingTurns > 0) {
+        nextConstructs.push({ ...refreshed, remainingTurns });
+      } else {
+        events.push(`${refreshed.name} expires.`);
+      }
     } else {
-      events.push(`${refreshed.name} expires.`);
+      nextConstructs.push(refreshed);
     }
   }
   participant.constructs = nextConstructs;
@@ -3121,11 +3137,16 @@ function applyIncomingConstructTurnEffects(participant) {
           }
         }
       }
-      const remainingTurns = Math.max(0, Number(refreshed.remainingTurns || 0) - 1);
-      if (remainingTurns > 0) {
-        nextConstructs.push({ ...refreshed, remainingTurns });
+      const currentTurns = Math.max(0, Number(refreshed.remainingTurns || 0));
+      if (currentTurns > 0) {
+        const remainingTurns = Math.max(0, currentTurns - 1);
+        if (remainingTurns > 0) {
+          nextConstructs.push({ ...refreshed, remainingTurns });
+        } else {
+          events.push(`${owner.name}'s ${refreshed.name} expires.`);
+        }
       } else {
-        events.push(`${owner.name}'s ${refreshed.name} expires.`);
+        nextConstructs.push(refreshed);
       }
     }
     owner.constructs = nextConstructs;
@@ -3157,16 +3178,10 @@ function applyZoneTurnEffects(participant, zone) {
   for (const target of targets) {
     const allied = isParticipantAlly(participant, target);
     const amount = Math.max(0, Number(entry.damage || 0));
-    const canDamageTarget =
-      tickOnTurn &&
-      amount > 0 &&
-      (!entry.damageEnemiesOnly || !allied) &&
-      !(allied && nature5);
+    const canDamageTarget = tickOnTurn && amount > 0 && !(allied && nature5);
     if (!canDamageTarget) {
       if (tickOnTurn && allied && nature5 && amount > 0) {
         events.push(`${participant.name}'s zone ${entry.name} does not damage ally ${target.name}.`);
-      } else if (tickOnTurn && amount > 0 && entry.damageEnemiesOnly && allied) {
-        events.push(`${participant.name}'s zone ${entry.name} skips ally ${target.name}.`);
       }
       if (tickOnTurn || turnStatusType || zoneShieldRestore > 0 || zoneHeal > 0) {
         events.push(`${participant.name}'s zone ${entry.name} affects ${target.name}.`);
@@ -3183,7 +3198,7 @@ function applyZoneTurnEffects(participant, zone) {
         `${participant.name}'s zone ${entry.name} hits ${target.name} for ${result.finalDamage} ${entry.damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
       );
     }
-    if (tickOnTurn && turnStatusType && !(allied && nature5) && !(entry.damageEnemiesOnly && allied)) {
+    if (tickOnTurn && turnStatusType && !(allied && nature5)) {
       addStatusStacks(target, turnStatusType, turnStatusStacks);
       enforceControlHierarchy(target);
       events.push(
@@ -3612,7 +3627,7 @@ function normalizeConstructs(list = [], ownerId = '') {
           ? Math.max(0, Math.round(Number(entry.damageBonus)))
           : 0,
         damageType: String(entry.damageType || '').trim(),
-        remainingTurns: Number.isFinite(remainingTurns) ? Math.max(1, Math.round(remainingTurns)) : 1,
+        remainingTurns: Number.isFinite(remainingTurns) ? Math.max(0, Math.round(remainingTurns)) : 1,
         targetId: String(entry.targetId || '').trim(),
         mode,
         statusId: String(entry.statusId || entry.constructStatusId || '').trim(),
@@ -3811,7 +3826,7 @@ function normalizeCards(list = []) {
           ? Math.max(0, Math.round(Number(card.zoneDurationTurns)))
           : 0,
         constructDurationTurns: Number.isFinite(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns))
-          ? Math.max(1, Math.round(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns)))
+          ? Math.max(0, Math.round(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns)))
           : 1,
         constructMode: detectConstructMode(card, { infer: constructCard }),
         constructStatusId: String(
@@ -4561,12 +4576,12 @@ function deployConstructFromCard(participant, card, options = {}) {
   const durationBase = Number(card?.constructDurationTurns ?? card?.constructDuration ?? card?.durationTurns ?? 1);
   const durationBonusTurns = Math.max(0, Number(options.durationBonusTurns || 0));
   const durationTurns = Math.max(
-    1,
+    0,
     (Number.isFinite(durationBase) ? Math.round(durationBase) : 1) + durationBonusTurns
   );
   const apMaxRaw = Number(card?.constructAp ?? card?.constructApMax ?? 2);
   const apMax = Number.isFinite(apMaxRaw) ? Math.max(0, Math.round(apMaxRaw)) : 0;
-  const maxHpRaw = Number(card?.constructMaxHp ?? card?.constructHp ?? 1);
+  const maxHpRaw = Number(options.maxHpOverride ?? card?.constructMaxHp ?? card?.constructHp ?? 1);
   const maxHpCasterConBonus = Math.max(0, Math.round(Number(options.maxHpCasterConBonus || 0)));
   const maxHp = Number.isFinite(maxHpRaw)
     ? Math.max(1, Math.round(maxHpRaw) + maxHpCasterConBonus)
