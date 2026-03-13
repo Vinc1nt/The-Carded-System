@@ -2310,6 +2310,35 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (nextAttackBonus > 0) {
     parts.push(`Target gains +${nextAttackBonus} damage on their next attack.`);
   }
+  const nextTurnAp = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(card.grantTargetApNextTurnByLevel, level, Number(card.grantTargetApNextTurn || 0))
+    )
+  );
+  if (nextTurnAp > 0) {
+    parts.push(`Target gains +${nextTurnAp} AP on their next turn.`);
+  }
+  const apGainNow = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.apGainByLevel, level, Number(card.apGain || 0)))
+  );
+  if (apGainNow > 0) {
+    parts.push(`Gain +${apGainNow} AP this turn.`);
+  }
+  const removeStatusCount = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.removeStatusCountByLevel ?? card.cleanseStatusCountByLevel,
+        level,
+        Number(card.removeStatusCount ?? card.cleanseStatusCount ?? 0)
+      )
+    )
+  );
+  if (removeStatusCount > 0) {
+    parts.push(`Remove up to ${removeStatusCount} status effect${removeStatusCount === 1 ? '' : 's'}.`);
+  }
   if (parts.length) {
     return parts.join(' ');
   }
@@ -2333,6 +2362,8 @@ function getCardScaledValue(source, level = 1, fallback = 0) {
 }
 
 function isConstructCard(card = {}) {
+  if (card?.isConstruct === false) return false;
+  if (card?.isZone === true) return false;
   if (card?.isConstruct === true) return true;
   const tags = Array.isArray(card?.tags) ? card.tags : [];
   return tags.some((tag) => {
@@ -2421,7 +2452,54 @@ function renderConstructMetaLine(card = {}, participant = {}) {
   const modeText = mode === 'status'
     ? `Status: ${statusLabel || 'Unknown'} x${stacks}`
     : mode === 'utility'
-      ? 'Utility construct'
+      ? (() => {
+          const shieldRestore = Math.max(
+            0,
+            Math.round(
+              getCardScaledValue(card.constructShieldRestoreByLevel, Number(card.masteryLevel || 1), Number(card.constructShieldRestore || 0))
+            )
+          );
+          const auraRadiusFt = Math.max(
+            0,
+            Math.round(
+              getCardScaledValue(card.constructAuraRadiusByLevel, Number(card.masteryLevel || 1), Number(card.constructAuraRadiusFt || 0))
+            )
+          );
+          const visionRangeFt = Math.max(
+            0,
+            Math.round(
+              getCardScaledValue(card.constructVisionRangeByLevel, Number(card.masteryLevel || 1), Number(card.constructVisionRangeFt || 0))
+            )
+          );
+          const utilityKind = String(card.constructUtilityKind || '').trim().toLowerCase();
+          const heal = Math.max(
+            0,
+            Math.round(
+              getCardScaledValue(card.constructHealByLevel, Number(card.masteryLevel || 1), Number(card.constructHeal || 0))
+            )
+          );
+          if (shieldRestore > 0) {
+            const targetLabel = card.constructShieldRestoreAlliesOnly === true ? 'allies' : 'self';
+            const auraText = auraRadiusFt > 0 ? ` within ${auraRadiusFt} ft` : '';
+            return `Utility: restore ${shieldRestore} Shield to ${targetLabel}${auraText}`;
+          }
+          if (heal > 0) {
+            const targetLabel = card.constructHealTargetOnly === true
+              ? 'target'
+              : card.constructHealAlliesOnly === true
+                ? 'allies'
+                : 'self';
+            const triggerText = card.constructTriggerOnTargetTurn === true ? ' on target turn' : '';
+            return `Utility: restore ${heal} HP to ${targetLabel}${triggerText}`;
+          }
+          if (utilityKind === 'scout') {
+            return visionRangeFt > 0 ? `Scout utility (${visionRangeFt} ft vision)` : 'Scout utility';
+          }
+          if (utilityKind === 'factory') {
+            return 'Factory utility';
+          }
+          return 'Utility construct';
+        })()
       : 'Damage construct';
   return `<p>Construct: ${modeText} • Duration ${detail} turn${effective === 1 ? '' : 's'} (effective ${effective}) • HP ${constructHp} • AP ${constructAp}${constructCards.length ? ` • Cards: ${constructCards.join(', ')}` : ''}</p>`;
 }
@@ -2467,10 +2545,49 @@ function renderPlayerZones(participant) {
             Number(zone.remainingTurns || 0) > 0
               ? ` · ${zone.remainingTurns} turn${zone.remainingTurns === 1 ? '' : 's'} left`
               : '';
+          const enterDamage = Math.max(0, Number(zone.enterDamage || 0));
+          const enterStatusName = String(zone.enterStatusName || zone.enterStatusId || '').trim();
+          const enterStatusStacks = Math.max(1, Number(zone.enterStatusStacks || 1));
+          const triggerMode = String(zone.triggerMode || '').trim().replace(/_/g, ' ');
+          const triggerParts = [];
+          if (zone.triggerOnTargetAdd) {
+            if (enterDamage > 0) {
+              triggerParts.push(`Trigger: ${enterDamage} ${escapeHtml(zone.enterDamageType || zone.damageType || 'damage')}`);
+            }
+            if (enterStatusName) {
+              triggerParts.push(`Trigger: ${escapeHtml(enterStatusName)} ${enterStatusStacks}`);
+            }
+            if (triggerMode) {
+              triggerParts.push(`Mode: ${escapeHtml(triggerMode)}`);
+            }
+            if (zone.consumeOnTrigger) {
+              triggerParts.push('Single-use trigger');
+            }
+          }
+          if (Number(zone.detectDc || 0) > 0) {
+            triggerParts.push(`Detect DC ${Number(zone.detectDc)}`);
+          }
+          const triggerText = triggerParts.length
+            ? `<p class="muted small-note">${triggerParts.join(' · ')}</p>`
+            : '';
+          const sustainParts = [];
+          if (Number(zone.shieldRestore || 0) > 0) {
+            sustainParts.push(
+              `Restore ${Number(zone.shieldRestore)} Shield${zone.shieldRestoreAlliesOnly !== false ? ' (allies)' : ''}`
+            );
+          }
+          if (Number(zone.heal || 0) > 0) {
+            sustainParts.push(`Restore ${Number(zone.heal)} HP${zone.healAlliesOnly !== false ? ' (allies)' : ''}`);
+          }
+          const sustainText = sustainParts.length
+            ? `<p class="muted small-note">${sustainParts.join(' · ')}</p>`
+            : '';
           return `
             <article class="card-item construct-item">
               <h4>${escapeHtml(zone.name || 'Zone')}</h4>
               <p>${Number(zone.damage || 0)} ${escapeHtml(zone.damageType || 'damage')} · ${Number(zone.radiusFt || 0)} ft radius${remaining}</p>
+              ${triggerText}
+              ${sustainText}
               <p class="muted small-note">Currently in zone: ${targetNames.length ? escapeHtml(targetNames.join(', ')) : 'No targets assigned'}</p>
               <div class="status-list">
                 ${targetPills || '<span class="muted">No targets assigned.</span>'}
@@ -2774,6 +2891,38 @@ function renderConstructCardSummary(construct = {}) {
       : `Applies ${statusLabel} x${stacks}`;
   }
   if (mode === 'utility') {
+    const shieldRestore = Math.max(0, Number(construct.shieldRestore || 0));
+    const heal = Math.max(0, Number(construct.heal || 0));
+    const auraRadiusFt = Math.max(0, Number(construct.auraRadiusFt || 0));
+    const utilityKind = String(construct.utilityKind || '').trim().toLowerCase();
+    const visionRangeFt = Math.max(0, Number(construct.visionRangeFt || 0));
+    const detectDc = Math.max(0, Number(construct.detectDc || 0));
+    if (shieldRestore > 0) {
+      const targetLabel = construct.shieldRestoreAlliesOnly ? 'allies' : 'self';
+      const auraText = auraRadiusFt > 0 ? ` within ${auraRadiusFt} ft` : '';
+      return `Utility: restore ${shieldRestore} Shield to ${targetLabel}${auraText}`;
+    }
+    if (heal > 0) {
+      const targetLabel = construct.healTargetOnly
+        ? 'target'
+        : construct.healAlliesOnly
+          ? 'allies'
+          : 'self';
+      const triggerText = construct.triggerOnTargetTurn ? ' on target turn' : '';
+      return `Utility: restore ${heal} HP to ${targetLabel}${triggerText}`;
+    }
+    if (utilityKind === 'scout') {
+      const details = [];
+      if (visionRangeFt > 0) details.push(`vision ${visionRangeFt} ft`);
+      if (detectDc > 0) details.push(`detect DC ${detectDc}`);
+      if (construct.utilityNote) details.push(String(construct.utilityNote));
+      return details.length ? `Scout utility (${details.join(', ')})` : 'Scout utility';
+    }
+    if (utilityKind === 'factory') {
+      return construct.utilityNote
+        ? `Factory utility (${String(construct.utilityNote)})`
+        : 'Factory utility';
+    }
     return 'Utility construct';
   }
   return `Damage: ${Number(construct.damage || 0)} ${construct.damageType || ''}`.trim();
@@ -3638,6 +3787,7 @@ function normalizeCardPayload(raw = {}) {
     ? explicitShieldBonus
     : getCardTierShieldBonus(tier);
   return {
+    ...raw,
     id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
     name: (raw.name || 'Imported Card').trim(),
     set: raw.set || '',

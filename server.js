@@ -797,6 +797,47 @@ function executeCardAction(body) {
   const constructStatusId = String(card.constructStatusId || '').trim();
   const constructStatusName = String(card.constructStatusName || '').trim();
   const constructStatusStacks = Math.max(1, Number(card.constructStatusStacks || 1));
+  const constructShieldRestore = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(card.constructShieldRestoreByLevel, masteryLevel, Number(card.constructShieldRestore || 0))
+    )
+  );
+  const constructShieldRestoreAlliesOnly = card.constructShieldRestoreAlliesOnly === true;
+  const constructHeal = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(card.constructHealByLevel, masteryLevel, Number(card.constructHeal || 0))
+    )
+  );
+  const constructHealAlliesOnly = card.constructHealAlliesOnly === true;
+  const constructHealTargetOnly = card.constructHealTargetOnly === true;
+  const constructTriggerOnTargetTurn = card.constructTriggerOnTargetTurn === true;
+  const constructTargetRequired = card.constructTargetRequired === true;
+  const constructMaxHpCasterConBonus =
+    card.constructMaxHpFromCasterConMod === true
+      ? getAbilityModifier(participant, 'constitution')
+      : 0;
+  const constructAuraRadiusFt = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(card.constructAuraRadiusByLevel, masteryLevel, Number(card.constructAuraRadiusFt || 0))
+    )
+  );
+  const constructDetectDc = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(card.constructDetectDcByLevel, masteryLevel, Number(card.constructDetectDc || 0))
+    )
+  );
+  const constructVisionRangeFt = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(card.constructVisionRangeByLevel, masteryLevel, Number(card.constructVisionRangeFt || 0))
+    )
+  );
+  const constructUtilityKind = String(card.constructUtilityKind || '').trim().toLowerCase();
+  const constructUtilityNote = String(card.constructUtilityNote || card.constructScoutNote || '').trim();
   const arcaneModifiedCard = arcane.modifiedCard?.cardId === card.id ? arcane.modifiedCard : null;
   if (arcaneModifiedCard?.mode === 'ap') {
     apCost = Math.max(1, apCost - 1);
@@ -805,10 +846,19 @@ function executeCardAction(body) {
     ? Math.max(0, Number(participant.nextAttackDamageBonus || 0))
     : 0;
   const zoneTickDamage = zoneCard
-    ? Math.max(
-        0,
-        baseDamage + (participant.damageBonus || 0) + (hasElemental7 ? 2 : 0) + (arcaneModifiedCard?.mode === 'damage' ? 2 : 0)
-      )
+    ? (() => {
+        // Zone damage bonuses should only scale existing damage zones.
+        // Pure sustain/healing zones do not gain incidental damage from set bonuses.
+        const zoneBaseDamage = Math.max(0, Number(baseDamage || 0));
+        if (zoneBaseDamage <= 0) return 0;
+        return Math.max(
+          0,
+          zoneBaseDamage +
+            (participant.damageBonus || 0) +
+            (hasElemental7 ? 2 : 0) +
+            (arcaneModifiedCard?.mode === 'damage' ? 2 : 0)
+        );
+      })()
     : 0;
   const rawDamage = isConstruct
     ? 0
@@ -835,6 +885,39 @@ function executeCardAction(body) {
   const pushDistance = getCardScaledValue(card.pushDistanceByLevel, masteryLevel, 0);
   const pullDistance = getCardScaledValue(card.pullDistanceByLevel, masteryLevel, 0);
   const statusApply = normalizeCardStatusApply(card, masteryLevel);
+  const zoneStatusApply = zoneCard ? normalizeCardStatusApply(card, masteryLevel) : null;
+  const zoneEnterStatusApply = zoneCard ? normalizeStatusApplyConfig(card.zoneEnterStatusApply, masteryLevel) : null;
+  const zoneEnterDamage = zoneCard
+    ? Math.max(
+        0,
+        Math.round(getCardScaledValue(card.zoneEnterDamageByLevel, masteryLevel, Number(card.zoneEnterDamage || 0)))
+      )
+    : 0;
+  const zoneTickOnTurn = card.zoneTickOnTurn !== false;
+  const zoneTriggerOnTargetAdd = zoneCard ? (card.zoneTriggerOnTargetAdd === true || zoneEnterDamage > 0 || Boolean(zoneEnterStatusApply)) : false;
+  const zoneConsumeOnTrigger = zoneCard && card.zoneConsumeOnTrigger === true;
+  const zoneShieldRestore = zoneCard
+    ? Math.max(
+        0,
+        Math.round(getCardScaledValue(card.zoneShieldRestoreByLevel, masteryLevel, Number(card.zoneShieldRestore || 0)))
+      )
+    : 0;
+  const zoneHeal = zoneCard
+    ? Math.max(
+        0,
+        Math.round(getCardScaledValue(card.zoneHealByLevel, masteryLevel, Number(card.zoneHeal || 0)))
+      )
+    : 0;
+  const zoneDamageEnemiesOnly = zoneCard && card.zoneDamageEnemiesOnly === true;
+  const zoneShieldRestoreAlliesOnly = zoneCard ? card.zoneShieldRestoreAlliesOnly !== false : false;
+  const zoneHealAlliesOnly = zoneCard ? card.zoneHealAlliesOnly !== false : false;
+  const zoneDetectDc = zoneCard
+    ? Math.max(
+        0,
+        Math.round(getCardScaledValue(card.zoneDetectDcByLevel, masteryLevel, Number(card.zoneDetectDc || 0)))
+      )
+    : 0;
+  const zoneTriggerMode = zoneCard ? String(card.zoneTriggerMode || '').trim().toLowerCase() : '';
   const selfTarget = isSelfTargetCard(card, masteryLevel);
   const conditionalShieldDamageBonus = Math.max(
     0,
@@ -847,6 +930,38 @@ function executeCardAction(body) {
   const nextAttackGrant = Math.max(
     0,
     Math.round(getCardScaledValue(card.nextAttackDamageBonusByLevel, masteryLevel, Number(card.nextAttackDamageBonus || 0)))
+  );
+  const cardUtilityNote = String(card.utilityNote || '').trim();
+  const effectTextNote = String(card.effect || '').trim();
+  const targetApNextTurnGrant = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.grantTargetApNextTurnByLevel,
+        masteryLevel,
+        Number(card.grantTargetApNextTurn || 0)
+      )
+    )
+  );
+  const apGainNow = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.apGainByLevel,
+        masteryLevel,
+        Number(card.apGain || 0)
+      )
+    )
+  );
+  const removeStatusCount = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.removeStatusCountByLevel ?? card.cleanseStatusCountByLevel,
+        masteryLevel,
+        Number(card.removeStatusCount ?? card.cleanseStatusCount ?? 0)
+      )
+    )
   );
 
   const targetId = String(body.targetId || '').trim();
@@ -921,7 +1036,8 @@ function executeCardAction(body) {
     targetMode !== 'all_others' &&
     !selfTarget &&
     !zoneCard &&
-    ((isConstruct && (constructMode === 'damage' || constructMode === 'status')) ||
+    ((isConstruct && (constructMode === 'damage' || constructMode === 'status') && card.constructAllowUntargetedDeploy !== true) ||
+      (isConstruct && constructTargetRequired) ||
       (!isConstruct &&
         (rawDamage > 0 ||
           shieldRestoreTotal > 0 ||
@@ -929,11 +1045,13 @@ function executeCardAction(body) {
           Boolean(statusApply) ||
           pushDistance > 0 ||
           pullDistance > 0 ||
-          nextAttackGrant > 0)));
+          nextAttackGrant > 0 ||
+          targetApNextTurnGrant > 0)));
   if (requiresTarget && !primaryTargets.length) return { error: 'Target is required for this card effect' };
   if (
     isConstruct &&
     (constructMode === 'damage' || constructMode === 'status') &&
+    card.constructAllowUntargetedDeploy !== true &&
     !primaryTarget
   ) {
     return { error: 'Target is required to deploy this construct' };
@@ -943,6 +1061,12 @@ function executeCardAction(body) {
   }
   if (!allowSelfTarget && !selfTarget && primaryTargets.some((entry) => entry.id === participant.id)) {
     return { error: 'This card cannot target self' };
+  }
+  if (card.targetAlliesOnly === true) {
+    const invalidTarget = primaryTargets.find((entry) => !isParticipantAlly(participant, entry));
+    if (invalidTarget) {
+      return { error: `${card.name} can only target allies.` };
+    }
   }
   if (secondaryTargetId && !secondaryTarget) {
     return { error: 'Secondary target not found' };
@@ -970,6 +1094,21 @@ function executeCardAction(body) {
   const splitDamage = canArcaneSplit && rawDamage > 0 ? splitAmountBetweenTwo(rawDamage) : null;
   const splitShieldRestore = canArcaneSplit && shieldRestoreTotal > 0 ? splitAmountBetweenTwo(shieldRestoreTotal) : null;
   const splitHealing = canArcaneSplit && healTotal > 0 ? splitAmountBetweenTwo(healTotal) : null;
+  const hasStructuredCardEffect =
+    isConstruct ||
+    zoneCard ||
+    rawDamage > 0 ||
+    secondaryRawDamage > 0 ||
+    shieldRestoreTotal > 0 ||
+    healTotal > 0 ||
+    moveDistance > 0 ||
+    pushDistance > 0 ||
+    pullDistance > 0 ||
+    Boolean(statusApply) ||
+    nextAttackGrant > 0 ||
+    targetApNextTurnGrant > 0 ||
+    apGainNow > 0 ||
+    removeStatusCount > 0;
   const demonicStatusProc = Boolean(statusApply) && ['bleeding', 'poisoned', 'burning'].includes(statusApply?.id);
   const addDamageResult = (damageTarget, amount, type, source = 'primary', options = {}) => {
     if (!damageTarget || amount <= 0) return;
@@ -1035,6 +1174,10 @@ function executeCardAction(body) {
     }
   };
   const others = trackerState.encounter.participants.filter((entry) => entry.id !== participant.id);
+  if (!isConstruct && apGainNow > 0) {
+    participant.apCurrent = Math.max(0, participant.apCurrent + apGainNow);
+    notes.push(`Gains +${apGainNow} AP this turn.`);
+  }
   if (isConstruct) {
     constructDeployResult = deployConstructFromCard(participant, card, {
       targetId: primaryTarget?.id || null,
@@ -1045,7 +1188,19 @@ function executeCardAction(body) {
       mode: constructMode,
       statusId: constructStatusId,
       statusName: constructStatusName,
-      statusStacks: constructStatusStacks
+      statusStacks: constructStatusStacks,
+      shieldRestore: constructShieldRestore,
+      shieldRestoreAlliesOnly: constructShieldRestoreAlliesOnly,
+      heal: constructHeal,
+      healAlliesOnly: constructHealAlliesOnly,
+      healTargetOnly: constructHealTargetOnly,
+      triggerOnTargetTurn: constructTriggerOnTargetTurn,
+      maxHpCasterConBonus: constructMaxHpCasterConBonus,
+      auraRadiusFt: constructAuraRadiusFt,
+      detectDc: constructDetectDc,
+      visionRangeFt: constructVisionRangeFt,
+      utilityKind: constructUtilityKind,
+      utilityNote: constructUtilityNote
     });
     notes.push(
       `Deploys ${constructDeployResult.construct.name} (${describeConstructSummary(constructDeployResult.construct)}, ${constructDeployResult.construct.remainingTurns} turn${constructDeployResult.construct.remainingTurns === 1 ? '' : 's'}).`
@@ -1060,16 +1215,44 @@ function executeCardAction(body) {
       damage: zoneTickDamage,
       damageType,
       targetIds: effectivePrimaryTargets.map((entry) => entry.id),
-      radiusBonusFt: arcaneModifiedCard?.mode === 'radius' ? 5 : 0
+      radiusBonusFt: arcaneModifiedCard?.mode === 'radius' ? 5 : 0,
+      tickOnTurn: zoneTickOnTurn,
+      statusApply: zoneStatusApply,
+      triggerOnTargetAdd: zoneTriggerOnTargetAdd,
+      consumeOnTrigger: zoneConsumeOnTrigger,
+      enterDamage: zoneEnterDamage,
+      enterDamageType: damageType || card.damageType || '',
+      enterStatusApply: zoneEnterStatusApply,
+      detectDc: zoneDetectDc,
+      triggerMode: zoneTriggerMode,
+      shieldRestore: zoneShieldRestore,
+      heal: zoneHeal,
+      damageEnemiesOnly: zoneDamageEnemiesOnly,
+      shieldRestoreAlliesOnly: zoneShieldRestoreAlliesOnly,
+      healAlliesOnly: zoneHealAlliesOnly
     });
     const zone = zoneDeployResult.zone;
     const durationText =
       zone.remainingTurns > 0
         ? `${zone.remainingTurns} turn${zone.remainingTurns === 1 ? '' : 's'}`
         : 'until removed';
+    const triggerParts = [];
+    if (zone.triggerOnTargetAdd) {
+      triggerParts.push(zone.triggerMode ? zone.triggerMode.replace(/_/g, ' ') : 'on target add');
+    }
+    if (zone.detectDc > 0) {
+      triggerParts.push(`detect DC ${zone.detectDc}`);
+    }
+    if (zone.shieldRestore > 0) {
+      triggerParts.push(`restores ${zone.shieldRestore} Shield${zone.shieldRestoreAlliesOnly ? ' (allies)' : ''}`);
+    }
+    if (zone.heal > 0) {
+      triggerParts.push(`restores ${zone.heal} HP${zone.healAlliesOnly ? ' (allies)' : ''}`);
+    }
+    const triggerText = triggerParts.length ? `, ${triggerParts.join(', ')}` : '';
     const targetText = zone.targetIds.length ? ` Targets: ${zone.targetIds.length}.` : '';
     notes.push(
-      `Creates zone ${zone.name} (${zone.radiusFt} ft radius, ${zone.damage} ${zone.damageType || 'damage'}, ${durationText}).${targetText}`
+      `Creates zone ${zone.name} (${zone.radiusFt} ft radius, ${zone.damage} ${zone.damageType || 'damage'}, ${durationText}${triggerText}).${targetText}`
     );
   } else {
     if (rawDamage > 0) {
@@ -1260,6 +1443,59 @@ function executeCardAction(body) {
     }
   }
 
+  if (!isConstruct && removeStatusCount > 0) {
+    const cleanseTargets =
+      targetMode === 'all_others'
+        ? others
+        : targetMode === 'multi_select'
+          ? effectivePrimaryTargets
+          : selfTarget
+            ? [participant]
+            : primaryTarget
+              ? [primaryTarget]
+              : [participant];
+    const cleanseSummaries = [];
+    for (const statusTarget of cleanseTargets) {
+      if (!statusTarget) continue;
+      const removedStatuses = [];
+      for (let index = 0; index < removeStatusCount; index += 1) {
+        const removed = clearOneStatusEffect(statusTarget);
+        if (!removed) break;
+        removedStatuses.push(removed);
+      }
+      enforceControlHierarchy(statusTarget);
+      if (removedStatuses.length) {
+        cleanseSummaries.push(`${statusTarget.name} (${removedStatuses.join(', ')})`);
+      }
+    }
+    if (cleanseSummaries.length) {
+      notes.push(`Removes up to ${removeStatusCount} status effect(s): ${cleanseSummaries.join('; ')}.`);
+    } else {
+      notes.push('No removable status effects were found.');
+    }
+  }
+
+  if (!isConstruct && targetApNextTurnGrant > 0) {
+    const apTargets =
+      targetMode === 'all_others'
+        ? others
+        : targetMode === 'multi_select'
+          ? effectivePrimaryTargets
+          : (primaryTarget ? [primaryTarget] : []);
+    const queuedTargets = [];
+    for (const entry of apTargets) {
+      if (!entry) continue;
+      entry.pendingApNextTurn = Math.max(
+        0,
+        Math.round(Number(entry.pendingApNextTurn || 0) + targetApNextTurnGrant)
+      );
+      queuedTargets.push(`${entry.name} (+${targetApNextTurnGrant} AP next turn)`);
+    }
+    if (queuedTargets.length) {
+      notes.push(`Queues AP for next turn: ${queuedTargets.join(', ')}.`);
+    }
+  }
+
   if (!isConstruct && moveDistance > 0) {
     notes.push(`Moves ${moveDistance} ft.`);
     applyShadowMovementProgress(participant, moveDistance, notes);
@@ -1294,8 +1530,13 @@ function executeCardAction(body) {
       notes.push(`Pulls ${pullTargets.length} targets ${pullDistance} ft.`);
     }
   }
+  if (cardUtilityNote) {
+    notes.push(cardUtilityNote);
+  } else if (effectTextNote && !hasStructuredCardEffect) {
+    notes.push(effectTextNote);
+  }
 
-  if (!isConstruct && statusApply) {
+  if (!isConstruct && !zoneCard && statusApply) {
     const statusStacks = resolveStatusStacksForCard(statusApply, {
       hasBeast3,
       hasElemental3,
@@ -1490,7 +1731,7 @@ function findZone(participant, zoneId) {
 }
 
 function executeAddZoneTargetAction(body) {
-  return executeAddZoneTargetActionForEncounter(body, {
+  const result = executeAddZoneTargetActionForEncounter(body, {
     resolveActor,
     findParticipant,
     findZone,
@@ -1498,6 +1739,21 @@ function executeAddZoneTargetAction(body) {
     touchState,
     broadcastState
   });
+  if (result?.error) {
+    return result;
+  }
+  const triggerEvents = applyZoneTargetAddTriggers(result.participant, result.zone, result.target);
+  if (triggerEvents.length) {
+    triggerEvents.forEach((event) =>
+      pushLog(event, result.participant.id, {
+        zoneId: result.zone?.id || '',
+        targetId: result.target?.id || ''
+      })
+    );
+    touchState();
+    broadcastState('zone_target_triggered');
+  }
+  return { ...result, triggerEvents };
 }
 
 function executeRemoveZoneTargetAction(body) {
@@ -1754,7 +2010,8 @@ function sanitizeParticipantUpdate(body, current) {
     'hp',
     'shield',
     'mastery',
-    'nextAttackDamageBonus'
+    'nextAttackDamageBonus',
+    'pendingApNextTurn'
   ];
   for (const field of numericFields) {
     if (typeof body[field] === 'number') {
@@ -1911,6 +2168,9 @@ function createParticipant(body = {}) {
     nextAttackDamageBonus: Number.isFinite(Number(body.nextAttackDamageBonus))
       ? Math.max(0, Math.round(Number(body.nextAttackDamageBonus)))
       : 0,
+    pendingApNextTurn: Number.isFinite(Number(body.pendingApNextTurn))
+      ? Math.max(0, Math.round(Number(body.pendingApNextTurn)))
+      : 0,
     baseStats,
     derivedBonuses: {
       base: baseStats,
@@ -2037,10 +2297,19 @@ function resetTurn(participant, options = {}) {
       events.push(`gains +${bonus} AP from Demonic momentum.`);
     }
   }
+  if (Number(participant.pendingApNextTurn || 0) > 0) {
+    const bonus = Math.max(0, Math.round(Number(participant.pendingApNextTurn || 0)));
+    participant.apCurrent += bonus;
+    participant.pendingApNextTurn = 0;
+    if (bonus > 0) {
+      events.push(`gains +${bonus} AP from queued ally support.`);
+    }
+  }
   if (options.applyStatusTick) {
     const statusEvents = applyStartOfTurnStatusEffects(participant);
     const constructEvents = applyConstructStartOfTurnEffects(participant);
-    return [...events, ...statusEvents, ...constructEvents];
+    const incomingConstructEvents = applyIncomingConstructTurnEffects(participant);
+    return [...events, ...statusEvents, ...constructEvents, ...incomingConstructEvents];
   }
   return events;
 }
@@ -2415,6 +2684,11 @@ function applyConstructStartOfTurnEffects(participant) {
     };
     const mode = normalizeConstructMode(refreshed.mode || refreshed.constructMode) || 'damage';
     const target = refreshed.targetId ? findParticipant(refreshed.targetId) : null;
+    const triggerOnTargetTurn = refreshed.triggerOnTargetTurn === true;
+    if (triggerOnTargetTurn && target && target.id !== participant.id) {
+      nextConstructs.push(refreshed);
+      continue;
+    }
     if ((mode === 'damage' || mode === 'status') && !target) {
       events.push(`${refreshed.name} has no valid target this turn.`);
     } else if (mode === 'status' && target) {
@@ -2468,7 +2742,71 @@ function applyConstructStartOfTurnEffects(participant) {
         );
       }
     } else if (mode === 'utility') {
-      events.push(`${refreshed.name} remains active.`);
+      const shieldRestore = Math.max(0, Number(refreshed.shieldRestore || 0));
+      const heal = Math.max(0, Number(refreshed.heal || 0));
+      const auraRadiusFt = Math.max(0, Number(refreshed.auraRadiusFt || 0));
+      const detectDc = Math.max(0, Number(refreshed.detectDc || 0));
+      const visionRangeFt = Math.max(0, Number(refreshed.visionRangeFt || 0));
+      const utilityKind = String(refreshed.utilityKind || '').trim().toLowerCase();
+      const utilityNote = String(refreshed.utilityNote || '').trim();
+      if (shieldRestore > 0) {
+        const recipients = refreshed.shieldRestoreAlliesOnly
+          ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(participant, entry))
+          : [participant];
+        const restoredTargets = [];
+        for (const entry of recipients) {
+          const beforeShield = entry.shield;
+          entry.shield = Math.min(entry.maxShield, entry.shield + shieldRestore);
+          const restored = entry.shield - beforeShield;
+          if (restored > 0) {
+            restoredTargets.push(`${entry.name} (+${restored})`);
+          }
+        }
+        const auraText = auraRadiusFt > 0 ? ` within ${auraRadiusFt} ft` : '';
+        if (restoredTargets.length) {
+          events.push(`${refreshed.name} restores Shield${auraText} to ${restoredTargets.join(', ')}.`);
+        } else {
+          events.push(`${refreshed.name} pulses${auraText} but no Shield is restored.`);
+        }
+      } else if (heal > 0) {
+        const recipients = refreshed.healTargetOnly && target
+          ? [target]
+          : refreshed.healAlliesOnly
+            ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(participant, entry))
+            : [participant];
+        const healedTargets = [];
+        for (const entry of recipients) {
+          const beforeHp = entry.hp;
+          entry.hp = Math.min(entry.maxHp, entry.hp + heal);
+          const restored = entry.hp - beforeHp;
+          if (restored > 0) {
+            healedTargets.push(`${entry.name} (+${restored})`);
+          }
+        }
+        if (healedTargets.length) {
+          events.push(`${refreshed.name} restores HP to ${healedTargets.join(', ')}.`);
+        } else {
+          events.push(`${refreshed.name} pulses but no HP is restored.`);
+        }
+      } else if (utilityKind === 'scout') {
+        const detailParts = [];
+        if (visionRangeFt > 0) detailParts.push(`vision ${visionRangeFt} ft`);
+        if (detectDc > 0) detailParts.push(`detect DC ${detectDc}`);
+        if (utilityNote) detailParts.push(utilityNote);
+        events.push(
+          detailParts.length
+            ? `${refreshed.name} relays scouting intel (${detailParts.join(', ')}).`
+            : `${refreshed.name} relays scouting intel.`
+        );
+      } else if (utilityKind === 'factory') {
+        events.push(
+          utilityNote
+            ? `${refreshed.name} coordinates war production (${utilityNote}).`
+            : `${refreshed.name} coordinates war production.`
+        );
+      } else {
+        events.push(`${refreshed.name} remains active.`);
+      }
     }
     const remainingTurns = Math.max(0, Number(refreshed.remainingTurns || 0) - 1);
     if (remainingTurns > 0) {
@@ -2481,11 +2819,131 @@ function applyConstructStartOfTurnEffects(participant) {
   return events;
 }
 
+function applyIncomingConstructTurnEffects(participant) {
+  if (!participant) return [];
+  const events = [];
+  for (const owner of trackerState.encounter.participants || []) {
+    if (!owner || owner.id === participant.id) continue;
+    owner.constructs = normalizeConstructs(owner.constructs, owner.id);
+    if (!owner.constructs.length) continue;
+    const nextConstructs = [];
+    for (const construct of owner.constructs) {
+      const refreshed = {
+        ...construct,
+        apCurrent: Math.max(0, Number(construct.apCurrent ?? construct.apMax ?? 0))
+      };
+      const mode = normalizeConstructMode(refreshed.mode || refreshed.constructMode) || 'damage';
+      const targetsThisTurn =
+        refreshed.triggerOnTargetTurn === true &&
+        String(refreshed.targetId || '') === participant.id;
+      if (!targetsThisTurn) {
+        nextConstructs.push(refreshed);
+        continue;
+      }
+      if ((mode === 'damage' || mode === 'status') && !participant) {
+        events.push(`${owner.name}'s ${refreshed.name} has no valid target this turn.`);
+      } else if (mode === 'status') {
+        const stacks = Math.max(1, Number(refreshed.statusStacks || 1));
+        const statusType = detectStatusType({
+          presetId: refreshed.statusId,
+          name: refreshed.statusName
+        });
+        if (statusType) {
+          addStatusStacks(participant, statusType, stacks);
+          enforceControlHierarchy(participant);
+          events.push(
+            `${owner.name}'s ${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${participant.name}.`
+          );
+        }
+        const forceDamage = Math.max(0, Number(refreshed.damage || 0));
+        if (forceDamage > 0) {
+          const result = applyCardDamageWithType(participant, forceDamage, 'Force');
+          const mitigation =
+            result.resisted && !result.vulnerable
+              ? ' [Resisted]'
+              : result.vulnerable && !result.resisted
+                ? ' [Vulnerable]'
+                : '';
+          events.push(
+            `${owner.name}'s ${refreshed.name} deals ${result.finalDamage} Force to ${participant.name} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+          );
+        }
+      } else if (mode === 'damage') {
+        const damage = Math.max(0, Number(refreshed.damage || 0));
+        const damageType = String(refreshed.damageType || '').trim();
+        if (damage > 0) {
+          const result = applyCardDamageWithType(participant, damage, damageType);
+          const mitigation =
+            result.resisted && !result.vulnerable
+              ? ' [Resisted]'
+              : result.vulnerable && !result.resisted
+                ? ' [Vulnerable]'
+                : '';
+          events.push(
+            `${owner.name}'s ${refreshed.name} hits ${participant.name} for ${result.finalDamage} ${damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+          );
+        }
+      } else if (mode === 'utility') {
+        const shieldRestore = Math.max(0, Number(refreshed.shieldRestore || 0));
+        const heal = Math.max(0, Number(refreshed.heal || 0));
+        if (shieldRestore > 0) {
+          const recipients = refreshed.shieldRestoreAlliesOnly
+            ? [participant].filter((entry) => isParticipantAlly(owner, entry))
+            : [participant];
+          const restoredTargets = [];
+          for (const entry of recipients) {
+            const beforeShield = entry.shield;
+            entry.shield = Math.min(entry.maxShield, entry.shield + shieldRestore);
+            const restored = entry.shield - beforeShield;
+            if (restored > 0) {
+              restoredTargets.push(`${entry.name} (+${restored})`);
+            }
+          }
+          if (restoredTargets.length) {
+            events.push(`${owner.name}'s ${refreshed.name} restores Shield to ${restoredTargets.join(', ')}.`);
+          }
+        } else if (heal > 0) {
+          const recipients = refreshed.healTargetOnly
+            ? [participant]
+            : refreshed.healAlliesOnly
+              ? [participant].filter((entry) => isParticipantAlly(owner, entry))
+              : [participant];
+          const healedTargets = [];
+          for (const entry of recipients) {
+            const beforeHp = entry.hp;
+            entry.hp = Math.min(entry.maxHp, entry.hp + heal);
+            const restored = entry.hp - beforeHp;
+            if (restored > 0) {
+              healedTargets.push(`${entry.name} (+${restored})`);
+            }
+          }
+          if (healedTargets.length) {
+            events.push(`${owner.name}'s ${refreshed.name} restores HP to ${healedTargets.join(', ')}.`);
+          }
+        }
+      }
+      const remainingTurns = Math.max(0, Number(refreshed.remainingTurns || 0) - 1);
+      if (remainingTurns > 0) {
+        nextConstructs.push({ ...refreshed, remainingTurns });
+      } else {
+        events.push(`${owner.name}'s ${refreshed.name} expires.`);
+      }
+    }
+    owner.constructs = nextConstructs;
+    clampParticipant(owner);
+  }
+  clampParticipant(participant);
+  return events;
+}
+
 function applyZoneTurnEffects(participant, zone) {
   if (!participant || !zone) return [];
   participant.zones = normalizeZones(participant.zones, participant.id);
   const entry = participant.zones.find((item) => String(item.id) === String(zone.id));
   if (!entry) return [`${participant.name}'s zone no longer exists.`];
+  const tickOnTurn = entry.tickOnTurn !== false;
+  const turnStatusType = detectStatusType({ presetId: entry.statusId, name: entry.statusName });
+  const turnStatusStacks = Math.max(1, Number(entry.statusStacks || 1));
   const targets = (entry.targetIds || [])
     .map((id) => findParticipant(id))
     .filter(Boolean);
@@ -2495,14 +2953,25 @@ function applyZoneTurnEffects(participant, zone) {
   const events = [];
   const nature5 = hasSetBonus(participant, 'Nature', 5);
   const nature7 = hasSetBonus(participant, 'Nature', 7);
+  const zoneShieldRestore = Math.max(0, Number(entry.shieldRestore || 0));
+  const zoneHeal = Math.max(0, Number(entry.heal || 0));
   for (const target of targets) {
     const allied = isParticipantAlly(participant, target);
     const amount = Math.max(0, Number(entry.damage || 0));
-    if (amount <= 0 || (allied && nature5)) {
-      if (allied && nature5 && amount > 0) {
+    const canDamageTarget =
+      tickOnTurn &&
+      amount > 0 &&
+      (!entry.damageEnemiesOnly || !allied) &&
+      !(allied && nature5);
+    if (!canDamageTarget) {
+      if (tickOnTurn && allied && nature5 && amount > 0) {
         events.push(`${participant.name}'s zone ${entry.name} does not damage ally ${target.name}.`);
+      } else if (tickOnTurn && amount > 0 && entry.damageEnemiesOnly && allied) {
+        events.push(`${participant.name}'s zone ${entry.name} skips ally ${target.name}.`);
       }
-      events.push(`${participant.name}'s zone ${entry.name} affects ${target.name}.`);
+      if (tickOnTurn || turnStatusType || zoneShieldRestore > 0 || zoneHeal > 0) {
+        events.push(`${participant.name}'s zone ${entry.name} affects ${target.name}.`);
+      }
     } else {
       const result = applyCardDamageWithType(target, amount, entry.damageType);
       const mitigation =
@@ -2514,6 +2983,29 @@ function applyZoneTurnEffects(participant, zone) {
       events.push(
         `${participant.name}'s zone ${entry.name} hits ${target.name} for ${result.finalDamage} ${entry.damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
       );
+    }
+    if (tickOnTurn && turnStatusType && !(allied && nature5) && !(entry.damageEnemiesOnly && allied)) {
+      addStatusStacks(target, turnStatusType, turnStatusStacks);
+      enforceControlHierarchy(target);
+      events.push(
+        `${participant.name}'s zone ${entry.name} applies ${statusDisplayName(turnStatusType)} ${turnStatusStacks} to ${target.name}.`
+      );
+    }
+    if (zoneShieldRestore > 0 && (!entry.shieldRestoreAlliesOnly || allied)) {
+      const beforeShield = target.shield;
+      target.shield = Math.min(target.maxShield, target.shield + zoneShieldRestore);
+      const restored = target.shield - beforeShield;
+      if (restored > 0) {
+        events.push(`${participant.name}'s zone ${entry.name} restores ${restored} Shield to ${target.name}.`);
+      }
+    }
+    if (zoneHeal > 0 && (!entry.healAlliesOnly || allied)) {
+      const beforeHp = target.hp;
+      target.hp = Math.min(target.maxHp, target.hp + zoneHeal);
+      const healed = target.hp - beforeHp;
+      if (healed > 0) {
+        events.push(`${participant.name}'s zone ${entry.name} restores ${healed} HP to ${target.name}.`);
+      }
     }
     if (allied && nature7) {
       const beforeShield = target.shield;
@@ -2532,6 +3024,49 @@ function applyZoneTurnEffects(participant, zone) {
     }
   }
   clampParticipant(participant);
+  return events;
+}
+
+function applyZoneTargetAddTriggers(participant, zone, target) {
+  if (!participant || !zone || !target) return [];
+  participant.zones = normalizeZones(participant.zones, participant.id);
+  const entry = participant.zones.find((item) => String(item.id) === String(zone.id));
+  if (!entry || entry.triggerOnTargetAdd !== true) return [];
+  const events = [];
+  const allied = isParticipantAlly(participant, target);
+  const nature5 = hasSetBonus(participant, 'Nature', 5);
+  const blockedByNature = allied && nature5;
+  const enterDamage = Math.max(0, Number(entry.enterDamage || 0));
+  if (enterDamage > 0 && !blockedByNature) {
+    const result = applyCardDamageWithType(target, enterDamage, entry.enterDamageType || entry.damageType);
+    const mitigation =
+      result.resisted && !result.vulnerable
+        ? ' [Resisted]'
+        : result.vulnerable && !result.resisted
+          ? ' [Vulnerable]'
+          : '';
+    events.push(
+      `${participant.name}'s zone ${entry.name} triggers on ${target.name} for ${result.finalDamage} ${entry.enterDamageType || entry.damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+    );
+  }
+  const enterStatusType = detectStatusType({ presetId: entry.enterStatusId, name: entry.enterStatusName });
+  const enterStatusStacks = Math.max(1, Number(entry.enterStatusStacks || 1));
+  if (enterStatusType && !blockedByNature) {
+    addStatusStacks(target, enterStatusType, enterStatusStacks);
+    enforceControlHierarchy(target);
+    events.push(
+      `${participant.name}'s zone ${entry.name} applies ${statusDisplayName(enterStatusType)} ${enterStatusStacks} to ${target.name}.`
+    );
+  }
+  if (blockedByNature && (enterDamage > 0 || enterStatusType)) {
+    events.push(`${participant.name}'s zone ${entry.name} does not trigger on ally ${target.name}.`);
+  }
+  if (entry.consumeOnTrigger === true) {
+    participant.zones = participant.zones.filter((item) => String(item.id) !== String(entry.id));
+    events.push(`${participant.name}'s zone ${entry.name} is consumed on trigger.`);
+  }
+  clampParticipant(participant);
+  clampParticipant(target);
   return events;
 }
 
@@ -2728,6 +3263,14 @@ function normalizeSkills(value) {
   return normalized;
 }
 
+function getAbilityModifier(participant = {}, ability = '') {
+  const key = String(ability || '').trim().toLowerCase();
+  if (!ABILITY_KEYS.includes(key)) return 0;
+  const score = Number(participant?.stats?.[key]);
+  const safeScore = Number.isFinite(score) ? score : 10;
+  return Math.floor((safeScore - 10) / 2);
+}
+
 function normalizeRelics(list) {
   if (!Array.isArray(list)) return [];
   return list.map((relic, index) => ({
@@ -2779,6 +3322,8 @@ function autoCardDamageType(card = {}) {
 }
 
 function isConstructCard(card = {}) {
+  if (card?.isConstruct === false) return false;
+  if (card?.isZone === true) return false;
   if (card?.isConstruct === true) return true;
   const tags = Array.isArray(card?.tags) ? card.tags : [];
   return tags.some((tag) => {
@@ -2874,6 +3419,27 @@ function normalizeConstructs(list = [], ownerId = '') {
         statusId: String(entry.statusId || entry.constructStatusId || '').trim(),
         statusName: String(entry.statusName || entry.constructStatusName || '').trim(),
         statusStacks: Number.isFinite(statusStacksRaw) ? Math.max(1, Math.round(statusStacksRaw)) : 1,
+        shieldRestore: Number.isFinite(Number(entry.shieldRestore ?? entry.constructShieldRestore))
+          ? Math.max(0, Math.round(Number(entry.shieldRestore ?? entry.constructShieldRestore)))
+          : 0,
+        shieldRestoreAlliesOnly: Boolean(entry.shieldRestoreAlliesOnly ?? entry.constructShieldRestoreAlliesOnly),
+        heal: Number.isFinite(Number(entry.heal ?? entry.constructHeal))
+          ? Math.max(0, Math.round(Number(entry.heal ?? entry.constructHeal)))
+          : 0,
+        healAlliesOnly: Boolean(entry.healAlliesOnly ?? entry.constructHealAlliesOnly),
+        healTargetOnly: Boolean(entry.healTargetOnly ?? entry.constructHealTargetOnly),
+        triggerOnTargetTurn: Boolean(entry.triggerOnTargetTurn ?? entry.constructTriggerOnTargetTurn),
+        auraRadiusFt: Number.isFinite(Number(entry.auraRadiusFt ?? entry.constructAuraRadiusFt))
+          ? Math.max(0, Math.round(Number(entry.auraRadiusFt ?? entry.constructAuraRadiusFt)))
+          : 0,
+        detectDc: Number.isFinite(Number(entry.detectDc ?? entry.constructDetectDc))
+          ? Math.max(0, Math.round(Number(entry.detectDc ?? entry.constructDetectDc)))
+          : 0,
+        visionRangeFt: Number.isFinite(Number(entry.visionRangeFt ?? entry.constructVisionRangeFt))
+          ? Math.max(0, Math.round(Number(entry.visionRangeFt ?? entry.constructVisionRangeFt)))
+          : 0,
+        utilityKind: String(entry.utilityKind ?? entry.constructUtilityKind ?? '').trim().toLowerCase(),
+        utilityNote: String(entry.utilityNote ?? entry.constructUtilityNote ?? '').trim(),
         maxHp,
         hp,
         apMax,
@@ -2911,6 +3477,36 @@ function normalizeZones(list = [], ownerId = '') {
         damageType: String(entry.damageType || '').trim(),
         radiusFt: Number.isFinite(radiusRaw) ? Math.max(0, Math.round(radiusRaw)) : 0,
         remainingTurns: Number.isFinite(remainingRaw) ? Math.max(0, Math.round(remainingRaw)) : 0,
+        tickOnTurn: entry.tickOnTurn !== false,
+        statusId: String(entry.statusId || '').trim(),
+        statusName: String(entry.statusName || '').trim(),
+        statusStacks: Number.isFinite(Number(entry.statusStacks))
+          ? Math.max(1, Math.round(Number(entry.statusStacks)))
+          : 1,
+        triggerOnTargetAdd: entry.triggerOnTargetAdd === true,
+        consumeOnTrigger: entry.consumeOnTrigger === true,
+        enterDamage: Number.isFinite(Number(entry.enterDamage))
+          ? Math.max(0, Math.round(Number(entry.enterDamage)))
+          : 0,
+        enterDamageType: String(entry.enterDamageType || entry.damageType || '').trim(),
+        enterStatusId: String(entry.enterStatusId || '').trim(),
+        enterStatusName: String(entry.enterStatusName || '').trim(),
+        enterStatusStacks: Number.isFinite(Number(entry.enterStatusStacks))
+          ? Math.max(1, Math.round(Number(entry.enterStatusStacks)))
+          : 1,
+        shieldRestore: Number.isFinite(Number(entry.shieldRestore ?? entry.zoneShieldRestore))
+          ? Math.max(0, Math.round(Number(entry.shieldRestore ?? entry.zoneShieldRestore)))
+          : 0,
+        heal: Number.isFinite(Number(entry.heal ?? entry.zoneHeal))
+          ? Math.max(0, Math.round(Number(entry.heal ?? entry.zoneHeal)))
+          : 0,
+        damageEnemiesOnly: Boolean(entry.damageEnemiesOnly ?? entry.zoneDamageEnemiesOnly),
+        shieldRestoreAlliesOnly: entry.shieldRestoreAlliesOnly !== false,
+        healAlliesOnly: entry.healAlliesOnly !== false,
+        detectDc: Number.isFinite(Number(entry.detectDc ?? entry.zoneDetectDc))
+          ? Math.max(0, Math.round(Number(entry.detectDc ?? entry.zoneDetectDc)))
+          : 0,
+        triggerMode: String(entry.triggerMode ?? entry.zoneTriggerMode ?? '').trim().toLowerCase(),
         targetIds: Array.isArray(entry.targetIds)
           ? Array.from(new Set(entry.targetIds.map((value) => String(value || '').trim()).filter(Boolean)))
           : [],
@@ -3111,13 +3707,16 @@ function getCardScaledValue(source, level = 1, fallback = 0) {
   return fallback;
 }
 
-function normalizeCardStatusApply(card = {}, level = 1) {
-  const source = card.statusApply;
+function normalizeStatusApplyConfig(source, level = 1) {
   if (!source || typeof source !== 'object') return null;
   const id = detectStatusType({ presetId: source.id, name: source.name });
   if (!id) return null;
   const stacks = Math.max(1, Math.round(getCardScaledValue(source.stacksByLevel, level, source.stacks ?? 1)));
   return { id, stacks };
+}
+
+function normalizeCardStatusApply(card = {}, level = 1) {
+  return normalizeStatusApplyConfig(card.statusApply, level);
 }
 
 function isSelfTargetCard(card = {}, level = 1) {
@@ -3706,6 +4305,11 @@ function describeConstructSummary(construct = {}) {
   const resources = [];
   const hp = Number(construct.maxHp || 0);
   const ap = Number(construct.apMax || 0);
+  const auraRadiusFt = Math.max(0, Number(construct.auraRadiusFt || 0));
+  const detectDc = Math.max(0, Number(construct.detectDc || 0));
+  const visionRangeFt = Math.max(0, Number(construct.visionRangeFt || 0));
+  const utilityKind = String(construct.utilityKind || '').trim().toLowerCase();
+  const utilityNote = String(construct.utilityNote || '').trim();
   if (hp > 0) resources.push(`HP ${hp}`);
   if (ap > 0) resources.push(`AP ${ap}`);
   if (mode === 'status') {
@@ -3715,6 +4319,32 @@ function describeConstructSummary(construct = {}) {
     return `applies ${statusLabel} x${statusStacks}${forceText}${resources.length ? ` (${resources.join(', ')})` : ''}`;
   }
   if (mode === 'utility') {
+    const shieldRestore = Math.max(0, Number(construct.shieldRestore || 0));
+    const heal = Math.max(0, Number(construct.heal || 0));
+    if (shieldRestore > 0) {
+      const targetLabel = construct.shieldRestoreAlliesOnly ? 'allies' : 'self';
+      const radiusText = auraRadiusFt > 0 ? ` within ${auraRadiusFt} ft` : '';
+      return `utility construct (restores ${shieldRestore} Shield to ${targetLabel}${radiusText})${resources.length ? ` (${resources.join(', ')})` : ''}`;
+    }
+    if (heal > 0) {
+      const targetLabel = construct.healTargetOnly
+        ? 'target'
+        : construct.healAlliesOnly
+          ? 'allies'
+          : 'self';
+      const triggerText = construct.triggerOnTargetTurn ? ' on target turn' : '';
+      return `utility construct (restores ${heal} HP to ${targetLabel}${triggerText})${resources.length ? ` (${resources.join(', ')})` : ''}`;
+    }
+    if (utilityKind === 'scout') {
+      const details = [];
+      if (visionRangeFt > 0) details.push(`vision ${visionRangeFt} ft`);
+      if (detectDc > 0) details.push(`detect DC ${detectDc}`);
+      if (utilityNote) details.push(utilityNote);
+      return `scout construct${details.length ? ` (${details.join(', ')})` : ''}${resources.length ? ` (${resources.join(', ')})` : ''}`;
+    }
+    if (utilityKind === 'factory') {
+      return `factory construct${utilityNote ? ` (${utilityNote})` : ''}${resources.length ? ` (${resources.join(', ')})` : ''}`;
+    }
     return `utility construct${resources.length ? ` (${resources.join(', ')})` : ''}`;
   }
   return `${construct.damage || 0} ${construct.damageType || 'damage'}${resources.length ? ` (${resources.join(', ')})` : ''}`;
@@ -3738,9 +4368,23 @@ function deployConstructFromCard(participant, card, options = {}) {
   const apMaxRaw = Number(card?.constructAp ?? card?.constructApMax ?? 2);
   const apMax = Number.isFinite(apMaxRaw) ? Math.max(0, Math.round(apMaxRaw)) : 0;
   const maxHpRaw = Number(card?.constructMaxHp ?? card?.constructHp ?? 1);
-  const maxHp = Number.isFinite(maxHpRaw) ? Math.max(1, Math.round(maxHpRaw)) : 1;
+  const maxHpCasterConBonus = Math.max(0, Math.round(Number(options.maxHpCasterConBonus || 0)));
+  const maxHp = Number.isFinite(maxHpRaw)
+    ? Math.max(1, Math.round(maxHpRaw) + maxHpCasterConBonus)
+    : Math.max(1, 1 + maxHpCasterConBonus);
   const moveFtRaw = Number(card?.constructMoveFt ?? card?.constructMove ?? 10);
   const moveFt = Number.isFinite(moveFtRaw) ? Math.max(5, Math.round(moveFtRaw)) : 10;
+  const shieldRestore = Math.max(0, Number(options.shieldRestore || 0));
+  const shieldRestoreAlliesOnly = Boolean(options.shieldRestoreAlliesOnly);
+  const heal = Math.max(0, Number(options.heal || 0));
+  const healAlliesOnly = Boolean(options.healAlliesOnly);
+  const healTargetOnly = Boolean(options.healTargetOnly);
+  const triggerOnTargetTurn = Boolean(options.triggerOnTargetTurn);
+  const auraRadiusFt = Math.max(0, Number(options.auraRadiusFt || 0));
+  const detectDc = Math.max(0, Number(options.detectDc || 0));
+  const visionRangeFt = Math.max(0, Number(options.visionRangeFt || 0));
+  const utilityKind = String(options.utilityKind || '').trim().toLowerCase();
+  const utilityNote = String(options.utilityNote || '').trim();
   const cards = Array.isArray(card?.constructCards)
     ? card.constructCards
         .map((value) => String(value || '').trim())
@@ -3779,6 +4423,17 @@ function deployConstructFromCard(participant, card, options = {}) {
     statusId,
     statusName,
     statusStacks,
+    shieldRestore,
+    shieldRestoreAlliesOnly,
+    heal,
+    healAlliesOnly,
+    healTargetOnly,
+    triggerOnTargetTurn,
+    auraRadiusFt,
+    detectDc,
+    visionRangeFt,
+    utilityKind,
+    utilityNote,
     maxHp,
     hp: maxHp,
     apMax,
@@ -3805,6 +4460,15 @@ function deployZoneFromCard(participant, card, options = {}) {
     : radiusBonusFt;
   const durationRaw = Number(card.zoneDurationTurns ?? options.zoneDurationTurns ?? 0);
   const remainingTurns = Number.isFinite(durationRaw) ? Math.max(0, Math.round(durationRaw)) : 0;
+  const statusApply = options.statusApply || null;
+  const enterStatusApply = options.enterStatusApply || null;
+  const detectDc = Math.max(0, Number(options.detectDc || 0));
+  const triggerMode = String(options.triggerMode || '').trim().toLowerCase();
+  const shieldRestore = Math.max(0, Number(options.shieldRestore || 0));
+  const heal = Math.max(0, Number(options.heal || 0));
+  const damageEnemiesOnly = Boolean(options.damageEnemiesOnly);
+  const shieldRestoreAlliesOnly = options.shieldRestoreAlliesOnly !== false;
+  const healAlliesOnly = options.healAlliesOnly !== false;
   const targetIds = Array.from(
     new Set(
       (options.targetIds || [])
@@ -3821,6 +4485,24 @@ function deployZoneFromCard(participant, card, options = {}) {
     damageType: String(options.damageType || card?.damageType || '').trim(),
     radiusFt,
     remainingTurns,
+    tickOnTurn: options.tickOnTurn !== false,
+    statusId: String(statusApply?.id || '').trim(),
+    statusName: statusApply?.id ? statusDisplayName(statusApply.id) : '',
+    statusStacks: Math.max(1, Number(statusApply?.stacks || 1)),
+    triggerOnTargetAdd: options.triggerOnTargetAdd === true,
+    consumeOnTrigger: options.consumeOnTrigger === true,
+    enterDamage: Math.max(0, Number(options.enterDamage || 0)),
+    enterDamageType: String(options.enterDamageType || options.damageType || card?.damageType || '').trim(),
+    enterStatusId: String(enterStatusApply?.id || '').trim(),
+    enterStatusName: enterStatusApply?.id ? statusDisplayName(enterStatusApply.id) : '',
+    enterStatusStacks: Math.max(1, Number(enterStatusApply?.stacks || 1)),
+    shieldRestore,
+    heal,
+    damageEnemiesOnly,
+    shieldRestoreAlliesOnly,
+    healAlliesOnly,
+    detectDc,
+    triggerMode,
     targetIds,
     tags: Array.isArray(card?.tags) ? card.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
     createdAt: new Date().toISOString(),
