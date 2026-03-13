@@ -74,7 +74,7 @@ function renderList() {
       const rarityKeys = Object.keys(byRarity).sort(compareRarity);
       const rarityBlocks = rarityKeys
         .map((rarity) => {
-          const cards = byRarity[rarity];
+          const cards = [...byRarity[rarity]].sort(comparePresetCardName);
           const items = cards
             .map(
               (entry) => `
@@ -207,6 +207,12 @@ function compareRarity(a, b) {
   if (aIndex === -1) return 1;
   if (bIndex === -1) return -1;
   return aIndex - bIndex;
+}
+
+function comparePresetCardName(a, b) {
+  const aName = String(a?.card?.name || a?.name || '').trim();
+  const bName = String(b?.card?.name || b?.name || '').trim();
+  return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
 }
 
 function normalizeCardForAdd(raw = {}) {

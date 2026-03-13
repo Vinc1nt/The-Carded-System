@@ -923,6 +923,26 @@ function executeCardAction(body) {
     0,
     Math.round(getCardScaledValue(card.bonusDamageIfTargetHasShieldByLevel, masteryLevel, Number(card.bonusDamageIfTargetHasShield || 0)))
   );
+  const conditionalNotActedDamageBonus = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.bonusDamageIfTargetNotActedByLevel,
+        masteryLevel,
+        Number(card.bonusDamageIfTargetNotActed || 0)
+      )
+    )
+  );
+  const conditionalBelowHalfHpDamageBonus = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.bonusDamageIfTargetBelowHalfHpByLevel,
+        masteryLevel,
+        Number(card.bonusDamageIfTargetBelowHalfHp || 0)
+      )
+    )
+  );
   const fullyBlockedHpDamage = Math.max(
     0,
     Math.round(getCardScaledValue(card.directHpDamageOnFullyBlockedByLevel, masteryLevel, Number(card.directHpDamageOnFullyBlocked || 0)))
@@ -963,6 +983,43 @@ function executeCardAction(body) {
       )
     )
   );
+  const removeStatusIds = Array.isArray(card.removeStatusIds)
+    ? card.removeStatusIds
+        .map((entry) => detectStatusType({ presetId: entry, name: entry }))
+        .filter(Boolean)
+    : String(card.removeStatusIds || card.removeStatusId || '')
+        .split(',')
+        .map((entry) => detectStatusType({ presetId: entry, name: entry }))
+        .filter(Boolean);
+  const uniqueRemoveStatusIds = Array.from(new Set(removeStatusIds));
+  const rangedUntargetableTurnsGrant = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.rangedUntargetableTurnsByLevel,
+        masteryLevel,
+        Number(card.rangedUntargetableTurns || 0)
+      )
+    )
+  );
+  const guardActionBonusGrant = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(card.guardActionBonusByLevel, masteryLevel, Number(card.guardActionBonus || 0))
+    )
+  );
+  const guardActionBonusTurnsGrant = Math.max(
+    0,
+    Math.round(
+      getCardScaledValue(
+        card.guardActionBonusTurnsByLevel,
+        masteryLevel,
+        Number(card.guardActionBonusTurns || 0)
+      )
+    )
+  );
+  const scaledRange = getCardScaledValue(card.rangeByLevel, masteryLevel, Number(card.range || 0));
+  const isRangedAttackCard = !isConstruct && !zoneCard && rawDamage > 0 && Number(scaledRange || 0) > 5;
 
   const targetId = String(body.targetId || '').trim();
   const target = targetId ? findParticipant(targetId) : null;
@@ -994,8 +1051,18 @@ function executeCardAction(body) {
   const primaryTarget = targetMode === 'multi_select'
     ? selectedTargets[0] || null
     : target;
+  const applyTeamTargetRules = (targets = []) => {
+    let filtered = Array.isArray(targets) ? targets : [];
+    if (card.targetAlliesOnly === true) {
+      filtered = filtered.filter((entry) => isParticipantAlly(participant, entry));
+    }
+    if (card.targetEnemiesOnly === true) {
+      filtered = filtered.filter((entry) => isParticipantEnemy(participant, entry));
+    }
+    return filtered;
+  };
   const primaryTargets = targetMode === 'all_others'
-    ? trackerState.encounter.participants.filter((entry) => entry.id !== participant.id)
+    ? applyTeamTargetRules(trackerState.encounter.participants.filter((entry) => entry.id !== participant.id))
     : targetMode === 'multi_select'
       ? selectedTargets
       : primaryTarget
@@ -1024,6 +1091,12 @@ function executeCardAction(body) {
   }
   if (arcaneSplitTarget && arcaneSplitTarget.id === participant.id && !allowSelfTarget) {
     return { error: 'This card cannot target self for Arcane split.' };
+  }
+  if (arcaneSplitTarget && card.targetAlliesOnly === true && !isParticipantAlly(participant, arcaneSplitTarget)) {
+    return { error: `${card.name} can only target allies for Arcane split.` };
+  }
+  if (arcaneSplitTarget && card.targetEnemiesOnly === true && !isParticipantEnemy(participant, arcaneSplitTarget)) {
+    return { error: `${card.name} can only target enemies for Arcane split.` };
   }
   if (arcaneSplitTargetId && !canArcaneSplit) {
     return { error: 'Arcane split requires a single-target non-self card with a valid second target.' };
@@ -1068,6 +1141,12 @@ function executeCardAction(body) {
       return { error: `${card.name} can only target allies.` };
     }
   }
+  if (card.targetEnemiesOnly === true) {
+    const invalidTarget = primaryTargets.find((entry) => !isParticipantEnemy(participant, entry));
+    if (invalidTarget) {
+      return { error: `${card.name} can only target enemies.` };
+    }
+  }
   if (secondaryTargetId && !secondaryTarget) {
     return { error: 'Secondary target not found' };
   }
@@ -1076,6 +1155,15 @@ function executeCardAction(body) {
   }
   if (secondaryTargetMode === 'adjacent' && secondaryTarget && primaryTarget && secondaryTarget.id === primaryTarget.id) {
     return { error: 'Secondary target must be different from the primary target' };
+  }
+  if (isRangedAttackCard) {
+    const protectedPrimary = effectivePrimaryTargets.find((entry) => Number(entry.rangedUntargetableTurns || 0) > 0);
+    if (protectedPrimary) {
+      return { error: `${protectedPrimary.name} cannot be targeted by ranged attacks right now.` };
+    }
+    if (secondaryTarget && Number(secondaryTarget.rangedUntargetableTurns || 0) > 0) {
+      return { error: `${secondaryTarget.name} cannot be targeted by ranged attacks right now.` };
+    }
   }
   if (zoneCard) {
     participant.zones = normalizeZones(participant.zones, participant.id);
@@ -1108,11 +1196,16 @@ function executeCardAction(body) {
     nextAttackGrant > 0 ||
     targetApNextTurnGrant > 0 ||
     apGainNow > 0 ||
-    removeStatusCount > 0;
+    removeStatusCount > 0 ||
+    uniqueRemoveStatusIds.length > 0 ||
+    rangedUntargetableTurnsGrant > 0 ||
+    (guardActionBonusGrant > 0 && guardActionBonusTurnsGrant > 0);
   const demonicStatusProc = Boolean(statusApply) && ['bleeding', 'poisoned', 'burning'].includes(statusApply?.id);
   const addDamageResult = (damageTarget, amount, type, source = 'primary', options = {}) => {
     if (!damageTarget || amount <= 0) return;
     const shieldConditionalBonus = Math.max(0, Number(options.bonusIfTargetHasShield || 0));
+    const notActedConditionalBonus = Math.max(0, Number(options.bonusIfTargetNotActed || 0));
+    const belowHalfHpConditionalBonus = Math.max(0, Number(options.bonusIfTargetBelowHalfHp || 0));
     const directHpOnFullyBlocked = Math.max(0, Number(options.directHpOnFullyBlocked || 0));
     const bleedingBefore = getStatusStacks(damageTarget, 'bleeding');
     const hadStatusesBefore = Array.isArray(damageTarget.statuses) && damageTarget.statuses.length > 0;
@@ -1135,6 +1228,8 @@ function executeCardAction(body) {
     }
     let appliedAmount = Math.max(0, Number(amount || 0));
     let shieldBonusApplied = 0;
+    let notActedBonusApplied = 0;
+    let belowHalfHpBonusApplied = 0;
     if (setDamageBonus > 0) {
       appliedAmount += setDamageBonus;
     }
@@ -1142,8 +1237,22 @@ function executeCardAction(body) {
       appliedAmount += shieldConditionalBonus;
       shieldBonusApplied = shieldConditionalBonus;
     }
+    if (notActedConditionalBonus > 0 && !hasParticipantActedThisRound(damageTarget)) {
+      appliedAmount += notActedConditionalBonus;
+      notActedBonusApplied = notActedConditionalBonus;
+    }
+    if (
+      belowHalfHpConditionalBonus > 0 &&
+      Number(damageTarget.maxHp || 0) > 0 &&
+      Number(damageTarget.hp || 0) * 2 < Number(damageTarget.maxHp || 0)
+    ) {
+      appliedAmount += belowHalfHpConditionalBonus;
+      belowHalfHpBonusApplied = belowHalfHpConditionalBonus;
+    }
     const result = applyCardDamageWithType(damageTarget, appliedAmount, type);
     result.shieldBonusDamage = shieldBonusApplied;
+    result.notActedBonusDamage = notActedBonusApplied;
+    result.belowHalfHpBonusDamage = belowHalfHpBonusApplied;
     result.setBonusDamage = setDamageBonus;
     result.bleedingBefore = bleedingBefore;
     result.hadStatusesBefore = hadStatusesBefore;
@@ -1173,7 +1282,6 @@ function executeCardAction(body) {
       shadowBleedTargets.push(damageTarget.name);
     }
   };
-  const others = trackerState.encounter.participants.filter((entry) => entry.id !== participant.id);
   if (!isConstruct && apGainNow > 0) {
     participant.apCurrent = Math.max(0, participant.apCurrent + apGainNow);
     notes.push(`Gains +${apGainNow} AP this turn.`);
@@ -1260,6 +1368,8 @@ function executeCardAction(body) {
         const amount = splitDamage ? splitDamage[index] : rawDamage;
         addDamageResult(damageTarget, amount, damageType, 'primary', {
           bonusIfTargetHasShield: conditionalShieldDamageBonus,
+          bonusIfTargetNotActed: conditionalNotActedDamageBonus,
+          bonusIfTargetBelowHalfHp: conditionalBelowHalfHpDamageBonus,
           directHpOnFullyBlocked: fullyBlockedHpDamage
         });
       }
@@ -1336,7 +1446,7 @@ function executeCardAction(body) {
         ? null
         : primaryTarget || participant;
     if (targetMode === 'all_others' || targetMode === 'multi_select') {
-      const recipients = targetMode === 'all_others' ? others : effectivePrimaryTargets;
+      const recipients = targetMode === 'all_others' ? primaryTargets : effectivePrimaryTargets;
       const restoredTargets = [];
       recipients.forEach((entry) => {
         const beforeShield = entry.shield;
@@ -1376,7 +1486,7 @@ function executeCardAction(body) {
         : primaryTarget || participant;
     const healedAllies = [];
     if (targetMode === 'all_others' || targetMode === 'multi_select') {
-      const recipients = targetMode === 'all_others' ? others : effectivePrimaryTargets;
+      const recipients = targetMode === 'all_others' ? primaryTargets : effectivePrimaryTargets;
       const healedTargets = [];
       recipients.forEach((entry) => {
         const beforeHp = entry.hp;
@@ -1446,7 +1556,7 @@ function executeCardAction(body) {
   if (!isConstruct && removeStatusCount > 0) {
     const cleanseTargets =
       targetMode === 'all_others'
-        ? others
+        ? primaryTargets
         : targetMode === 'multi_select'
           ? effectivePrimaryTargets
           : selfTarget
@@ -1475,10 +1585,65 @@ function executeCardAction(body) {
     }
   }
 
+  if (!isConstruct && uniqueRemoveStatusIds.length > 0) {
+    const specificCleanseTargets =
+      targetMode === 'all_others'
+        ? primaryTargets
+        : targetMode === 'multi_select'
+          ? effectivePrimaryTargets
+          : selfTarget
+            ? [participant]
+            : primaryTarget
+              ? [primaryTarget]
+              : [participant];
+    const specificCleanseSummaries = [];
+    for (const statusTarget of specificCleanseTargets) {
+      if (!statusTarget) continue;
+      const removedStatuses = [];
+      for (const statusId of uniqueRemoveStatusIds) {
+        const existingStacks = getStatusStacks(statusTarget, statusId);
+        if (existingStacks <= 0) continue;
+        setStatusStacks(statusTarget, statusId, 0);
+        removedStatuses.push(statusDisplayName(statusId));
+      }
+      enforceControlHierarchy(statusTarget);
+      if (removedStatuses.length) {
+        specificCleanseSummaries.push(`${statusTarget.name} (${removedStatuses.join(', ')})`);
+      }
+    }
+    if (specificCleanseSummaries.length) {
+      notes.push(`Removes specific statuses: ${specificCleanseSummaries.join('; ')}.`);
+    } else {
+      notes.push('No matching statuses were found for specific cleanse.');
+    }
+  }
+
+  if (!isConstruct && rangedUntargetableTurnsGrant > 0) {
+    participant.rangedUntargetableTurns = Math.max(
+      Math.max(0, Number(participant.rangedUntargetableTurns || 0)),
+      rangedUntargetableTurnsGrant
+    );
+    notes.push(`Cannot be targeted by ranged attacks for ${participant.rangedUntargetableTurns} turn(s).`);
+  }
+
+  if (!isConstruct && guardActionBonusGrant > 0 && guardActionBonusTurnsGrant > 0) {
+    participant.guardActionBonus = Math.max(
+      Math.max(0, Number(participant.guardActionBonus || 0)),
+      guardActionBonusGrant
+    );
+    participant.guardActionBonusTurns = Math.max(
+      Math.max(0, Number(participant.guardActionBonusTurns || 0)),
+      guardActionBonusTurnsGrant
+    );
+    notes.push(
+      `Guard action gains +${participant.guardActionBonus} Shield for ${participant.guardActionBonusTurns} turn(s).`
+    );
+  }
+
   if (!isConstruct && targetApNextTurnGrant > 0) {
     const apTargets =
       targetMode === 'all_others'
-        ? others
+        ? primaryTargets
         : targetMode === 'multi_select'
           ? effectivePrimaryTargets
           : (primaryTarget ? [primaryTarget] : []);
@@ -1503,7 +1668,7 @@ function executeCardAction(body) {
   if (!isConstruct && pushDistance > 0) {
     const pushTargets =
       targetMode === 'all_others'
-        ? others
+        ? primaryTargets
         : targetMode === 'multi_select'
           ? effectivePrimaryTargets
           : primaryTarget
@@ -1518,7 +1683,7 @@ function executeCardAction(body) {
   if (!isConstruct && pullDistance > 0) {
     const pullTargets =
       targetMode === 'all_others'
-        ? others
+        ? primaryTargets
         : targetMode === 'multi_select'
           ? effectivePrimaryTargets
           : primaryTarget
@@ -1545,7 +1710,7 @@ function executeCardAction(body) {
     });
     const statusTargets =
       targetMode === 'all_others'
-        ? others
+        ? primaryTargets
         : targetMode === 'multi_select'
           ? effectivePrimaryTargets
         : selfTarget
@@ -1582,7 +1747,7 @@ function executeCardAction(body) {
   if (!isConstruct && nextAttackGrant > 0) {
     const recipients =
       targetMode === 'all_others'
-        ? others
+        ? primaryTargets
         : targetMode === 'multi_select'
           ? effectivePrimaryTargets
           : selfTarget
@@ -1650,13 +1815,21 @@ function executeCardAction(body) {
             entry.result.shieldBonusDamage > 0
               ? ` [+${entry.result.shieldBonusDamage} vs Shield]`
               : '';
+          const notActedConditional =
+            entry.result.notActedBonusDamage > 0
+              ? ` [+${entry.result.notActedBonusDamage} vs Unacted]`
+              : '';
+          const belowHalfConditional =
+            entry.result.belowHalfHpBonusDamage > 0
+              ? ` [+${entry.result.belowHalfHpBonusDamage} vs <50% HP]`
+              : '';
           const fullyBlocked =
             entry.result.directHpDamage > 0
               ? ` [Fully Blocked: +${entry.result.directHpDamage} direct HP]`
               : '';
           const setBonus = entry.result.setBonusDamage > 0 ? ` [+${entry.result.setBonusDamage} set bonus]` : '';
           const divineReverse = entry.result.preventedByDivine ? ' [Reversed by Divine]' : '';
-          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${fullyBlocked}${setBonus}${divineReverse}`;
+          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${notActedConditional}${belowHalfConditional}${fullyBlocked}${setBonus}${divineReverse}`;
         })
         .join(' ')}`
     : '';
@@ -2171,6 +2344,15 @@ function createParticipant(body = {}) {
     pendingApNextTurn: Number.isFinite(Number(body.pendingApNextTurn))
       ? Math.max(0, Math.round(Number(body.pendingApNextTurn)))
       : 0,
+    rangedUntargetableTurns: Number.isFinite(Number(body.rangedUntargetableTurns))
+      ? Math.max(0, Math.round(Number(body.rangedUntargetableTurns)))
+      : 0,
+    guardActionBonus: Number.isFinite(Number(body.guardActionBonus))
+      ? Math.max(0, Math.round(Number(body.guardActionBonus)))
+      : 0,
+    guardActionBonusTurns: Number.isFinite(Number(body.guardActionBonusTurns))
+      ? Math.max(0, Math.round(Number(body.guardActionBonusTurns)))
+      : 0,
     baseStats,
     derivedBonuses: {
       base: baseStats,
@@ -2289,6 +2471,23 @@ function resetTurn(participant, options = {}) {
   resetSetTurnState(participant);
   const runtime = ensureSetRuntime(participant);
   const events = [];
+  const rangedUntargetableTurns = Math.max(0, Number(participant.rangedUntargetableTurns || 0));
+  if (rangedUntargetableTurns > 0) {
+    participant.rangedUntargetableTurns = Math.max(0, rangedUntargetableTurns - 1);
+    if (participant.rangedUntargetableTurns <= 0) {
+      events.push('is no longer protected from ranged targeting.');
+    }
+  }
+  const guardActionBonusTurns = Math.max(0, Number(participant.guardActionBonusTurns || 0));
+  if (guardActionBonusTurns > 0) {
+    participant.guardActionBonusTurns = Math.max(0, guardActionBonusTurns - 1);
+    if (participant.guardActionBonusTurns <= 0) {
+      participant.guardActionBonus = 0;
+      events.push('loses the temporary Guard boost.');
+    }
+  } else if (Number(participant.guardActionBonus || 0) > 0) {
+    participant.guardActionBonus = 0;
+  }
   if (runtime.demonic.pendingNextTurnAp > 0) {
     const bonus = Math.max(0, Math.round(Number(runtime.demonic.pendingNextTurnAp || 0)));
     participant.apCurrent += bonus;
@@ -4606,6 +4805,9 @@ function resetSetCombatState(participant) {
   participant.constructs = [];
   participant.zones = [];
   participant.lastActedRound = 0;
+  participant.rangedUntargetableTurns = 0;
+  participant.guardActionBonus = 0;
+  participant.guardActionBonusTurns = 0;
   participant.cards = normalizeCards((participant.cards || []).filter((card) => card?.temporarySource !== 'arcane_7_temp_copy'));
 }
 
@@ -4783,6 +4985,18 @@ function recalculateParticipant(participant) {
   participant.nextAttackDamageBonus = Number.isFinite(Number(participant.nextAttackDamageBonus))
     ? Math.max(0, Math.round(Number(participant.nextAttackDamageBonus)))
     : 0;
+  participant.rangedUntargetableTurns = Number.isFinite(Number(participant.rangedUntargetableTurns))
+    ? Math.max(0, Math.round(Number(participant.rangedUntargetableTurns)))
+    : 0;
+  participant.guardActionBonusTurns = Number.isFinite(Number(participant.guardActionBonusTurns))
+    ? Math.max(0, Math.round(Number(participant.guardActionBonusTurns)))
+    : 0;
+  participant.guardActionBonus = Number.isFinite(Number(participant.guardActionBonus))
+    ? Math.max(0, Math.round(Number(participant.guardActionBonus)))
+    : 0;
+  if (participant.guardActionBonusTurns <= 0) {
+    participant.guardActionBonus = 0;
+  }
   participant.derivedBonuses = {
     base,
     totals,
