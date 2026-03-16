@@ -1,5 +1,5 @@
 import { UI_LIMITS } from './shared/game-config.js';
-import { getCardTierShieldBonus } from './shared/card-rules.js';
+import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -22,6 +22,61 @@ const HELP_TOPIC_TITLES = Object.freeze({
   combat: 'Combat Rules',
   out_of_combat: 'Out of Combat',
   cards: 'Cards'
+});
+const JOURNAL_IMPORT_SAMPLE = Object.freeze({
+  defaults: {
+    target: 'participant',
+    participantName: 'Aelric'
+  },
+  quests: [
+    {
+      title: 'Signal in the Marsh',
+      narrative: 'A broken relay beacon is broadcasting from the old marsh ruins.',
+      objectivePrimary: 'Reach the beacon and restore power.',
+      objectiveSecondary: 'Recover at least one intact arc-core.',
+      difficulty: 'Uncommon',
+      rewardPrimary: '2 Card Shards',
+      rewardBonus: 'Machine Utility card draw',
+      failureCondition: 'Beacon is destroyed before restoration.'
+    }
+  ],
+  achievements: [
+    {
+      target: 'all',
+      title: 'No One Left Behind',
+      requirement: 'Every ally survived the encounter.',
+      reward: 'Party gains +1 AP at encounter start once.',
+      flavor: 'A clean victory with zero losses.'
+    }
+  ],
+  entries: [
+    {
+      category: 'quest',
+      target: 'participant',
+      participantName: 'Nyx',
+      title: 'The Silent Vault',
+      template: {
+        narrative: 'Find the hidden vault without alerting sentries.',
+        objectivePrimary: 'Enter the vault.',
+        objectiveSecondary: 'Exit with the relic undetected.',
+        difficulty: 'Rare',
+        rewardPrimary: 'Shadow Relic',
+        rewardBonus: 'Bonus currency stash',
+        failureCondition: 'Alarm level reaches maximum.'
+      }
+    },
+    {
+      category: 'achievement',
+      target: 'participant',
+      participantName: 'Nyx',
+      title: 'Ghost Step',
+      template: {
+        requirement: 'Finish a full round without being targeted.',
+        reward: 'Title: Ghost Step',
+        flavor: 'You moved like a shadow in candlelight.'
+      }
+    }
+  ]
 });
 
 const state = {
@@ -66,6 +121,7 @@ const els = {
   helpModalTabs: document.getElementById('helpModalTabs'),
   downloadEncounter: document.getElementById('downloadEncounter'),
   uploadEncounter: document.getElementById('uploadEncounter'),
+  downloadJournalImportSample: document.getElementById('downloadJournalImportSample'),
   restAllShort: document.getElementById('restAllShort'),
   restAllLong: document.getElementById('restAllLong')
 };
@@ -83,11 +139,13 @@ function wireGlobalEvents() {
     const payload = {
       name: data.get('name'),
       team: data.get('team') || '',
-      initiative: Number(data.get('initiative') || 0),
       maxHp: Number(data.get('maxHp') || 0),
       maxShield: Number(data.get('maxShield') || 0),
       apMax: Number(data.get('apMax') || 6),
       setFocus: data.get('setFocus') || ''
+    };
+    payload.stats = {
+      dexterity: Number(data.get('dexterity') || 0)
     };
     payload.hp = payload.maxHp;
     payload.shield = payload.maxShield;
@@ -163,7 +221,9 @@ function wireGlobalEvents() {
   });
   els.downloadEncounter?.addEventListener('click', handleEncounterDownload);
   els.uploadEncounter?.addEventListener('change', handleEncounterImport);
+  els.downloadJournalImportSample?.addEventListener('click', handleJournalImportSampleDownload);
   wireGlobalJournalForms();
+  wireJournalImportForm();
 }
 
 function openHelpModal(topic = 'combat') {
@@ -299,7 +359,8 @@ function getHelpTopicContent(topic) {
         <tbody>
           <tr><td>1</td><td>Basic</td><td>Card functions normally.</td></tr>
           <tr><td>2</td><td>Mastered</td><td>Card gains a small improvement.</td></tr>
-          <tr><td>3</td><td>Refined</td><td>Card becomes Fusion-eligible and may gain a minor perk.</td></tr>
+          <tr><td>3</td><td>Refined</td><td>Card gains a stronger improvement.</td></tr>
+          <tr><td>4</td><td>Fusion-Ready</td><td>Card becomes Fusion-eligible and may gain a minor perk.</td></tr>
         </tbody>
       </table>
     </section>
@@ -480,6 +541,15 @@ function wireGlobalJournalForms() {
     });
     updateGlobalJournalTargetVisibility(form);
   });
+}
+
+function wireJournalImportForm() {
+  const form = document.querySelector('[data-journal-import-form]');
+  if (!form) return;
+  const targetSelect = form.querySelector('[data-global-journal-target]');
+  targetSelect?.addEventListener('change', () => updateGlobalJournalTargetVisibility(form));
+  form.addEventListener('submit', handleJournalImportSubmit);
+  updateGlobalJournalTargetVisibility(form);
 }
 
 function updateGlobalJournalTargetVisibility(form) {
@@ -951,14 +1021,17 @@ function renderCardsSection(participant, drawers = {}) {
             <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
           </label>
           <label>Mastery Progression
-            <textarea name="mastery" rows="2" placeholder="Level 1: ..., Level 2: ..."></textarea>
+            <textarea name="mastery" rows="2" placeholder="Level 1: ..., Level 2: ..., Level 3: ..., Level 4: ..."></textarea>
           </label>
           <div class="form-row">
             <label>Mastery to L2 uses
-              <input type="number" name="masteryTo2" value="25" min="1" />
+              <input type="number" name="masteryTo2" value="10" min="1" />
             </label>
             <label>Mastery to L3 uses
-              <input type="number" name="masteryTo3" value="55" min="2" />
+              <input type="number" name="masteryTo3" value="25" min="2" />
+            </label>
+            <label>Mastery to L4 uses
+              <input type="number" name="masteryTo4" value="50" min="3" />
             </label>
           </div>
           <label>Fusion Notes
@@ -1697,6 +1770,239 @@ function buildJournalDescriptionFromTemplate(category, template) {
   return parts.join('\n');
 }
 
+function normalizeJournalImportCategory(value) {
+  const token = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (token.startsWith('quest')) return 'quest';
+  if (token.startsWith('achievement')) return 'achievement';
+  return '';
+}
+
+function normalizeJournalImportTarget(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase() === 'all'
+    ? 'all'
+    : 'participant';
+}
+
+function normalizeJournalImportList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'object') return [value];
+  return [];
+}
+
+function normalizeJournalQuestTemplate(raw = {}) {
+  const template = raw.template && typeof raw.template === 'object' ? raw.template : {};
+  return {
+    narrative: String(template.narrative ?? raw.narrative ?? raw.hook ?? '').trim(),
+    objectivePrimary: String(template.objectivePrimary ?? raw.objectivePrimary ?? raw.objective ?? '').trim(),
+    objectiveSecondary: String(template.objectiveSecondary ?? raw.objectiveSecondary ?? '').trim(),
+    difficulty: String(template.difficulty ?? raw.difficulty ?? '').trim(),
+    rewardPrimary: String(template.rewardPrimary ?? raw.rewardPrimary ?? raw.reward ?? '').trim(),
+    rewardBonus: String(template.rewardBonus ?? raw.rewardBonus ?? '').trim(),
+    failureCondition: String(template.failureCondition ?? raw.failureCondition ?? '').trim()
+  };
+}
+
+function normalizeJournalAchievementTemplate(raw = {}) {
+  const template = raw.template && typeof raw.template === 'object' ? raw.template : {};
+  return {
+    requirement: String(template.requirement ?? raw.requirement ?? '').trim(),
+    reward: String(template.reward ?? raw.reward ?? '').trim(),
+    flavor: String(template.flavor ?? raw.flavor ?? '').trim()
+  };
+}
+
+function hasJournalTemplateContent(template = {}) {
+  return Object.values(template).some((value) => String(value || '').trim());
+}
+
+function resolveJournalImportParticipantId(raw = {}, defaults = {}) {
+  const participants = state.encounter.participants || [];
+  const candidateId = String(raw.participantId ?? raw.playerId ?? defaults.participantId ?? '').trim();
+  if (candidateId) {
+    const exact = participants.find((participant) => participant.id === candidateId);
+    if (exact) return exact.id;
+  }
+  const candidateName = String(raw.participantName ?? raw.playerName ?? raw.participant ?? raw.player ?? '').trim();
+  if (candidateName) {
+    const normalized = candidateName.toLowerCase();
+    const byName = participants.find((participant) => String(participant.name || '').trim().toLowerCase() === normalized);
+    if (byName) return byName.id;
+  }
+  if (candidateId) {
+    throw new Error(`Player id "${candidateId}" was not found in this encounter.`);
+  }
+  if (candidateName) {
+    throw new Error(`Player "${candidateName}" was not found in this encounter.`);
+  }
+  throw new Error('Missing player for an entry targeted to an individual player.');
+}
+
+function buildJournalImportEntryPayload(raw = {}, forcedCategory = '', defaults = {}, fallbackIndex = 0) {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error(`Entry ${fallbackIndex + 1} must be an object.`);
+  }
+  const category = normalizeJournalImportCategory(forcedCategory || raw.category || raw.type || raw.kind);
+  if (!category) {
+    throw new Error(`Entry ${fallbackIndex + 1} is missing a valid category (quest/achievement).`);
+  }
+  const target = normalizeJournalImportTarget(raw.target ?? raw.sendTo ?? defaults.target);
+  const title = String(raw.title ?? raw.name ?? '').trim();
+  if (!title) {
+    throw new Error(`Entry ${fallbackIndex + 1} is missing a title.`);
+  }
+  const template = category === 'quest' ? normalizeJournalQuestTemplate(raw) : normalizeJournalAchievementTemplate(raw);
+  const description =
+    String(raw.description ?? raw.text ?? raw.details ?? '').trim() ||
+    (hasJournalTemplateContent(template) ? buildJournalDescriptionFromTemplate(category, template) : '');
+  const entry = {
+    target,
+    category,
+    title
+  };
+  if (target === 'participant') {
+    entry.participantId = resolveJournalImportParticipantId(raw, defaults);
+  }
+  if (description) {
+    entry.description = description;
+  }
+  if (hasJournalTemplateContent(template)) {
+    entry.template = template;
+  }
+  if (raw.id) {
+    entry.id = String(raw.id).trim();
+  }
+  if (raw.createdAt) {
+    entry.createdAt = String(raw.createdAt);
+  }
+  if (typeof raw.acknowledged === 'boolean') {
+    entry.acknowledged = raw.acknowledged;
+  }
+  if (raw.acknowledgedAt) {
+    entry.acknowledgedAt = String(raw.acknowledgedAt);
+  }
+  if (category === 'achievement' && raw.automation && typeof raw.automation === 'object') {
+    entry.automation = raw.automation;
+  }
+  return entry;
+}
+
+function extractJournalImportEntries(payload, defaults = {}) {
+  const entries = [];
+  const errors = [];
+  let effectiveDefaults = {
+    target: normalizeJournalImportTarget(defaults.target),
+    participantId: String(defaults.participantId || '').trim()
+  };
+  const addEntries = (source, forcedCategory = '') => {
+    const list = normalizeJournalImportList(source);
+    list.forEach((raw) => {
+      try {
+        const parsed = buildJournalImportEntryPayload(raw, forcedCategory, effectiveDefaults, entries.length + errors.length);
+        entries.push(parsed);
+      } catch (err) {
+        errors.push(err.message);
+      }
+    });
+  };
+  if (Array.isArray(payload)) {
+    addEntries(payload);
+    return { entries, errors };
+  }
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Import JSON must be an object or array.');
+  }
+  const scopedDefaults = {
+    target: normalizeJournalImportTarget(payload.defaults?.target ?? payload.target ?? defaults.target),
+    participantId: String(payload.defaults?.participantId ?? (defaults.participantId || '')).trim()
+  };
+  if (payload.defaults?.participantName && !scopedDefaults.participantId) {
+    try {
+      scopedDefaults.participantId = resolveJournalImportParticipantId(
+        { participantName: payload.defaults.participantName },
+        defaults
+      );
+    } catch (_err) {
+      // Defer to per-entry participant rules and user-selected defaults if this lookup fails.
+    }
+  }
+  effectiveDefaults = {
+    target: scopedDefaults.target,
+    participantId: scopedDefaults.participantId || effectiveDefaults.participantId
+  };
+  const hasGrouped =
+    Array.isArray(payload.entries) ||
+    payload.quests ||
+    payload.quest ||
+    payload.achievements ||
+    payload.achievement;
+  if (payload.entries) addEntries(payload.entries);
+  if (payload.quests || payload.quest) addEntries(payload.quests || payload.quest, 'quest');
+  if (payload.achievements || payload.achievement) addEntries(payload.achievements || payload.achievement, 'achievement');
+  if (!hasGrouped) {
+    addEntries(payload);
+  }
+  return { entries, errors };
+}
+
+async function handleJournalImportSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const fileInput = form.querySelector('[data-journal-import-file]');
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    notify('Choose a JSON file to import.');
+    return;
+  }
+  const formData = new FormData(form);
+  const defaults = {
+    target: normalizeJournalImportTarget(formData.get('target')),
+    participantId: String(formData.get('participantId') || '').trim()
+  };
+  if (defaults.target === 'participant' && !defaults.participantId) {
+    notify('Select a default player or choose "All Players".');
+    return;
+  }
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const parsed = extractJournalImportEntries(payload, defaults);
+    const entries = parsed.entries;
+    if (!entries.length) {
+      throw new Error(parsed.errors[0] || 'No valid quest or achievement entries were found.');
+    }
+    if (parsed.errors.length) {
+      notify(`Skipped ${parsed.errors.length} invalid entr${parsed.errors.length === 1 ? 'y' : 'ies'}. ${parsed.errors[0]}`);
+    }
+    let successCount = 0;
+    const failures = [];
+    for (const [index, entry] of entries.entries()) {
+      try {
+        await api('/api/journal/entry', 'POST', entry);
+        successCount += 1;
+      } catch (err) {
+        failures.push(`Item ${index + 1}: ${err.message}`);
+      }
+    }
+    if (successCount) {
+      notify(`Imported ${successCount} journal entr${successCount === 1 ? 'y' : 'ies'}.`, 'success');
+    }
+    if (failures.length) {
+      notify(`Failed to import ${failures.length} entr${failures.length === 1 ? 'y' : 'ies'}. ${failures[0]}`);
+    }
+  } catch (err) {
+    notify(`Journal import failed: ${err.message}`);
+  } finally {
+    if (fileInput) fileInput.value = '';
+    renderGlobalJournalTargetOptions();
+    updateGlobalJournalTargetVisibility(form);
+  }
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -1808,7 +2114,6 @@ function renderAdvancedSection(participant, base) {
           </label>
         </div>
         <div class="stats-grid">
-          ${renderNumberInput('Initiative', 'initiative', participant.initiative)}
           ${renderNumberInput('Mastery', 'mastery', participant.mastery)}
           ${renderNumberInput('STR', 'strength', participant.stats?.strength || 0)}
           ${renderNumberInput('DEX', 'dexterity', participant.stats?.dexterity || 0)}
@@ -2456,6 +2761,7 @@ function wireDetailEvents(participant) {
 
   const cardTools = panel.querySelector('[data-card-tooling]');
   const cardForm = cardTools?.querySelector('[data-form="card"]');
+  const cardTierInput = cardForm?.querySelector('[name="tier"]');
   panel.querySelector('[data-toggle-card-form]')?.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -2466,6 +2772,13 @@ function wireDetailEvents(participant) {
   cardTools?.querySelector('[data-card-import]')?.addEventListener('change', (event) => {
     importCardsFromFile(event.currentTarget, participant.id);
   });
+  if (cardForm && cardTierInput && cardTierInput.dataset.masteryThresholdSyncBound !== '1') {
+    const syncThresholds = () => syncCardMasteryThresholdInputs(cardForm);
+    cardTierInput.addEventListener('change', syncThresholds);
+    cardTierInput.addEventListener('input', syncThresholds);
+    cardTierInput.dataset.masteryThresholdSyncBound = '1';
+  }
+  syncCardMasteryThresholdInputs(cardForm);
   cardForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
@@ -3060,7 +3373,6 @@ function wireDetailEvents(participant) {
     event.preventDefault();
     const formData = new FormData(event.target);
     const payload = {
-      initiative: Number(formData.get('initiative') || participant.initiative || 0),
       mastery: Number(formData.get('mastery') || participant.mastery || 1),
       apMax: Number(formData.get('apMax') || participant.apMax || 6),
       maxHp: Number(formData.get('maxHp') || participant.maxHp || 0),
@@ -3178,7 +3490,7 @@ function renderCards(participant, entries = [], options = {}) {
             ${renderConstructMetaLine(card, participant)}
             ${renderMasteryLines(card)}
             ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
-            <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
+            <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4} uses)</p>
             <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
             ${
               options.inactive
@@ -3189,7 +3501,8 @@ function renderCards(participant, entries = [], options = {}) {
               <select data-card-mastery="${card.id || ''}" data-card-index="${index}">
                 <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
                 <option value="2" ${Number(card.masteryLevel || 1) === 2 ? 'selected' : ''}>Level 2</option>
-                <option value="3" ${Number(card.masteryLevel || 1) >= 3 ? 'selected' : ''}>Level 3</option>
+                <option value="3" ${Number(card.masteryLevel || 1) === 3 ? 'selected' : ''}>Level 3</option>
+                <option value="4" ${Number(card.masteryLevel || 1) >= 4 ? 'selected' : ''}>Level 4</option>
               </select>
             </label>
             <div class="card-actions">
@@ -3348,10 +3661,31 @@ function formatSignedValue(value = 0) {
   return `${amount >= 0 ? '+' : ''}${Math.round(amount)}`;
 }
 
+function getTierMasteryThresholdDefaults(tier = 'Common') {
+  const defaults = getCardTierMasteryThresholds(tier);
+  const level2 = Math.max(1, Math.round(Number(defaults?.level2 ?? 10)));
+  const level3 = Math.max(level2 + 1, Math.round(Number(defaults?.level3 ?? level2 + 1)));
+  const level4 = Math.max(level3 + 1, Math.round(Number(defaults?.level4 ?? level3 + 1)));
+  return { level2, level3, level4 };
+}
+
+function syncCardMasteryThresholdInputs(formEl) {
+  if (!formEl) return;
+  const tierInput = formEl.querySelector('[name="tier"]');
+  const to2Input = formEl.querySelector('[name="masteryTo2"]');
+  const to3Input = formEl.querySelector('[name="masteryTo3"]');
+  const to4Input = formEl.querySelector('[name="masteryTo4"]');
+  if (!to2Input || !to3Input || !to4Input) return;
+  const defaults = getTierMasteryThresholdDefaults(tierInput?.value || 'Common');
+  to2Input.value = String(defaults.level2);
+  to3Input.value = String(defaults.level3);
+  to4Input.value = String(defaults.level4);
+}
+
 function formatCardRange(card = {}) {
   const text = String(card.rangeText || '').trim();
   if (text) return text;
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
   return `${range} ft`;
 }
@@ -3359,7 +3693,7 @@ function formatCardRange(card = {}) {
 function isSelfTargetCard(card = {}) {
   const text = String(card.rangeText || '').trim().toLowerCase();
   if (text === 'self') return true;
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
   return Number(range || 0) <= 0;
 }
@@ -3374,7 +3708,7 @@ function getCardTargetMode(card = {}) {
 }
 
 function getCardMultiTargetCap(card = {}) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const fallback = Number.isFinite(Number(card.multiTargetMax))
     ? Math.max(1, Math.round(Number(card.multiTargetMax)))
     : 3;
@@ -3389,14 +3723,14 @@ function getCardSecondaryTargetMode(card = {}) {
 }
 
 function getCardSecondaryDamage(card = {}) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const value = getCardScaledValue(card.secondaryDamageByLevel, level, Number(card.secondaryDamage || 0));
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 function getCardScaledValue(source, level = 1, fallback = 0) {
   if (source == null) return fallback;
-  const parsedLevel = Math.max(1, Math.min(3, Number(level || 1)));
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || 1)));
   if (typeof source === 'number') return Number.isFinite(source) ? source : fallback;
   if (typeof source === 'string') {
     const parsed = Number(source);
@@ -3407,6 +3741,14 @@ function getCardScaledValue(source, level = 1, fallback = 0) {
   if (Number.isFinite(direct)) return direct;
   const named = Number(source[`level${parsedLevel}`]);
   if (Number.isFinite(named)) return named;
+  for (let probe = parsedLevel - 1; probe >= 1; probe -= 1) {
+    const lowered = Number(source[probe] ?? source[`level${probe}`]);
+    if (Number.isFinite(lowered)) return lowered;
+  }
+  for (let probe = parsedLevel + 1; probe <= 4; probe += 1) {
+    const raised = Number(source[probe] ?? source[`level${probe}`]);
+    if (Number.isFinite(raised)) return raised;
+  }
   return fallback;
 }
 
@@ -3436,7 +3778,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (isConstructCard(card)) {
     return fallback || '—';
   }
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const targetMode = getCardTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
@@ -3758,13 +4100,19 @@ function renderMasteryLines(card = {}) {
 }
 
 function getCardDisplayDamage(card = {}) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const byLevel = card.masteryDamageByLevel || {};
   const base = Number(card.damage || 0);
   const levelDamage = Number(
     byLevel[level] ??
       byLevel[`level${level}`] ??
-      (level >= 3 ? byLevel[3] ?? byLevel.level3 : level >= 2 ? byLevel[2] ?? byLevel.level2 : byLevel[1] ?? byLevel.level1) ??
+      (level >= 4
+        ? byLevel[4] ?? byLevel.level4
+        : level >= 3
+          ? byLevel[3] ?? byLevel.level3
+          : level >= 2
+            ? byLevel[2] ?? byLevel.level2
+            : byLevel[1] ?? byLevel.level1) ??
       base
   );
   return Number.isFinite(levelDamage) ? Math.max(0, Math.round(levelDamage)) : Math.max(0, Math.round(base));
@@ -3895,7 +4243,7 @@ function restoreDetailSections(participantId) {
 async function handleStandardAction(actionId) {
   const panel = els.detailPanel;
   let resolvedId = actionId;
-  let recoverPayload = {};
+  let standardPayload = {};
   if (actionId === 'move') {
     const diffToggle = panel.querySelector('#difficultTerrain');
     if (diffToggle?.checked) {
@@ -3908,13 +4256,21 @@ async function handleStandardAction(actionId) {
     if (target === null) {
       return;
     }
-    recoverPayload = target || {};
+    standardPayload = target || {};
+  }
+  if (actionId === 'cleanse') {
+    const participant = getSelectedParticipant();
+    const target = chooseCleanseTarget(participant);
+    if (target === null) {
+      return;
+    }
+    standardPayload = target || {};
   }
   try {
     await api('/api/actions/standard', 'POST', {
       actionId: resolvedId,
       participantId: selectedParticipantId,
-      ...recoverPayload
+      ...standardPayload
     });
     fetchState();
   } catch (err) {
@@ -3989,6 +4345,78 @@ function chooseRecoverTarget(participant) {
   };
 }
 
+function detectCleanseType(status) {
+  const fields = [status?.presetId, status?.name, status?.id];
+  for (const field of fields) {
+    const token = normalizeRecoverToken(field);
+    if (token.includes('rooted') || token.includes('root')) return 'rooted';
+    if (token.includes('restrained') || token.includes('restrain')) return 'restrained';
+    if (token.includes('silenced') || token.includes('silence')) return 'silenced';
+    if (token.includes('charmed') || token.includes('charm')) return 'charmed';
+    if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
+    if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
+    if (token.includes('stunned') || token.includes('stun')) return 'stunned';
+    if (token.includes('paralysed') || token.includes('paralyzed') || token.includes('paralyse') || token.includes('paralyze')) return 'paralysed';
+  }
+  return null;
+}
+
+function getCleanseStatusApCost(type) {
+  return type === 'stunned' || type === 'paralysed' ? 5 : 4;
+}
+
+function listCleanseableStatuses(participant) {
+  return (participant?.statuses || [])
+    .map((status, index) => {
+      const type = detectCleanseType(status);
+      if (!type) return null;
+      const apCost = getCleanseStatusApCost(type);
+      return {
+        status,
+        index,
+        type,
+        apCost,
+        label: `${status.name || type}${status.stacks ? ` ×${status.stacks}` : ''} (${apCost} AP)`
+      };
+    })
+    .filter(Boolean);
+}
+
+function chooseCleanseTarget(participant) {
+  const cleanseable = listCleanseableStatuses(participant);
+  if (!cleanseable.length) {
+    notify('No eligible control/debuff status to cleanse.');
+    return null;
+  }
+  if (cleanseable.length === 1) {
+    const [entry] = cleanseable;
+    return {
+      cleanseStatusIndex: entry.index,
+      cleanseStatusId: entry.status.id,
+      cleanseStatusName: entry.status.name,
+      cleanseStatusType: entry.type
+    };
+  }
+  const message = [
+    'Choose status to remove completely:',
+    ...cleanseable.map((entry, index) => `${index + 1}. ${entry.label}`)
+  ].join('\n');
+  const raw = window.prompt(message, '1');
+  if (raw == null) return null;
+  const choice = Number(raw);
+  if (!Number.isInteger(choice) || choice < 1 || choice > cleanseable.length) {
+    notify('Invalid selection. Cleanse cancelled.');
+    return null;
+  }
+  const picked = cleanseable[choice - 1];
+  return {
+    cleanseStatusIndex: picked.index,
+    cleanseStatusId: picked.status.id,
+    cleanseStatusName: picked.status.name,
+    cleanseStatusType: picked.type
+  };
+}
+
 function buildCardFromForm(formData) {
   const masteryRaw = formData.get('mastery') || '';
   const card = {
@@ -4011,7 +4439,8 @@ function buildCardFromForm(formData) {
     mastery: masteryRaw,
     masteryThresholds: {
       level2: formData.get('masteryTo2'),
-      level3: formData.get('masteryTo3')
+      level3: formData.get('masteryTo3'),
+      level4: formData.get('masteryTo4')
     },
     fusion: formData.get('fusion') || '',
     modifiers: {
@@ -4027,17 +4456,20 @@ function buildCardFromForm(formData) {
 
 function applyManualMastery(card, level) {
   const next = { ...(card || {}) };
-  const selected = Math.max(1, Math.min(3, Number(level || 1)));
+  const selected = Math.max(1, Math.min(4, Number(level || 1)));
+  const tierDefaults = getTierMasteryThresholdDefaults(next.tier);
   const thresholds = next.masteryThresholds || {};
-  const to2 = Math.max(1, Number(thresholds.level2 || 25));
-  const to3 = Math.max(to2 + 1, Number(thresholds.level3 || 55));
+  const to2 = Math.max(1, Number(thresholds.level2 ?? tierDefaults.level2));
+  const to3 = Math.max(to2 + 1, Number(thresholds.level3 ?? tierDefaults.level3));
+  const to4 = Math.max(to3 + 1, Number(thresholds.level4 ?? tierDefaults.level4));
   let uses = Math.max(0, Number(next.masteryUses || 0));
   if (selected === 1) uses = Math.min(uses, to2 - 1);
   if (selected === 2) uses = Math.max(to2, Math.min(uses, to3 - 1));
-  if (selected === 3) uses = Math.max(uses, to3);
+  if (selected === 3) uses = Math.max(to3, Math.min(uses, to4 - 1));
+  if (selected === 4) uses = Math.max(uses, to4);
   next.masteryLevel = selected;
   next.masteryUses = uses;
-  next.masteryThresholds = { level2: to2, level3: to3 };
+  next.masteryThresholds = { level2: to2, level3: to3, level4: to4 };
   return next;
 }
 
@@ -4096,16 +4528,19 @@ function extractCardsFromPayload(payload) {
 }
 
 function normalizeCardPayload(raw = {}) {
+  const tier = String(raw.tier || 'Common').trim() || 'Common';
+  const tierDefaults = getTierMasteryThresholdDefaults(tier);
   const masteryThresholds = {
-    level2: toNumber(raw.masteryThresholds?.level2 ?? raw.masteryTo2 ?? 25, 25),
-    level3: toNumber(raw.masteryThresholds?.level3 ?? raw.masteryTo3 ?? 55, 55)
+    level2: toNumber(raw.masteryThresholds?.level2 ?? raw.masteryTo2 ?? tierDefaults.level2, tierDefaults.level2),
+    level3: toNumber(raw.masteryThresholds?.level3 ?? raw.masteryTo3 ?? tierDefaults.level3, tierDefaults.level3),
+    level4: toNumber(raw.masteryThresholds?.level4 ?? raw.masteryTo4 ?? tierDefaults.level4, tierDefaults.level4)
   };
   masteryThresholds.level2 = Math.max(1, Math.round(masteryThresholds.level2));
   masteryThresholds.level3 = Math.max(masteryThresholds.level2 + 1, Math.round(masteryThresholds.level3));
-  const masteryLevel = Math.max(1, Math.min(3, Math.round(toNumber(raw.masteryLevel ?? 1, 1))));
+  masteryThresholds.level4 = Math.max(masteryThresholds.level3 + 1, Math.round(masteryThresholds.level4));
+  const masteryLevel = Math.max(1, Math.min(4, Math.round(toNumber(raw.masteryLevel ?? 1, 1))));
   const masteryUses = Math.max(0, Math.round(toNumber(raw.masteryUses ?? 0, 0)));
   const baseDamage = Math.max(0, Math.round(toNumber(raw.damage ?? raw.baseDamage ?? 0, 0)));
-  const tier = String(raw.tier || 'Common').trim() || 'Common';
   const explicitShieldSource = raw.shieldBonus ?? raw.bonusShield;
   const explicitShieldBonus =
     explicitShieldSource === '' || explicitShieldSource == null ? Number.NaN : Number(explicitShieldSource);
@@ -4222,7 +4657,17 @@ function normalizeCardPayload(raw = {}) {
     masteryDamageByLevel: {
       1: toNumber(raw.masteryDamageByLevel?.[1] ?? raw.masteryDamageByLevel?.level1 ?? raw.damageLevel1 ?? baseDamage, baseDamage),
       2: toNumber(raw.masteryDamageByLevel?.[2] ?? raw.masteryDamageByLevel?.level2 ?? raw.damageLevel2 ?? baseDamage, baseDamage),
-      3: toNumber(raw.masteryDamageByLevel?.[3] ?? raw.masteryDamageByLevel?.level3 ?? raw.damageLevel3 ?? baseDamage, baseDamage)
+      3: toNumber(raw.masteryDamageByLevel?.[3] ?? raw.masteryDamageByLevel?.level3 ?? raw.damageLevel3 ?? baseDamage, baseDamage),
+      4: toNumber(
+        raw.masteryDamageByLevel?.[4] ??
+          raw.masteryDamageByLevel?.level4 ??
+          raw.damageLevel4 ??
+          raw.masteryDamageByLevel?.[3] ??
+          raw.masteryDamageByLevel?.level3 ??
+          raw.damageLevel3 ??
+          baseDamage,
+        baseDamage
+      )
     },
     tags: normalizeTagList(raw.tags),
     effect: raw.effect || '',
@@ -4431,6 +4876,10 @@ async function handleEncounterDownload() {
   } catch (err) {
     notify(err.message);
   }
+}
+
+function handleJournalImportSampleDownload() {
+  downloadJson(JOURNAL_IMPORT_SAMPLE, `journal-import-sample-${new Date().toISOString().slice(0, 10)}.json`);
 }
 
 async function handleEncounterImport(event) {

@@ -114,6 +114,31 @@
                   <button type="submit">Create Achievement</button>
                 </form>
               </details>
+
+              <details class="journal-manager-group">
+                <summary><strong>Import Quest/Achievement JSON</strong></summary>
+                <form data-journal-import-form class="stacked-form">
+                  <div class="form-row">
+                    <label>Default Send To
+                      <select name="target" data-global-journal-target>
+                        <option value="participant">Individual Player</option>
+                        <option value="all">All Players</option>
+                      </select>
+                    </label>
+                    <label>Default Player
+                      <select name="participantId" data-global-journal-participant></select>
+                    </label>
+                  </div>
+                  <label class="file-upload">Import JSON File
+                    <input type="file" name="journalImportFile" data-journal-import-file accept="application/json" required />
+                  </label>
+                  <div class="journal-import-actions">
+                    <button type="submit">Import JSON</button>
+                    <button type="button" id="downloadJournalImportSample">Download Sample</button>
+                  </div>
+                  <p class="muted small-note">Supports files with <code>quests</code>, <code>achievements</code>, or <code>entries</code> arrays.</p>
+                </form>
+              </details>
             </div>
           </div>
           <div class="gm-menu">
@@ -155,8 +180,8 @@
                   <label>Name
                     <input name="name" type="text" placeholder="Bladewalker" required />
                   </label>
-                  <label>Initiative
-                    <input name="initiative" type="number" value="0" />
+                  <label>DEX
+                    <input name="dexterity" type="number" value="0" />
                   </label>
                 </div>
                 <div class="form-row">

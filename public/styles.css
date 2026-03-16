@@ -1265,6 +1265,12 @@ textarea {
   margin: 0;
 }
 
+.journal-import-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .journal-list,
 .ability-list {
   display: flex;

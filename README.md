@@ -37,6 +37,7 @@ Node + vanilla JS encounter tracker for a card-based tactical system. GM and pla
 - Abilities now include Proficiencies and Languages lists (editable in GM and player manage mode).
 - Short/Long rest (single participant and all-participants).
 - Journal entries (quests/achievements), player ack flow.
+- Journal JSON import (quests + achievements in one file) from GM Quest/Achievement menu, with sample download.
 - Card import/export, encounter import/export, participant import.
 - End Encounter button/API to reset encounter turn state.
 - All collapsible UI sections default to closed for GM/player/library.
@@ -111,6 +112,32 @@ All routes accept/return JSON.
   - `POST /api/journal/entry`
   - `DELETE /api/journal/entry`
   - `POST /api/journal/ack`
+
+## Journal JSON Import Format
+
+Use the GM `Quest & Achievement` menu -> `Import Quest/Achievement JSON`.
+
+- Top-level keys supported:
+  - `quests`: array of quest entries.
+  - `achievements`: array of achievement entries.
+  - `entries`: mixed array (each item must include `category`).
+- Optional top-level defaults:
+  - `defaults.target`: `participant` or `all`
+  - `defaults.participantId` or `defaults.participantName`
+- Entry-level values can override defaults with:
+  - `target`, `participantId`, `participantName`
+
+Quest entry fields:
+- `title` (required)
+- `description` (optional)
+- `template` (optional) with:
+  - `narrative`, `objectivePrimary`, `objectiveSecondary`, `difficulty`, `rewardPrimary`, `rewardBonus`, `failureCondition`
+
+Achievement entry fields:
+- `title` (required)
+- `description` (optional)
+- `template` (optional) with:
+  - `requirement`, `reward`, `flavor`
 
 ## Code Structure (Ongoing Refactor)
 

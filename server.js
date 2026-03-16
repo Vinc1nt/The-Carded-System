@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { GAME_LIMITS } from './lib/game-config.js';
-import { getCardTierShieldBonus } from './lib/card-rules.js';
+import { getCardTierShieldBonus, getCardTierMasteryThresholds } from './lib/card-rules.js';
 import { startEncounterLifecycle, endEncounterLifecycle } from './lib/encounter-lifecycle.js';
 import { executeStandardActionForEncounter } from './lib/actions/standard.js';
 import { executeCustomActionForEncounter } from './lib/actions/custom.js';
@@ -99,6 +99,13 @@ const STANDARD_ACTIONS = {
     apCost: 1,
     logText: 'recovers to reduce damaging stacks.'
   },
+  cleanse: {
+    id: 'cleanse',
+    label: 'Cleanse',
+    summary: '4 AP: Remove 1 control/debuff status (5 AP for Paralysed or Stunned).',
+    apCost: 4,
+    logText: 'uses a cleansing action.'
+  },
   manual_swap: {
     id: 'manual_swap',
     label: 'Manual Swap',
@@ -183,6 +190,46 @@ const STATUS_LIBRARY = [
     description:
       'Control. You lose your next turn. Stunned replaces Rooted and Restrained.',
     tags: ['Control']
+  },
+  {
+    id: 'paralysed',
+    name: 'Paralysed',
+    defaultStacks: 1,
+    description:
+      'Control. Severe immobilization effect. Cleansing this status with a standard action costs 5 AP.',
+    tags: ['Control']
+  },
+  {
+    id: 'silenced',
+    name: 'Silenced',
+    defaultStacks: 1,
+    description:
+      'Debuff. You cannot use speech- or verbal-dependent abilities while this status is active.',
+    tags: ['Debuff']
+  },
+  {
+    id: 'charmed',
+    name: 'Charmed',
+    defaultStacks: 1,
+    description:
+      'Control/Debuff. Mental influence that may alter targeting or decision-making based on scenario rules.',
+    tags: ['Control', 'Debuff']
+  },
+  {
+    id: 'frightened',
+    name: 'Frightened',
+    defaultStacks: 1,
+    description:
+      'Control/Debuff. Fear effect that can limit movement or offensive actions based on scenario rules.',
+    tags: ['Control', 'Debuff']
+  },
+  {
+    id: 'suppressed',
+    name: 'Suppressed',
+    defaultStacks: 1,
+    description:
+      'Debuff. Under suppressive pressure; penalties and limitations are defined by the triggering source.',
+    tags: ['Debuff']
   }
 ];
 
@@ -669,6 +716,7 @@ function executeStandardAction(body) {
     defaultGuardRestore: DEFAULT_GUARD_RESTORE,
     resolveActor,
     applyRecoverAction,
+    applyCleanseAction,
     markTurnActionTaken,
     pushLog,
     touchState,
@@ -730,7 +778,7 @@ function executeCardAction(body) {
   const hasShadow7 = hasSetBonus(participant, 'Shadow', 7, setGroups);
   const hasShadow10 = hasSetBonus(participant, 'Shadow', 10, setGroups);
   const isElementalAttack = String(card?.set || '').toLowerCase() === 'elemental' && getCardDamageAtCurrentMastery(card) > 0;
-  const masteryLevel = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const masteryLevel = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const baseCost = Math.max(0, Number(card.apCost || 0));
   let apCost = baseCost;
   const notes = [];
@@ -1791,8 +1839,8 @@ function executeCardAction(body) {
   }
 
   card.masteryUses = Math.max(0, Number(card.masteryUses || 0)) + 1;
-  const thresholds = normalizeCardThresholds(card.masteryThresholds);
-  const beforeLevel = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const thresholds = normalizeCardThresholds(card.masteryThresholds, card.tier);
+  const beforeLevel = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   let afterLevel = beforeLevel;
   if (card.masteryUses >= thresholds.level2) {
     afterLevel = Math.max(afterLevel, 2);
@@ -1800,7 +1848,10 @@ function executeCardAction(body) {
   if (card.masteryUses >= thresholds.level3) {
     afterLevel = Math.max(afterLevel, 3);
   }
-  card.masteryLevel = Math.max(1, Math.min(3, afterLevel));
+  if (card.masteryUses >= thresholds.level4) {
+    afterLevel = Math.max(afterLevel, 4);
+  }
+  card.masteryLevel = Math.max(1, Math.min(4, afterLevel));
   if (afterLevel > beforeLevel) {
     notes.push(`Mastery increased to Level ${afterLevel}.`);
   }
@@ -2189,7 +2240,6 @@ function applyAdjustment(participant, adjustment) {
 function sanitizeParticipantUpdate(body, current) {
   const update = {};
   const numericFields = [
-    'initiative',
     'apCurrent',
     'hp',
     'shield',
@@ -2306,7 +2356,7 @@ function createParticipant(body = {}) {
     id,
     name: body.name?.trim() || `Combatant ${trackerState.encounter.participants.length + 1}`,
     team: normalizeTeamName(body.team),
-    initiative: typeof body.initiative === 'number' ? body.initiative : 0,
+    initiative: 0,
     apMax,
     apCurrent: typeof body.apCurrent === 'number' ? body.apCurrent : apMax,
     hp: typeof body.hp === 'number' ? body.hp : maxHp,
@@ -2600,6 +2650,11 @@ function detectStatusType(status) {
     if (token.includes('restrained') || token.includes('restrain')) return 'restrained';
     if (token.includes('stunned') || token.includes('stun')) return 'stunned';
     if (token.includes('rooted') || token.includes('root')) return 'rooted';
+    if (token.includes('paralysed') || token.includes('paralyzed') || token.includes('paralyse') || token.includes('paralyze')) return 'paralysed';
+    if (token.includes('silenced') || token.includes('silence')) return 'silenced';
+    if (token.includes('charmed') || token.includes('charm')) return 'charmed';
+    if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
+    if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
   }
   return null;
 }
@@ -2625,6 +2680,35 @@ function getRecoverableStatuses(statuses = []) {
     .filter(Boolean);
 }
 
+function getCleanseStatusApCost(type) {
+  return type === 'stunned' || type === 'paralysed' ? 5 : 4;
+}
+
+function getCleanseableStatuses(statuses = []) {
+  const cleanseable = new Set([
+    'rooted',
+    'restrained',
+    'silenced',
+    'charmed',
+    'frightened',
+    'suppressed',
+    'paralysed',
+    'stunned'
+  ]);
+  return statuses
+    .map((status, index) => {
+      const detected = detectStatusType(status);
+      if (!cleanseable.has(detected)) return null;
+      return {
+        status,
+        index,
+        type: detected,
+        apCost: getCleanseStatusApCost(detected)
+      };
+    })
+    .filter(Boolean);
+}
+
 function statusDisplayName(type) {
   const labels = {
     bleeding: 'Bleeding',
@@ -2635,7 +2719,12 @@ function statusDisplayName(type) {
     fatigued: 'Fatigued',
     rooted: 'Rooted',
     restrained: 'Restrained',
-    stunned: 'Stunned'
+    stunned: 'Stunned',
+    paralysed: 'Paralysed',
+    silenced: 'Silenced',
+    charmed: 'Charmed',
+    frightened: 'Frightened',
+    suppressed: 'Suppressed'
   };
   return labels[type] || type;
 }
@@ -2649,7 +2738,12 @@ const KNOWN_STATUS_TYPES = [
   'fatigued',
   'rooted',
   'restrained',
-  'stunned'
+  'stunned',
+  'paralysed',
+  'silenced',
+  'charmed',
+  'frightened',
+  'suppressed'
 ];
 
 function buildStatusMergeKey(status, fallbackIndex = 0) {
@@ -3322,6 +3416,46 @@ function applyRecoverAction(participant, target = {}) {
   };
 }
 
+function applyCleanseAction(participant, target = {}, options = {}) {
+  const preview = options?.preview === true;
+  participant.statuses = normalizeStatuses(participant.statuses);
+  const cleanseable = getCleanseableStatuses(participant.statuses);
+  if (!cleanseable.length) return null;
+
+  let matched = null;
+  if (Number.isInteger(target?.statusIndex)) {
+    matched = cleanseable.find((entry) => entry.index === Number(target.statusIndex));
+  }
+  if (!matched && target?.statusId) {
+    matched = cleanseable.find((entry) => String(entry.status.id || '') === String(target.statusId));
+  }
+  if (!matched && target?.statusType) {
+    const targetType = normalizeStatusToken(target.statusType);
+    matched = cleanseable.find((entry) => entry.type === targetType);
+  }
+  if (!matched && target?.statusName) {
+    const targetName = normalizeStatusToken(target.statusName);
+    matched = cleanseable.find((entry) => normalizeStatusToken(entry.status.name) === targetName);
+  }
+  if (!matched) {
+    [matched] = [...cleanseable].sort((a, b) => a.apCost - b.apCost || a.index - b.index);
+  }
+  if (!matched) return null;
+
+  const status = matched.status;
+  const result = {
+    name: status.name || statusDisplayName(matched.type) || 'a condition',
+    type: matched.type,
+    apCost: matched.apCost
+  };
+  if (preview) {
+    return result;
+  }
+
+  participant.statuses.splice(matched.index, 1);
+  return result;
+}
+
 async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -3498,14 +3632,18 @@ function normalizeRelics(list) {
   }));
 }
 
-function normalizeCardThresholds(value) {
+function normalizeCardThresholds(value, tier = 'Common') {
+  const defaults = getCardTierMasteryThresholds(tier);
   const source = value && typeof value === 'object' ? value : {};
-  const level2Raw = Number(source.level2 ?? source.to2 ?? 25);
-  const level2 = Number.isFinite(level2Raw) ? Math.max(1, Math.round(level2Raw)) : 25;
-  const level3Raw = Number(source.level3 ?? source.to3 ?? 55);
-  const level3Candidate = Number.isFinite(level3Raw) ? Math.round(level3Raw) : 55;
+  const level2Raw = Number(source.level2 ?? source.to2 ?? defaults.level2);
+  const level2 = Number.isFinite(level2Raw) ? Math.max(1, Math.round(level2Raw)) : defaults.level2;
+  const level3Raw = Number(source.level3 ?? source.to3 ?? defaults.level3);
+  const level3Candidate = Number.isFinite(level3Raw) ? Math.round(level3Raw) : defaults.level3;
   const level3 = Math.max(level2 + 1, level3Candidate);
-  return { level2, level3 };
+  const level4Raw = Number(source.level4 ?? source.to4 ?? defaults.level4);
+  const level4Candidate = Number.isFinite(level4Raw) ? Math.round(level4Raw) : defaults.level4;
+  const level4 = Math.max(level3 + 1, level4Candidate);
+  return { level2, level3, level4 };
 }
 
 function normalizeCardDamageByLevel(value, fallbackDamage = 0) {
@@ -3520,7 +3658,10 @@ function normalizeCardDamageByLevel(value, fallbackDamage = 0) {
   const level3 = Number.isFinite(Number(source[3] ?? source.level3))
     ? Math.max(0, Number(source[3] ?? source.level3))
     : level2;
-  return { 1: level1, 2: level2, 3: level3 };
+  const level4 = Number.isFinite(Number(source[4] ?? source.level4))
+    ? Math.max(0, Number(source[4] ?? source.level4))
+    : level3;
+  return { 1: level1, 2: level2, 3: level3, 4: level4 };
 }
 
 function autoCardDamageType(card = {}) {
@@ -3741,12 +3882,20 @@ function normalizeCards(list = []) {
   const normalized = list
     .map((card, index) => {
       if (!card || typeof card !== 'object') return null;
-      const thresholds = normalizeCardThresholds(card.masteryThresholds);
+      const tierName = String(card.tier || 'Common').trim() || 'Common';
+      const thresholds = normalizeCardThresholds(card.masteryThresholds, tierName);
       const masteryUsesRaw = Number(card.masteryUses ?? card.uses ?? 0);
       const masteryUses = Number.isFinite(masteryUsesRaw) ? Math.max(0, Math.round(masteryUsesRaw)) : 0;
       const masteryLevelRaw = Number(card.masteryLevel ?? card.level ?? 1);
-      let masteryLevel = Number.isFinite(masteryLevelRaw) ? Math.max(1, Math.min(3, Math.round(masteryLevelRaw))) : 1;
-      const impliedLevel = masteryUses >= thresholds.level3 ? 3 : masteryUses >= thresholds.level2 ? 2 : 1;
+      let masteryLevel = Number.isFinite(masteryLevelRaw) ? Math.max(1, Math.min(4, Math.round(masteryLevelRaw))) : 1;
+      const impliedLevel =
+        masteryUses >= thresholds.level4
+          ? 4
+          : masteryUses >= thresholds.level3
+            ? 3
+            : masteryUses >= thresholds.level2
+              ? 2
+              : 1;
       masteryLevel = Math.max(masteryLevel, impliedLevel);
 
       const damageRaw = Number(card.damage ?? card.baseDamage ?? 0);
@@ -3770,7 +3919,6 @@ function normalizeCards(list = []) {
         cardChargesMax > 0 && Number.isFinite(cardChargesCurrentRaw)
           ? Math.max(0, Math.min(cardChargesMax, Math.round(cardChargesCurrentRaw)))
           : 0;
-      const tierName = String(card.tier || 'Common').trim() || 'Common';
       const explicitShieldSource = card.shieldBonus ?? card.bonusShield;
       const explicitShieldBonus =
         explicitShieldSource === '' || explicitShieldSource == null ? Number.NaN : Number(explicitShieldSource);
@@ -3863,15 +4011,16 @@ function normalizeCards(list = []) {
 }
 
 function getCardDamageAtCurrentMastery(card) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const byLevel = normalizeCardDamageByLevel(card.masteryDamageByLevel, card.damage || 0);
+  if (level >= 4) return byLevel[4];
   if (level >= 3) return byLevel[3];
   if (level >= 2) return byLevel[2];
   return byLevel[1];
 }
 
 function getCardSecondaryDamageAtCurrentMastery(card) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const fallback = Number(card.secondaryDamage || 0);
   const value = getCardScaledValue(card.secondaryDamageByLevel, level, fallback);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
@@ -3902,7 +4051,7 @@ function getCardMultiTargetCap(card = {}, level = 1) {
 
 function getCardScaledValue(source, level = 1, fallback = 0) {
   if (source == null) return fallback;
-  const parsedLevel = Math.max(1, Math.min(3, Number(level || 1)));
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || 1)));
   if (typeof source === 'number') return Number.isFinite(source) ? source : fallback;
   if (typeof source === 'string') {
     const parsed = Number(source);
@@ -3913,7 +4062,14 @@ function getCardScaledValue(source, level = 1, fallback = 0) {
   if (Number.isFinite(direct)) return direct;
   const named = Number(source[`level${parsedLevel}`]);
   if (Number.isFinite(named)) return named;
-  const order = parsedLevel === 3 ? [3, 2, 1] : parsedLevel === 2 ? [2, 1, 3] : [1, 2, 3];
+  const order =
+    parsedLevel === 4
+      ? [4, 3, 2, 1]
+      : parsedLevel === 3
+        ? [3, 2, 1, 4]
+        : parsedLevel === 2
+          ? [2, 1, 3, 4]
+          : [1, 2, 3, 4];
   for (const key of order) {
     const value = Number(source[key] ?? source[`level${key}`]);
     if (Number.isFinite(value)) return value;
@@ -4664,7 +4820,7 @@ function deployConstructFromCard(participant, card, options = {}) {
 }
 
 function deployZoneFromCard(participant, card, options = {}) {
-  const level = Math.max(1, Math.min(3, Number(options.masteryLevel || card?.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(options.masteryLevel || card?.masteryLevel || 1)));
   const radiusRaw = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
   const radiusBonusFt = Number.isFinite(Number(options.radiusBonusFt))
     ? Math.max(0, Math.round(Number(options.radiusBonusFt)))
@@ -4899,6 +5055,13 @@ function recalculateParticipant(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const setRuntime = ensureSetRuntime(participant);
   sanitizeSetAllyTargets(participant);
+  const normalizedStats = {};
+  for (const key of ABILITY_KEYS) {
+    const value = Number(participant?.stats?.[key]);
+    normalizedStats[key] = Number.isFinite(value) ? Math.round(value) : 0;
+  }
+  participant.stats = normalizedStats;
+  participant.initiative = participant.stats.dexterity;
   participant.cards = normalizeCards(participant.cards);
   const cardGroups = buildActiveCardGroups(participant);
   if (

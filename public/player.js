@@ -1,5 +1,5 @@
 import { UI_LIMITS } from './shared/game-config.js';
-import { getCardTierShieldBonus } from './shared/card-rules.js';
+import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -83,6 +83,14 @@ function wireSelect() {
 function wirePlayerCardForm() {
   const form = document.getElementById('playerCardForm');
   if (!form) return;
+  const tierInput = form.querySelector('[name="tier"]');
+  if (tierInput && tierInput.dataset.masteryThresholdSyncBound !== '1') {
+    const syncThresholds = () => syncCardMasteryThresholdInputs(form);
+    tierInput.addEventListener('change', syncThresholds);
+    tierInput.addEventListener('input', syncThresholds);
+    tierInput.dataset.masteryThresholdSyncBound = '1';
+  }
+  syncCardMasteryThresholdInputs(form);
   form.onsubmit = async (event) => {
     event.preventDefault();
     const participant = getFocusedParticipant();
@@ -508,8 +516,6 @@ function buildParticipantFromCreateForm(formData) {
     stats[key] = Number(formData.get(key) || 0);
   });
   const proficiencyBonus = Number(formData.get('proficiencyBonus') || 0);
-  const dex = stats.dexterity || 0;
-  const initiative = dex + proficiencyBonus;
   const maxHp = Number(formData.get('maxHp') || 0);
   const maxShield = Number(formData.get('maxShield') || 0);
   const apMax = Number(formData.get('apMax') || 0);
@@ -526,7 +532,6 @@ function buildParticipantFromCreateForm(formData) {
     apMax,
     apCurrent: apMax,
     proficiencyBonus,
-    initiative,
     stats,
     notes: formData.get('notes') || '',
     resistances,
@@ -553,7 +558,7 @@ function renderPlayerStandardActionsSection() {
 
 function renderPlayerStandardActionButtons() {
   const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
-  const order = ['move', 'disengage', 'slip', 'interact', 'recover', 'guard'];
+  const order = ['move', 'disengage', 'slip', 'interact', 'recover', 'cleanse', 'guard'];
   const actions = order.map((id) => actionsById.get(id)).filter(Boolean);
   if (!actions.length) {
     return '<p class="empty-state">Standard actions will appear once the server boots.</p>';
@@ -599,6 +604,9 @@ function renderPlayerCardsSection(participant) {
               </label>
               <label>Type
                 <input type="text" name="type" placeholder="Attack" />
+              </label>
+              <label>Tier
+                <input type="text" name="tier" placeholder="Common" />
               </label>
             </div>
             <div class="form-row">
@@ -672,10 +680,13 @@ function renderPlayerCardsSection(participant) {
             </label>
             <div class="form-row">
               <label>Mastery to L2 uses
-                <input type="number" name="masteryTo2" value="25" min="1" />
+                <input type="number" name="masteryTo2" value="10" min="1" />
               </label>
               <label>Mastery to L3 uses
-                <input type="number" name="masteryTo3" value="55" min="2" />
+                <input type="number" name="masteryTo3" value="25" min="2" />
+              </label>
+              <label>Mastery to L4 uses
+                <input type="number" name="masteryTo4" value="50" min="3" />
               </label>
             </div>
             <button type="submit">Add Card</button>
@@ -1309,7 +1320,7 @@ async function handlePlayerStandardAction(actionId) {
     return;
   }
   let resolvedId = actionId;
-  let recoverPayload = {};
+  let standardPayload = {};
   if (actionId === 'move') {
     const difficultToggle = els.stats.querySelector('[data-player-difficult]');
     if (difficultToggle?.checked) {
@@ -1321,13 +1332,20 @@ async function handlePlayerStandardAction(actionId) {
     if (target === null) {
       return;
     }
-    recoverPayload = target || {};
+    standardPayload = target || {};
+  }
+  if (actionId === 'cleanse') {
+    const target = choosePlayerCleanseTarget(participant);
+    if (target === null) {
+      return;
+    }
+    standardPayload = target || {};
   }
   try {
     await api('/api/actions/standard', 'POST', {
       actionId: resolvedId,
       participantId: participant.id,
-      ...recoverPayload
+      ...standardPayload
     });
     fetchState();
   } catch (err) {
@@ -1399,6 +1417,78 @@ function choosePlayerRecoverTarget(participant) {
     recoverStatusId: picked.status.id,
     recoverStatusName: picked.status.name,
     recoverStatusType: picked.type
+  };
+}
+
+function detectPlayerCleanseType(status) {
+  const fields = [status?.presetId, status?.name, status?.id];
+  for (const field of fields) {
+    const token = normalizeRecoverToken(field);
+    if (token.includes('rooted') || token.includes('root')) return 'rooted';
+    if (token.includes('restrained') || token.includes('restrain')) return 'restrained';
+    if (token.includes('silenced') || token.includes('silence')) return 'silenced';
+    if (token.includes('charmed') || token.includes('charm')) return 'charmed';
+    if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
+    if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
+    if (token.includes('stunned') || token.includes('stun')) return 'stunned';
+    if (token.includes('paralysed') || token.includes('paralyzed') || token.includes('paralyse') || token.includes('paralyze')) return 'paralysed';
+  }
+  return null;
+}
+
+function getPlayerCleanseApCost(type) {
+  return type === 'stunned' || type === 'paralysed' ? 5 : 4;
+}
+
+function listPlayerCleanseableStatuses(participant) {
+  return (participant?.statuses || [])
+    .map((status, index) => {
+      const type = detectPlayerCleanseType(status);
+      if (!type) return null;
+      const apCost = getPlayerCleanseApCost(type);
+      return {
+        status,
+        index,
+        type,
+        apCost,
+        label: `${status.name || type}${status.stacks ? ` ×${status.stacks}` : ''} (${apCost} AP)`
+      };
+    })
+    .filter(Boolean);
+}
+
+function choosePlayerCleanseTarget(participant) {
+  const cleanseable = listPlayerCleanseableStatuses(participant);
+  if (!cleanseable.length) {
+    notify('No eligible control/debuff status to cleanse.');
+    return null;
+  }
+  if (cleanseable.length === 1) {
+    const [entry] = cleanseable;
+    return {
+      cleanseStatusIndex: entry.index,
+      cleanseStatusId: entry.status.id,
+      cleanseStatusName: entry.status.name,
+      cleanseStatusType: entry.type
+    };
+  }
+  const message = [
+    'Choose status to remove completely:',
+    ...cleanseable.map((entry, index) => `${index + 1}. ${entry.label}`)
+  ].join('\n');
+  const raw = window.prompt(message, '1');
+  if (raw == null) return null;
+  const choice = Number(raw);
+  if (!Number.isInteger(choice) || choice < 1 || choice > cleanseable.length) {
+    notify('Invalid selection. Cleanse cancelled.');
+    return null;
+  }
+  const picked = cleanseable[choice - 1];
+  return {
+    cleanseStatusIndex: picked.index,
+    cleanseStatusId: picked.status.id,
+    cleanseStatusName: picked.status.name,
+    cleanseStatusType: picked.type
   };
 }
 
@@ -1527,6 +1617,27 @@ function formatSignedValue(value = 0) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return '+0';
   return `${amount >= 0 ? '+' : ''}${Math.round(amount)}`;
+}
+
+function getTierMasteryThresholdDefaults(tier = 'Common') {
+  const defaults = getCardTierMasteryThresholds(tier);
+  const level2 = Math.max(1, Math.round(Number(defaults?.level2 ?? 10)));
+  const level3 = Math.max(level2 + 1, Math.round(Number(defaults?.level3 ?? level2 + 1)));
+  const level4 = Math.max(level3 + 1, Math.round(Number(defaults?.level4 ?? level3 + 1)));
+  return { level2, level3, level4 };
+}
+
+function syncCardMasteryThresholdInputs(formEl) {
+  if (!formEl) return;
+  const tierInput = formEl.querySelector('[name="tier"]');
+  const to2Input = formEl.querySelector('[name="masteryTo2"]');
+  const to3Input = formEl.querySelector('[name="masteryTo3"]');
+  const to4Input = formEl.querySelector('[name="masteryTo4"]');
+  if (!to2Input || !to3Input || !to4Input) return;
+  const defaults = getTierMasteryThresholdDefaults(tierInput?.value || 'Common');
+  to2Input.value = String(defaults.level2);
+  to3Input.value = String(defaults.level3);
+  to4Input.value = String(defaults.level4);
 }
 
 function abilityMod(score = 0) {
@@ -1986,7 +2097,7 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
                 ${renderMasteryLines(card)}
                 ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
                 ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
-                <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level3 || 55} uses)</p>
+                <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4} uses)</p>
                 <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
                 ${
                   options.inactive
@@ -1997,7 +2108,8 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
                   <select data-player-card-mastery="${card.id}" data-player-card-index="${index}">
                     <option value="1" ${Number(card.masteryLevel || 1) === 1 ? 'selected' : ''}>Level 1</option>
                     <option value="2" ${Number(card.masteryLevel || 1) === 2 ? 'selected' : ''}>Level 2</option>
-                    <option value="3" ${Number(card.masteryLevel || 1) >= 3 ? 'selected' : ''}>Level 3</option>
+                    <option value="3" ${Number(card.masteryLevel || 1) === 3 ? 'selected' : ''}>Level 3</option>
+                    <option value="4" ${Number(card.masteryLevel || 1) >= 4 ? 'selected' : ''}>Level 4</option>
                   </select>
                 </label>
                 <div class="card-actions">
@@ -2160,7 +2272,7 @@ function renderCardEffectLine(card = {}) {
 function formatCardRange(card = {}) {
   const text = String(card.rangeText || '').trim();
   if (text) return text;
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
   return `${range} ft`;
 }
@@ -2168,7 +2280,7 @@ function formatCardRange(card = {}) {
 function isSelfTargetCard(card = {}) {
   const text = String(card.rangeText || '').trim().toLowerCase();
   if (text === 'self') return true;
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
   return Number(range || 0) <= 0;
 }
@@ -2183,7 +2295,7 @@ function getCardTargetMode(card = {}) {
 }
 
 function getCardMultiTargetCap(card = {}) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const fallback = Number.isFinite(Number(card.multiTargetMax))
     ? Math.max(1, Math.round(Number(card.multiTargetMax)))
     : 3;
@@ -2198,7 +2310,7 @@ function getCardSecondaryTargetMode(card = {}) {
 }
 
 function getCardSecondaryDamage(card = {}) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const value = getCardScaledValue(card.secondaryDamageByLevel, level, Number(card.secondaryDamage || 0));
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
@@ -2229,7 +2341,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (isConstructCard(card)) {
     return fallback || '—';
   }
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const targetMode = getCardTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
@@ -2354,7 +2466,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
 
 function getCardScaledValue(source, level = 1, fallback = 0) {
   if (source == null) return fallback;
-  const parsedLevel = Math.max(1, Math.min(3, Number(level || 1)));
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || 1)));
   if (typeof source === 'number') return Number.isFinite(source) ? source : fallback;
   if (typeof source === 'string') {
     const parsed = Number(source);
@@ -2365,6 +2477,14 @@ function getCardScaledValue(source, level = 1, fallback = 0) {
   if (Number.isFinite(direct)) return direct;
   const named = Number(source[`level${parsedLevel}`]);
   if (Number.isFinite(named)) return named;
+  for (let probe = parsedLevel - 1; probe >= 1; probe -= 1) {
+    const lowered = Number(source[probe] ?? source[`level${probe}`]);
+    if (Number.isFinite(lowered)) return lowered;
+  }
+  for (let probe = parsedLevel + 1; probe <= 4; probe += 1) {
+    const raised = Number(source[probe] ?? source[`level${probe}`]);
+    if (Number.isFinite(raised)) return raised;
+  }
   return fallback;
 }
 
@@ -2665,13 +2785,19 @@ function renderMasteryLines(card = {}) {
 }
 
 function getCardDisplayDamage(card = {}) {
-  const level = Math.max(1, Math.min(3, Number(card.masteryLevel || 1)));
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const byLevel = card.masteryDamageByLevel || {};
   const base = Number(card.damage || 0);
   const levelDamage = Number(
     byLevel[level] ??
       byLevel[`level${level}`] ??
-      (level >= 3 ? byLevel[3] ?? byLevel.level3 : level >= 2 ? byLevel[2] ?? byLevel.level2 : byLevel[1] ?? byLevel.level1) ??
+      (level >= 4
+        ? byLevel[4] ?? byLevel.level4
+        : level >= 3
+          ? byLevel[3] ?? byLevel.level3
+          : level >= 2
+            ? byLevel[2] ?? byLevel.level2
+            : byLevel[1] ?? byLevel.level1) ??
       base
   );
   return Number.isFinite(levelDamage) ? Math.max(0, Math.round(levelDamage)) : Math.max(0, Math.round(base));
@@ -3385,11 +3511,7 @@ function wirePlayerSheetEvents(participant) {
       const value = Number(input.value || 0);
       participant.stats = participant.stats || {};
       participant.stats[ability] = value;
-      const payload = { stats: { [ability]: value } };
-      if (ability === 'dexterity') {
-        payload.initiative = value + (participant.proficiencyBonus || 0);
-      }
-      await patchParticipant(participant.id, payload);
+      await patchParticipant(participant.id, { stats: { [ability]: value } });
       fetchState();
     };
   });
@@ -3398,10 +3520,7 @@ function wirePlayerSheetEvents(participant) {
     profInput.onchange = async () => {
       const value = Number(profInput.value || 0);
       participant.proficiencyBonus = value;
-      await patchParticipant(participant.id, {
-        proficiencyBonus: value,
-        initiative: (participant.stats?.dexterity || 0) + value
-      });
+      await patchParticipant(participant.id, { proficiencyBonus: value });
       fetchState();
     };
   }
@@ -3763,7 +3882,8 @@ function buildPlayerCardFromForm(formData) {
     healthBonus: formData.get('healthBonus'),
     masteryThresholds: {
       level2: formData.get('masteryTo2'),
-      level3: formData.get('masteryTo3')
+      level3: formData.get('masteryTo3'),
+      level4: formData.get('masteryTo4')
     },
     modifiers: {
       maxHp: formData.get('modMaxHp'),
@@ -3778,17 +3898,20 @@ function buildPlayerCardFromForm(formData) {
 
 function applyManualMastery(card, level) {
   const next = { ...(card || {}) };
-  const selected = Math.max(1, Math.min(3, Number(level || 1)));
+  const selected = Math.max(1, Math.min(4, Number(level || 1)));
+  const tierDefaults = getTierMasteryThresholdDefaults(next.tier);
   const thresholds = next.masteryThresholds || {};
-  const to2 = Math.max(1, Number(thresholds.level2 || 25));
-  const to3 = Math.max(to2 + 1, Number(thresholds.level3 || 55));
+  const to2 = Math.max(1, Number(thresholds.level2 ?? tierDefaults.level2));
+  const to3 = Math.max(to2 + 1, Number(thresholds.level3 ?? tierDefaults.level3));
+  const to4 = Math.max(to3 + 1, Number(thresholds.level4 ?? tierDefaults.level4));
   let uses = Math.max(0, Number(next.masteryUses || 0));
   if (selected === 1) uses = Math.min(uses, to2 - 1);
   if (selected === 2) uses = Math.max(to2, Math.min(uses, to3 - 1));
-  if (selected === 3) uses = Math.max(uses, to3);
+  if (selected === 3) uses = Math.max(to3, Math.min(uses, to4 - 1));
+  if (selected === 4) uses = Math.max(uses, to4);
   next.masteryLevel = selected;
   next.masteryUses = uses;
-  next.masteryThresholds = { level2: to2, level3: to3 };
+  next.masteryThresholds = { level2: to2, level3: to3, level4: to4 };
   return next;
 }
 
@@ -3803,16 +3926,19 @@ function buildStatusFromForm(formData) {
 }
 
 function normalizeCardPayload(raw = {}) {
+  const tier = String(raw.tier || 'Common').trim() || 'Common';
+  const tierDefaults = getTierMasteryThresholdDefaults(tier);
   const masteryThresholds = {
-    level2: toNumber(raw.masteryThresholds?.level2 ?? raw.masteryTo2 ?? 25, 25),
-    level3: toNumber(raw.masteryThresholds?.level3 ?? raw.masteryTo3 ?? 55, 55)
+    level2: toNumber(raw.masteryThresholds?.level2 ?? raw.masteryTo2 ?? tierDefaults.level2, tierDefaults.level2),
+    level3: toNumber(raw.masteryThresholds?.level3 ?? raw.masteryTo3 ?? tierDefaults.level3, tierDefaults.level3),
+    level4: toNumber(raw.masteryThresholds?.level4 ?? raw.masteryTo4 ?? tierDefaults.level4, tierDefaults.level4)
   };
   masteryThresholds.level2 = Math.max(1, Math.round(masteryThresholds.level2));
   masteryThresholds.level3 = Math.max(masteryThresholds.level2 + 1, Math.round(masteryThresholds.level3));
-  const masteryLevel = Math.max(1, Math.min(3, Math.round(toNumber(raw.masteryLevel ?? 1, 1))));
+  masteryThresholds.level4 = Math.max(masteryThresholds.level3 + 1, Math.round(masteryThresholds.level4));
+  const masteryLevel = Math.max(1, Math.min(4, Math.round(toNumber(raw.masteryLevel ?? 1, 1))));
   const masteryUses = Math.max(0, Math.round(toNumber(raw.masteryUses ?? 0, 0)));
   const baseDamage = Math.max(0, Math.round(toNumber(raw.damage ?? raw.baseDamage ?? 0, 0)));
-  const tier = String(raw.tier || 'Common').trim() || 'Common';
   const explicitShieldSource = raw.shieldBonus ?? raw.bonusShield;
   const explicitShieldBonus =
     explicitShieldSource === '' || explicitShieldSource == null ? Number.NaN : Number(explicitShieldSource);
@@ -3929,7 +4055,17 @@ function normalizeCardPayload(raw = {}) {
     masteryDamageByLevel: {
       1: toNumber(raw.masteryDamageByLevel?.[1] ?? raw.masteryDamageByLevel?.level1 ?? raw.damageLevel1 ?? baseDamage, baseDamage),
       2: toNumber(raw.masteryDamageByLevel?.[2] ?? raw.masteryDamageByLevel?.level2 ?? raw.damageLevel2 ?? baseDamage, baseDamage),
-      3: toNumber(raw.masteryDamageByLevel?.[3] ?? raw.masteryDamageByLevel?.level3 ?? raw.damageLevel3 ?? baseDamage, baseDamage)
+      3: toNumber(raw.masteryDamageByLevel?.[3] ?? raw.masteryDamageByLevel?.level3 ?? raw.damageLevel3 ?? baseDamage, baseDamage),
+      4: toNumber(
+        raw.masteryDamageByLevel?.[4] ??
+          raw.masteryDamageByLevel?.level4 ??
+          raw.damageLevel4 ??
+          raw.masteryDamageByLevel?.[3] ??
+          raw.masteryDamageByLevel?.level3 ??
+          raw.damageLevel3 ??
+          baseDamage,
+        baseDamage
+      )
     },
     tags: normalizeTagList(raw.tags),
     effect: raw.effect || '',
