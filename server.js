@@ -95,8 +95,8 @@ const STANDARD_ACTIONS = {
   recover: {
     id: 'recover',
     label: 'Recover',
-    summary: '1 AP: Remove 1 stack of Bleeding, Poisoned, or Burning.',
-    apCost: 1,
+    summary: '2 AP: Remove 1 stack of Bleeding, Poisoned, or Burning.',
+    apCost: 2,
     logText: 'recovers to reduce damaging stacks.'
   },
   cleanse: {
@@ -126,7 +126,7 @@ const STATUS_LIBRARY = [
     name: 'Bleeding',
     defaultStacks: 1,
     description:
-      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks, then Bleeding loses 1 stack. If Bleeding is still 5+ stacks, gain Weakened 1 and reset Bleeding to 1 (max once/turn). Recover (1 AP) removes 1 stack.',
+      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks, then Bleeding loses 1 stack. If Bleeding is still 5+ stacks, gain Weakened 1 and reset Bleeding to 1 (max once/turn). Recover (2 AP) removes 1 stack.',
     tags: ['Damaging']
   },
   {
@@ -134,7 +134,7 @@ const STATUS_LIBRARY = [
     name: 'Poisoned',
     defaultStacks: 1,
     description:
-      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks, then Poisoned loses 1 stack. If Poisoned is still 5+ stacks, gain Fatigued 1 and reset Poisoned to 1 (max once/turn). Recover (1 AP) removes 1 stack.',
+      'Damaging (bypasses Shield). Start of turn: take damage equal to stacks, then Poisoned loses 1 stack. If Poisoned is still 5+ stacks, gain Fatigued 1 and reset Poisoned to 1 (max once/turn). Recover (2 AP) removes 1 stack.',
     tags: ['Damaging']
   },
   {
@@ -142,7 +142,7 @@ const STATUS_LIBRARY = [
     name: 'Burning',
     defaultStacks: 1,
     description:
-      'Damaging (hits Shield first). Start of turn: take damage equal to stacks, then Burning loses 1 stack. Burning does not escalate. Recover (1 AP) removes 1 stack.',
+      'Damaging (hits Shield first). Start of turn: take damage equal to stacks, then Burning loses 1 stack. Burning does not escalate. Recover (2 AP) removes 1 stack.',
     tags: ['Damaging']
   },
   {
@@ -468,6 +468,15 @@ async function handleApi(req, res, pathname, method) {
     if (method === 'POST' && pathname === '/api/actions/card') {
       const body = await readBody(req);
       const result = executeCardAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/cards/mastery-choice') {
+      const body = await readBody(req);
+      const result = executeSetCardMasteryChoiceAction(body);
       if (result.error) {
         return sendJson(res, result, 400);
       }
@@ -1838,6 +1847,7 @@ function executeCardAction(body) {
     notes.push('Shadow set lets you move 10 ft after attacking.');
   }
 
+  let masteryChoicePrompt = null;
   card.masteryUses = Math.max(0, Number(card.masteryUses || 0)) + 1;
   const thresholds = normalizeCardThresholds(card.masteryThresholds, card.tier);
   const beforeLevel = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
@@ -1854,6 +1864,18 @@ function executeCardAction(body) {
   card.masteryLevel = Math.max(1, Math.min(4, afterLevel));
   if (afterLevel > beforeLevel) {
     notes.push(`Mastery increased to Level ${afterLevel}.`);
+  }
+  const masteryChoiceOptions = Array.isArray(card.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
+  if (afterLevel >= 2 && masteryChoiceOptions.length > 1 && !card.masteryChoiceSelected) {
+    masteryChoicePrompt = {
+      cardId: card.id,
+      cardName: card.name,
+      options: masteryChoiceOptions.map((option) => ({
+        id: option.id,
+        label: option.label || option.id
+      }))
+    };
+    notes.push('Choose your Mastery 2 path now; the other option unlocks at Mastery 3.');
   }
 
   if (chargesMax > 0) {
@@ -1926,8 +1948,51 @@ function executeCardAction(body) {
     damageResult,
     damageResults,
     construct: constructDeployResult?.construct || null,
-    zone: zoneDeployResult?.zone || null
+    zone: zoneDeployResult?.zone || null,
+    masteryChoicePrompt
   };
+}
+
+function executeSetCardMasteryChoiceAction(body = {}) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const cardId = String(body.cardId || '').trim();
+  if (!cardId) {
+    return { error: 'cardId is required' };
+  }
+  participant.cards = normalizeCards(participant.cards);
+  const card = participant.cards.find((entry) => String(entry.id || '').trim() === cardId);
+  if (!card) {
+    return { error: 'Card not found' };
+  }
+  const options = Array.isArray(card.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
+  if (!options.length) {
+    return { error: 'Card has no mastery choice options' };
+  }
+  const masteryLevel = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
+  if (masteryLevel < 2) {
+    return { error: 'Mastery choice is available at Mastery 2 or higher' };
+  }
+  const choiceId = String(body.choiceId || '').trim();
+  const selected = options.find((entry) => String(entry.id || '').trim() === choiceId);
+  if (!selected) {
+    return { error: 'Invalid mastery choice option' };
+  }
+  const existingChoiceId = String(card.masteryChoiceSelected || '').trim();
+  if (existingChoiceId && existingChoiceId !== selected.id) {
+    return { error: 'Mastery choice already selected for this card' };
+  }
+  card.masteryChoiceSelected = selected.id;
+  recalculateParticipant(participant);
+  pushLog(`${participant.name} selects ${selected.label} for ${card.name} mastery.`, participant.id, {
+    cardId: card.id,
+    masteryChoiceId: selected.id
+  });
+  touchState();
+  broadcastState('card_mastery_choice');
+  return { participant, card };
 }
 
 function executeRemoveConstructAction(body) {
@@ -2418,6 +2483,7 @@ function createParticipant(body = {}) {
     derivedBonuses: {
       base: baseStats,
       totals: createZeroModifier(),
+      abilityBonuses: createZeroAbilityBonuses(),
       cardModifiers: [],
       cardLoadout: {
         maxActive: MAX_ACTIVE_CARDS,
@@ -3550,6 +3616,39 @@ function createZeroModifier() {
   };
 }
 
+function createZeroAbilityBonuses() {
+  const bonuses = {};
+  for (const key of ABILITY_KEYS) {
+    bonuses[key] = 0;
+  }
+  return bonuses;
+}
+
+function normalizeAbilityBonuses(value = {}) {
+  const normalized = createZeroAbilityBonuses();
+  if (!value || typeof value !== 'object') return normalized;
+  for (const key of ABILITY_KEYS) {
+    const amount = Number(value[key]);
+    if (Number.isFinite(amount)) {
+      normalized[key] = Math.round(amount);
+    }
+  }
+  return normalized;
+}
+
+function hasAbilityBonusValue(value = {}) {
+  for (const key of ABILITY_KEYS) {
+    if (Number(value[key] || 0) !== 0) return true;
+  }
+  return false;
+}
+
+function addAbilityBonusesTotals(target = {}, addition = {}) {
+  for (const key of ABILITY_KEYS) {
+    target[key] = Number(target[key] || 0) + Number(addition[key] || 0);
+  }
+}
+
 function normalizeTeamName(value) {
   return String(value || '').trim().slice(0, 32);
 }
@@ -3616,7 +3715,9 @@ function getAbilityModifier(participant = {}, ability = '') {
   if (!ABILITY_KEYS.includes(key)) return 0;
   const score = Number(participant?.stats?.[key]);
   const safeScore = Number.isFinite(score) ? score : 10;
-  return Math.floor((safeScore - 10) / 2);
+  const bonus = Number(participant?.derivedBonuses?.abilityBonuses?.[key] || 0);
+  const total = safeScore + (Number.isFinite(bonus) ? bonus : 0);
+  return Math.floor((total - 10) / 2);
 }
 
 function normalizeRelics(list) {
@@ -3662,6 +3763,127 @@ function normalizeCardDamageByLevel(value, fallbackDamage = 0) {
     ? Math.max(0, Number(source[4] ?? source.level4))
     : level3;
   return { 1: level1, 2: level2, 3: level3, 4: level4 };
+}
+
+function normalizeNumberByLevelMap(value, minimum = 0) {
+  if (!value || typeof value !== 'object') return null;
+  const normalized = {};
+  for (const level of [1, 2, 3, 4]) {
+    const parsed = Number(value[level] ?? value[`level${level}`]);
+    if (!Number.isFinite(parsed)) continue;
+    normalized[level] = Math.max(minimum, Math.round(parsed));
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function normalizeAbilityBonusesByLevel(value) {
+  if (!value || typeof value !== 'object') return null;
+  const normalized = {};
+  for (const level of [1, 2, 3, 4]) {
+    const raw = value[level] ?? value[`level${level}`];
+    if (!raw || typeof raw !== 'object') continue;
+    const abilityBonuses = normalizeAbilityBonuses(raw);
+    if (!hasAbilityBonusValue(abilityBonuses)) continue;
+    normalized[level] = abilityBonuses;
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function normalizeMasteryChoiceId(value, fallback = '') {
+  const token = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return token || fallback;
+}
+
+function normalizeMasteryChoiceOptions(value = []) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const normalized = [];
+  value.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object') return;
+    const label = String(entry.label || entry.name || '').trim();
+    const fallbackId = normalizeMasteryChoiceId(label, `choice_${index + 1}`);
+    const id = normalizeMasteryChoiceId(entry.id, fallbackId);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const unlockLevelRaw = Number(entry.unlockLevel ?? 2);
+    const unlockLevel = Number.isFinite(unlockLevelRaw)
+      ? Math.max(2, Math.min(4, Math.round(unlockLevelRaw)))
+      : 2;
+    const deferredUnlockLevelRaw = Number(entry.deferredUnlockLevel ?? unlockLevel + 1);
+    const deferredUnlockLevel = Number.isFinite(deferredUnlockLevelRaw)
+      ? Math.max(unlockLevel, Math.min(4, Math.round(deferredUnlockLevelRaw)))
+      : Math.min(4, unlockLevel + 1);
+    const effects = entry.effects && typeof entry.effects === 'object' ? entry.effects : {};
+    normalized.push({
+      id,
+      label: label || id,
+      unlockLevel,
+      deferredUnlockLevel,
+      effects: {
+        damageBonusByLevel:
+          normalizeNumberByLevelMap(effects.damageBonusByLevel, -999) ||
+          normalizeNumberByLevelMap(entry.damageBonusByLevel, -999),
+        damageByLevel:
+          normalizeNumberByLevelMap(effects.damageByLevel, 0) ||
+          normalizeNumberByLevelMap(effects.masteryDamageByLevel, 0) ||
+          normalizeNumberByLevelMap(entry.damageByLevel, 0) ||
+          normalizeNumberByLevelMap(entry.masteryDamageByLevel, 0),
+        abilityBonusesByLevel:
+          normalizeAbilityBonusesByLevel(effects.abilityBonusesByLevel) ||
+          normalizeAbilityBonusesByLevel(entry.abilityBonusesByLevel)
+      }
+    });
+  });
+  return normalized;
+}
+
+function getCardActiveMasteryChoiceOptions(card = {}, level = 1) {
+  const choices = Array.isArray(card.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
+  if (!choices.length) return [];
+  const selectedId = String(card.masteryChoiceSelected || '').trim();
+  const hasSelected = Boolean(selectedId && choices.some((entry) => entry.id === selectedId));
+  if (!hasSelected) {
+    return [];
+  }
+  const currentLevel = Math.max(1, Math.min(4, Number(level || card.masteryLevel || 1)));
+  const active = [];
+  for (const choice of choices) {
+    const unlockLevel = Math.max(2, Math.min(4, Number(choice.unlockLevel || 2)));
+    const deferredUnlockLevel = Math.max(
+      unlockLevel,
+      Math.min(4, Number(choice.deferredUnlockLevel || unlockLevel + 1))
+    );
+    const activeFromLevel = choice.id === selectedId ? unlockLevel : deferredUnlockLevel;
+    if (currentLevel >= activeFromLevel) {
+      active.push(choice);
+    }
+  }
+  return active;
+}
+
+function getCardAbilityBonusesAtLevel(card = {}, level = 1) {
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || card.masteryLevel || 1)));
+  const bonuses = createZeroAbilityBonuses();
+  const baseByLevel = normalizeAbilityBonusesByLevel(card.abilityBonusesByLevel);
+  if (baseByLevel && typeof baseByLevel === 'object') {
+    const direct = baseByLevel[parsedLevel] || baseByLevel[`level${parsedLevel}`];
+    if (direct && typeof direct === 'object') {
+      addAbilityBonusesTotals(bonuses, normalizeAbilityBonuses(direct));
+    }
+  }
+  const activeChoices = getCardActiveMasteryChoiceOptions(card, parsedLevel);
+  for (const choice of activeChoices) {
+    const byLevel = choice.effects?.abilityBonusesByLevel;
+    if (!byLevel || typeof byLevel !== 'object') continue;
+    const direct = byLevel[parsedLevel] || byLevel[`level${parsedLevel}`];
+    if (!direct || typeof direct !== 'object') continue;
+    addAbilityBonusesTotals(bonuses, normalizeAbilityBonuses(direct));
+  }
+  return bonuses;
 }
 
 function autoCardDamageType(card = {}) {
@@ -3934,6 +4156,11 @@ function normalizeCards(list = []) {
             .map((value) => value.trim())
             .filter(Boolean);
       const constructCard = isConstructCard(card);
+      const masteryChoiceOptions = normalizeMasteryChoiceOptions(card.masteryChoiceOptions);
+      const selectedChoiceId = String(card.masteryChoiceSelected || '').trim();
+      const masteryChoiceSelected = masteryChoiceOptions.some((entry) => entry.id === selectedChoiceId)
+        ? selectedChoiceId
+        : '';
 
       return {
         ...card,
@@ -3994,7 +4221,10 @@ function normalizeCards(list = []) {
         masteryLevel,
         masteryUses,
         masteryThresholds: thresholds,
-        masteryDamageByLevel: damageByLevel
+        masteryDamageByLevel: damageByLevel,
+        abilityBonusesByLevel: normalizeAbilityBonusesByLevel(card.abilityBonusesByLevel),
+        masteryChoiceOptions,
+        masteryChoiceSelected
       };
     })
     .filter(Boolean);
@@ -4013,10 +4243,31 @@ function normalizeCards(list = []) {
 function getCardDamageAtCurrentMastery(card) {
   const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const byLevel = normalizeCardDamageByLevel(card.masteryDamageByLevel, card.damage || 0);
-  if (level >= 4) return byLevel[4];
-  if (level >= 3) return byLevel[3];
-  if (level >= 2) return byLevel[2];
-  return byLevel[1];
+  let damage =
+    level >= 4
+      ? byLevel[4]
+      : level >= 3
+        ? byLevel[3]
+        : level >= 2
+          ? byLevel[2]
+          : byLevel[1];
+  let overrideDamage = null;
+  for (const option of getCardActiveMasteryChoiceOptions(card, level)) {
+    const damageByLevel = option.effects?.damageByLevel;
+    const override = Number(damageByLevel?.[level] ?? damageByLevel?.[`level${level}`]);
+    if (Number.isFinite(override)) {
+      overrideDamage = overrideDamage == null ? Math.round(override) : Math.max(overrideDamage, Math.round(override));
+    }
+    const damageBonusByLevel = option.effects?.damageBonusByLevel;
+    const bonus = Number(damageBonusByLevel?.[level] ?? damageBonusByLevel?.[`level${level}`]);
+    if (Number.isFinite(bonus)) {
+      damage += Math.round(bonus);
+    }
+  }
+  if (overrideDamage != null) {
+    damage = overrideDamage;
+  }
+  return Math.max(0, Math.round(damage));
 }
 
 function getCardSecondaryDamageAtCurrentMastery(card) {
@@ -5061,7 +5312,6 @@ function recalculateParticipant(participant) {
     normalizedStats[key] = Number.isFinite(value) ? Math.round(value) : 0;
   }
   participant.stats = normalizedStats;
-  participant.initiative = participant.stats.dexterity;
   participant.cards = normalizeCards(participant.cards);
   const cardGroups = buildActiveCardGroups(participant);
   if (
@@ -5087,10 +5337,15 @@ function recalculateParticipant(participant) {
   participant.vulnerabilities = normalizeDamageTypes(participant.vulnerabilities);
   const base = ensureBaseStats(participant);
   const totals = createZeroModifier();
+  const abilityBonuses = createZeroAbilityBonuses();
   const cardModifiers = [];
   participant.relics = normalizeRelics(participant.relics);
   for (const card of cardGroups.activeCards) {
     const modifiers = normalizeModifiers(card.modifiers);
+    addAbilityBonusesTotals(
+      abilityBonuses,
+      getCardAbilityBonusesAtLevel(card, Math.max(1, Math.min(4, Number(card.masteryLevel || 1))))
+    );
     const healthBonus = Number(card.healthBonus ?? 0);
     if (Number.isFinite(healthBonus) && healthBonus !== 0) {
       modifiers.maxHp += healthBonus;
@@ -5175,9 +5430,11 @@ function recalculateParticipant(participant) {
   if (participant.guardActionBonusTurns <= 0) {
     participant.guardActionBonus = 0;
   }
+  participant.initiative = Math.round(participant.stats.dexterity + Number(abilityBonuses.dexterity || 0));
   participant.derivedBonuses = {
     base,
     totals,
+    abilityBonuses,
     cardModifiers,
     cardLoadout: {
       maxActive: MAX_ACTIVE_CARDS,

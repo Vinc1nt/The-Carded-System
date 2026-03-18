@@ -15,9 +15,38 @@ export const CARD_PRESETS = [
       effect: 'Deal 6 Bludgeoning damage.',
       damage: 6,
       damageType: 'Bludgeoning',
-      mastery: ['Level 1: Base', 'Level 2: Damage increases to 7', 'Level 3: Unlocks fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 },
-      masteryDamageByLevel: { 1: 6, 2: 7, 3: 7 }
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Choose Damage increases to 7 or Str +1',
+        'Level 3: Gain the option not chosen at Level 2',
+        'Level 4: Unlocks fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 },
+      masteryDamageByLevel: { 1: 6, 2: 6, 3: 6, 4: 6 },
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_7',
+          label: 'Damage increases to 7',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageBonusByLevel: { 2: 1, 3: 1, 4: 1 }
+          }
+        },
+        {
+          id: 'strength_plus_1',
+          label: 'Str +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { strength: 1 },
+              3: { strength: 1 },
+              4: { strength: 1 }
+            }
+          }
+        }
+      ]
     }
   },
   {

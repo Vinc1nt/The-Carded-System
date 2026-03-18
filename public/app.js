@@ -1136,7 +1136,7 @@ function renderMitigationSection(participant) {
       <div class="collapsible-body">
         ${renderMitigationGroup('Resistances', participant.resistances, 'resistance')}
         ${renderMitigationGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
-        <p class="muted small-note">Resistances halve incoming damage; vulnerabilities double it. Recover (1 AP) removes 1 stack of Bleeding, Poisoned, or Burning.</p>
+        <p class="muted small-note">Resistances halve incoming damage; vulnerabilities double it. Recover (2 AP) removes 1 stack of Bleeding, Poisoned, or Burning.</p>
       </div>
     </details>
   `;
@@ -2321,6 +2321,36 @@ function promptForSetAllySelection(participant, label) {
   return allyOptions[selectedIndex - 1].id;
 }
 
+async function resolveMasteryChoicePrompt(participantId, promptPayload) {
+  if (!participantId || !promptPayload || typeof promptPayload !== 'object') return;
+  const cardId = String(promptPayload.cardId || '').trim();
+  const options = Array.isArray(promptPayload.options) ? promptPayload.options : [];
+  if (!cardId || !options.length) return;
+  const lines = options
+    .map((option, index) => `${index + 1}. ${option.label || option.id || `Option ${index + 1}`}`)
+    .join('\n');
+  const raw = window.prompt(
+    `Mastery choice for ${promptPayload.cardName || 'card'}:\n${lines}\nEnter option number:`,
+    '1'
+  );
+  if (raw == null) {
+    notify('Mastery choice deferred. You can choose it on the next use.');
+    return;
+  }
+  const selectedIndex = Number(raw);
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex > options.length) {
+    notify('Invalid mastery choice. Selection was not saved.');
+    return;
+  }
+  const selectedOption = options[selectedIndex - 1];
+  await api('/api/cards/mastery-choice', 'POST', {
+    participantId,
+    cardId,
+    choiceId: selectedOption.id
+  });
+  notify(`${promptPayload.cardName || 'Card'} mastery path set: ${selectedOption.label || selectedOption.id}.`, 'success');
+}
+
 function renderSetOptions() {
   return (state.reference?.sets || [])
     .map((entry) => `<option value="${entry.name}"></option>`)
@@ -2914,7 +2944,7 @@ function wireDetailEvents(participant) {
       const arcaneSplitTargetId = article?.querySelector(`[data-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-card-override-damage-type="${cardId}"]`)?.value || '';
       try {
-        await api('/api/actions/card', 'POST', {
+        const result = await api('/api/actions/card', 'POST', {
           participantId: participant.id,
           cardId,
           targetId,
@@ -2923,6 +2953,7 @@ function wireDetailEvents(participant) {
           arcaneSplitTargetId,
           overrideDamageType
         });
+        await resolveMasteryChoicePrompt(participant.id, result?.masteryChoicePrompt);
         fetchState();
       } catch (err) {
         notify(err.message);
@@ -4669,6 +4700,20 @@ function normalizeCardPayload(raw = {}) {
         baseDamage
       )
     },
+    abilityBonusesByLevel:
+      raw.abilityBonusesByLevel && typeof raw.abilityBonusesByLevel === 'object'
+        ? { ...raw.abilityBonusesByLevel }
+        : undefined,
+    masteryChoiceOptions: Array.isArray(raw.masteryChoiceOptions)
+      ? raw.masteryChoiceOptions.map((entry) => ({
+          ...(entry || {}),
+          effects:
+            entry?.effects && typeof entry.effects === 'object'
+              ? { ...entry.effects }
+              : entry?.effects
+        }))
+      : undefined,
+    masteryChoiceSelected: String(raw.masteryChoiceSelected || '').trim(),
     tags: normalizeTagList(raw.tags),
     effect: raw.effect || '',
     mastery: normalizeMasteryInput(raw.mastery ?? raw.masteryLevels),
