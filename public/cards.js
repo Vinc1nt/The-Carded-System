@@ -122,8 +122,8 @@ function syncLibrarySelectionState() {
 function renderDetail() {
   const selected = CARD_PRESETS.find((entry) => entry.id === state.selectedCardId) || CARD_PRESETS[0];
   if (!selected) {
-    els.title.textContent = 'Select a card';
-    els.detail.innerHTML = 'Pick a card from the list to view details.';
+    els.title.textContent = 'No Preset Cards';
+    els.detail.innerHTML = 'The preset card library is empty. Add new card definitions to start building the library again.';
     return;
   }
 
