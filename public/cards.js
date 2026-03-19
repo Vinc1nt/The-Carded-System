@@ -1,5 +1,5 @@
 import { CARD_PRESETS, RARITY_ORDER } from './card-presets.js';
-import { getCardTierShieldBonus } from './shared/card-rules.js';
+import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
 
 const state = {
   participants: [],
@@ -248,9 +248,17 @@ function normalizeCardForAdd(raw = {}) {
     damageType: String(raw.damageType || '').trim(),
     tags,
     mastery: Array.isArray(raw.mastery) ? raw.mastery : [],
-    masteryThresholds: raw.masteryThresholds || { level2: 25, level3: 55 },
+    masteryThresholds: raw.masteryThresholds || getTierMasteryThresholdDefaults(tier),
     masteryDamageByLevel: raw.masteryDamageByLevel || undefined
   };
+}
+
+function getTierMasteryThresholdDefaults(tier = 'Common') {
+  const defaults = getCardTierMasteryThresholds(tier);
+  const level2 = Math.max(1, Math.round(Number(defaults?.level2 ?? 10)));
+  const level3 = Math.max(level2 + 1, Math.round(Number(defaults?.level3 ?? level2 + 1)));
+  const level4 = Math.max(level3 + 1, Math.round(Number(defaults?.level4 ?? level3 + 1)));
+  return { level2, level3, level4 };
 }
 
 function formatCardRange(card = {}) {

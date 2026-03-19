@@ -2354,6 +2354,21 @@ async function resolveMasteryChoicePrompt(participantId, promptPayload) {
   notify(`${promptPayload.cardName || 'Card'} mastery path set: ${selectedOption.label || selectedOption.id}.`, 'success');
 }
 
+function getPendingMasteryChoicePrompt(card = {}, level = Number(card?.masteryLevel || 1)) {
+  const options = Array.isArray(card?.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
+  if (Math.max(1, Math.min(4, Number(level || 1))) < 2) return null;
+  if (options.length < 2) return null;
+  if (String(card?.masteryChoiceSelected || '').trim()) return null;
+  return {
+    cardId: String(card?.id || '').trim(),
+    cardName: card?.name || 'card',
+    options: options.map((option, index) => ({
+      id: String(option?.id || '').trim() || `choice_${index + 1}`,
+      label: option?.label || option?.name || option?.id || `Option ${index + 1}`
+    }))
+  };
+}
+
 function renderSetOptions() {
   return (state.reference?.sets || [])
     .map((entry) => `<option value="${entry.name}"></option>`)
@@ -2975,7 +2990,13 @@ function wireDetailEvents(participant) {
         if (idx < 0 && Number.isInteger(cardIndex)) idx = cardIndex;
         if (idx < 0 || idx >= cards.length) return;
         cards[idx] = applyManualMastery(cards[idx], level);
-        await api(`/api/participants/${participant.id}`, 'PATCH', { cards });
+        const response = await api(`/api/participants/${participant.id}`, 'PATCH', { cards });
+        const savedCards = response?.participant?.cards || cards;
+        const savedCard =
+          savedCards.find((entry) => cardId && entry.id === cardId) ||
+          (Number.isInteger(idx) ? savedCards[idx] : null) ||
+          cards[idx];
+        await resolveMasteryChoicePrompt(participant.id, getPendingMasteryChoicePrompt(savedCard, level));
         fetchState();
       } catch (err) {
         notify(err.message);
@@ -3525,7 +3546,7 @@ function renderCards(participant, entries = [], options = {}) {
             ${renderConstructMetaLine(card, participant)}
             ${renderMasteryLines(card)}
             ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
-            <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4} uses)</p>
+            <p>Mastery Level: ${card.masteryLevel || 1} (${Math.min(card.masteryUses || 0, card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4)}/${card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4} uses)</p>
             <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
             ${
               options.inactive

@@ -3796,6 +3796,18 @@ function normalizeRelics(list) {
 function normalizeCardThresholds(value, tier = 'Common') {
   const defaults = getCardTierMasteryThresholds(tier);
   const source = value && typeof value === 'object' ? value : {};
+  const legacyLevel2 = Number(source.level2 ?? source.to2);
+  const legacyLevel3 = Number(source.level3 ?? source.to3);
+  const legacyLevel4 = Number(source.level4 ?? source.to4);
+  const looksLikeLegacyLibraryFallback =
+    Number.isFinite(legacyLevel2) &&
+    Number.isFinite(legacyLevel3) &&
+    legacyLevel2 === 25 &&
+    legacyLevel3 === 55 &&
+    (!Number.isFinite(legacyLevel4) || legacyLevel4 === 56);
+  if (looksLikeLegacyLibraryFallback) {
+    return { level2: defaults.level2, level3: defaults.level3, level4: defaults.level4 };
+  }
   const level2Raw = Number(source.level2 ?? source.to2 ?? defaults.level2);
   const level2 = Number.isFinite(level2Raw) ? Math.max(1, Math.round(level2Raw)) : defaults.level2;
   const level3Raw = Number(source.level3 ?? source.to3 ?? defaults.level3);
@@ -3823,6 +3835,90 @@ function normalizeCardDamageByLevel(value, fallbackDamage = 0) {
     ? Math.max(0, Number(source[4] ?? source.level4))
     : level3;
   return { 1: level1, 2: level2, 3: level3, 4: level4 };
+}
+
+function migrateKnownPresetCard(card = {}) {
+  if (!card || typeof card !== 'object') return card;
+  const name = String(card.name || '').trim().toLowerCase();
+  const set = canonicalSetName(card.set);
+  if (set === 'Elemental' && name === 'stone guard') {
+    return {
+      ...card,
+      shieldRestoreByLevel: { 1: 3 },
+      abilityBonusesByLevel: undefined,
+      masteryChoiceOptions: [
+        {
+          id: 'shield_restore_4',
+          label: 'Shield restored increases to 4',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            shieldRestoreByLevel: { 2: 4, 3: 4, 4: 4 }
+          }
+        },
+        {
+          id: 'constitution_plus_1',
+          label: 'CON +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 1 },
+              3: { constitution: 1 },
+              4: { constitution: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Shield restored increases to 4 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    };
+  }
+  if (set === 'Elemental' && name === 'wind step') {
+    return {
+      ...card,
+      movementByLevel: { 1: 10 },
+      abilityBonusesByLevel: undefined,
+      utilityNote: 'Does not trigger opportunity attacks.',
+      masteryChoiceOptions: [
+        {
+          id: 'movement_to_15',
+          label: 'Movement increases to 15 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            movementByLevel: { 2: 15, 3: 15, 4: 15 }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Movement increases to 15 ft or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    };
+  }
+  return card;
 }
 
 function normalizeNumberByLevelMap(value, minimum = 0) {
@@ -4183,10 +4279,15 @@ function normalizeCards(list = []) {
   const normalized = list
     .map((card, index) => {
       if (!card || typeof card !== 'object') return null;
-      const tierName = String(card.tier || 'Common').trim() || 'Common';
-      const thresholds = normalizeCardThresholds(card.masteryThresholds, tierName);
-      const masteryUsesRaw = Number(card.masteryUses ?? card.uses ?? 0);
-      const masteryUses = Number.isFinite(masteryUsesRaw) ? Math.max(0, Math.round(masteryUsesRaw)) : 0;
+      const migratedCard = migrateKnownPresetCard(card);
+      const tierName = String(migratedCard.tier || 'Common').trim() || 'Common';
+      const thresholds = normalizeCardThresholds(migratedCard.masteryThresholds, tierName);
+      const masteryUsesRaw = Number(migratedCard.masteryUses ?? migratedCard.uses ?? 0);
+      let masteryUses = Number.isFinite(masteryUsesRaw) ? Math.max(0, Math.round(masteryUsesRaw)) : 0;
+      const legacyLevel4 = Number(card?.masteryThresholds?.level4 ?? card?.masteryThresholds?.to4);
+      if (Number.isFinite(legacyLevel4) && legacyLevel4 === 56 && masteryUses === 56) {
+        masteryUses = thresholds.level4;
+      }
       const masteryLevelRaw = Number(card.masteryLevel ?? card.level ?? 1);
       let masteryLevel = Number.isFinite(masteryLevelRaw) ? Math.max(1, Math.min(4, Math.round(masteryLevelRaw))) : 1;
       const impliedLevel =
@@ -4199,94 +4300,94 @@ function normalizeCards(list = []) {
               : 1;
       masteryLevel = Math.max(masteryLevel, impliedLevel);
 
-      const damageRaw = Number(card.damage ?? card.baseDamage ?? 0);
+      const damageRaw = Number(migratedCard.damage ?? migratedCard.baseDamage ?? 0);
       const damage = Number.isFinite(damageRaw) ? Math.max(0, Math.round(damageRaw)) : 0;
-      const damageByLevel = normalizeCardDamageByLevel(card.masteryDamageByLevel, damage);
+      const damageByLevel = normalizeCardDamageByLevel(migratedCard.masteryDamageByLevel, damage);
       const constructStatusStacksRaw = Number(
-        card.constructStatusStacks ??
-          card.statusStacks ??
-          card.constructStacks ??
+        migratedCard.constructStatusStacks ??
+          migratedCard.statusStacks ??
+          migratedCard.constructStacks ??
           1
       );
-      const constructApRaw = Number(card.constructAp ?? card.constructApMax ?? card.ap ?? 2);
-      const constructMaxHpRaw = Number(card.constructMaxHp ?? card.constructHp ?? card.hp ?? 1);
-      const constructMoveFtRaw = Number(card.constructMoveFt ?? card.constructMove ?? 10);
-      const cardChargesRaw = Number(card.chargesMax ?? card.maxCharges ?? card.charges ?? 0);
+      const constructApRaw = Number(migratedCard.constructAp ?? migratedCard.constructApMax ?? migratedCard.ap ?? 2);
+      const constructMaxHpRaw = Number(migratedCard.constructMaxHp ?? migratedCard.constructHp ?? migratedCard.hp ?? 1);
+      const constructMoveFtRaw = Number(migratedCard.constructMoveFt ?? migratedCard.constructMove ?? 10);
+      const cardChargesRaw = Number(migratedCard.chargesMax ?? migratedCard.maxCharges ?? migratedCard.charges ?? 0);
       const cardChargesMax = Number.isFinite(cardChargesRaw) ? Math.max(0, Math.round(cardChargesRaw)) : 0;
       const cardChargesCurrentRaw = Number(
-        card.chargesCurrent ?? card.remainingCharges ?? cardChargesMax
+        migratedCard.chargesCurrent ?? migratedCard.remainingCharges ?? cardChargesMax
       );
       const cardChargesCurrent =
         cardChargesMax > 0 && Number.isFinite(cardChargesCurrentRaw)
           ? Math.max(0, Math.min(cardChargesMax, Math.round(cardChargesCurrentRaw)))
           : 0;
-      const explicitShieldSource = card.shieldBonus ?? card.bonusShield;
+      const explicitShieldSource = migratedCard.shieldBonus ?? migratedCard.bonusShield;
       const explicitShieldBonus =
         explicitShieldSource === '' || explicitShieldSource == null ? Number.NaN : Number(explicitShieldSource);
       const shieldBonus = Number.isFinite(explicitShieldBonus)
         ? explicitShieldBonus
         : getCardTierShieldBonus(tierName);
-      const constructCards = Array.isArray(card.constructCards)
-        ? card.constructCards
+      const constructCards = Array.isArray(migratedCard.constructCards)
+        ? migratedCard.constructCards
             .map((value) => String(value || '').trim())
             .filter(Boolean)
-        : String(card.constructCards || card.constructLinkedCard || '')
+        : String(migratedCard.constructCards || migratedCard.constructLinkedCard || '')
             .split(',')
             .map((value) => value.trim())
             .filter(Boolean);
-      const constructCard = isConstructCard(card);
-      const masteryChoiceOptions = normalizeMasteryChoiceOptions(card.masteryChoiceOptions);
-      const selectedChoiceId = String(card.masteryChoiceSelected || '').trim();
+      const constructCard = isConstructCard(migratedCard);
+      const masteryChoiceOptions = normalizeMasteryChoiceOptions(migratedCard.masteryChoiceOptions);
+      const selectedChoiceId = String(migratedCard.masteryChoiceSelected || '').trim();
       const masteryChoiceSelected = masteryChoiceOptions.some((entry) => entry.id === selectedChoiceId)
         ? selectedChoiceId
         : '';
 
       return {
-        ...card,
-        id: card.id || randomUUID(),
-        name: String(card.name || `Card ${index + 1}`).trim(),
-        set: canonicalSetName(card.set),
-        type: String(card.type || 'Attack').trim(),
+        ...migratedCard,
+        id: migratedCard.id || randomUUID(),
+        name: String(migratedCard.name || `Card ${index + 1}`).trim(),
+        set: canonicalSetName(migratedCard.set),
+        type: String(migratedCard.type || 'Attack').trim(),
         tier: tierName,
-        active: card.active !== false,
-        apCost: Number.isFinite(Number(card.apCost)) ? Number(card.apCost) : 0,
-        range: Number.isFinite(Number(card.range)) ? Number(card.range) : 0,
-        healthBonus: Number.isFinite(Number(card.healthBonus)) ? Number(card.healthBonus) : 0,
+        active: migratedCard.active !== false,
+        apCost: Number.isFinite(Number(migratedCard.apCost)) ? Number(migratedCard.apCost) : 0,
+        range: Number.isFinite(Number(migratedCard.range)) ? Number(migratedCard.range) : 0,
+        healthBonus: Number.isFinite(Number(migratedCard.healthBonus)) ? Number(migratedCard.healthBonus) : 0,
         shieldBonus,
-        tags: Array.isArray(card.tags)
-          ? card.tags.map((tag) => String(tag).trim()).filter(Boolean)
-          : String(card.tags || '')
+        tags: Array.isArray(migratedCard.tags)
+          ? migratedCard.tags.map((tag) => String(tag).trim()).filter(Boolean)
+          : String(migratedCard.tags || '')
               .split(',')
               .map((tag) => tag.trim())
               .filter(Boolean),
-        effect: String(card.effect || '').trim(),
-        mastery: Array.isArray(card.mastery)
-          ? card.mastery.map((line) => String(line).trim()).filter(Boolean)
-          : String(card.mastery || '')
+        effect: String(migratedCard.effect || '').trim(),
+        mastery: Array.isArray(migratedCard.mastery)
+          ? migratedCard.mastery.map((line) => String(line).trim()).filter(Boolean)
+          : String(migratedCard.mastery || '')
               .split(/\n|,/)
               .map((line) => line.trim())
               .filter(Boolean),
-        fusion: String(card.fusion || '').trim(),
-        modifiers: normalizeModifiers(card.modifiers || {}),
+        fusion: String(migratedCard.fusion || '').trim(),
+        modifiers: normalizeModifiers(migratedCard.modifiers || {}),
         damage,
-        damageType: autoCardDamageType(card),
-        isZone: card.isZone === true || isZoneCard(card, masteryLevel),
-        zoneRadius: Number.isFinite(Number(card.zoneRadius)) ? Math.max(0, Math.round(Number(card.zoneRadius))) : 0,
+        damageType: autoCardDamageType(migratedCard),
+        isZone: migratedCard.isZone === true || isZoneCard(migratedCard, masteryLevel),
+        zoneRadius: Number.isFinite(Number(migratedCard.zoneRadius)) ? Math.max(0, Math.round(Number(migratedCard.zoneRadius))) : 0,
         zoneRadiusByLevel:
-          card.zoneRadiusByLevel && typeof card.zoneRadiusByLevel === 'object'
-            ? { ...card.zoneRadiusByLevel }
+          migratedCard.zoneRadiusByLevel && typeof migratedCard.zoneRadiusByLevel === 'object'
+            ? { ...migratedCard.zoneRadiusByLevel }
             : null,
-        zoneDurationTurns: Number.isFinite(Number(card.zoneDurationTurns))
-          ? Math.max(0, Math.round(Number(card.zoneDurationTurns)))
+        zoneDurationTurns: Number.isFinite(Number(migratedCard.zoneDurationTurns))
+          ? Math.max(0, Math.round(Number(migratedCard.zoneDurationTurns)))
           : 0,
-        constructDurationTurns: Number.isFinite(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns))
-          ? Math.max(0, Math.round(Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns)))
+        constructDurationTurns: Number.isFinite(Number(migratedCard.constructDurationTurns ?? migratedCard.constructDuration ?? migratedCard.durationTurns))
+          ? Math.max(0, Math.round(Number(migratedCard.constructDurationTurns ?? migratedCard.constructDuration ?? migratedCard.durationTurns)))
           : 1,
-        constructMode: detectConstructMode(card, { infer: constructCard }),
+        constructMode: detectConstructMode(migratedCard, { infer: constructCard }),
         constructStatusId: String(
-          card.constructStatusId ?? card.statusId ?? card.constructStatus ?? ''
+          migratedCard.constructStatusId ?? migratedCard.statusId ?? migratedCard.constructStatus ?? ''
         ).trim(),
-        constructStatusName: String(card.constructStatusName ?? card.statusName ?? '').trim(),
+        constructStatusName: String(migratedCard.constructStatusName ?? migratedCard.statusName ?? '').trim(),
         constructStatusStacks: Number.isFinite(constructStatusStacksRaw)
           ? Math.max(1, Math.round(constructStatusStacksRaw))
           : 1,
@@ -4301,7 +4402,7 @@ function normalizeCards(list = []) {
         masteryUses,
         masteryThresholds: thresholds,
         masteryDamageByLevel: damageByLevel,
-        abilityBonusesByLevel: normalizeAbilityBonusesByLevel(card.abilityBonusesByLevel),
+        abilityBonusesByLevel: normalizeAbilityBonusesByLevel(migratedCard.abilityBonusesByLevel),
         masteryChoiceOptions,
         masteryChoiceSelected
       };

@@ -2038,6 +2038,21 @@ async function resolvePlayerMasteryChoicePrompt(participantId, promptPayload) {
   notify(`${promptPayload.cardName || 'Card'} mastery path set: ${selectedOption.label || selectedOption.id}.`);
 }
 
+function getPendingPlayerMasteryChoicePrompt(card = {}, level = Number(card?.masteryLevel || 1)) {
+  const options = Array.isArray(card?.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
+  if (Math.max(1, Math.min(4, Number(level || 1))) < 2) return null;
+  if (options.length < 2) return null;
+  if (String(card?.masteryChoiceSelected || '').trim()) return null;
+  return {
+    cardId: String(card?.id || '').trim(),
+    cardName: card?.name || 'card',
+    options: options.map((option, index) => ({
+      id: String(option?.id || '').trim() || `choice_${index + 1}`,
+      label: option?.label || option?.name || option?.id || `Option ${index + 1}`
+    }))
+  };
+}
+
 function renderPlayerStatusForm() {
   return `
     <form data-player-status-form class="stacked-form hidden">
@@ -2167,7 +2182,7 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
                 ${renderMasteryLines(card)}
                 ${card.fusion ? `<p>Fusion: ${card.fusion}</p>` : ''}
                 ${card.setBonuses ? `<p>Set Bonuses: ${card.setBonuses}</p>` : ''}
-                <p>Mastery Level: ${card.masteryLevel || 1} (${card.masteryUses || 0}/${card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4} uses)</p>
+                <p>Mastery Level: ${card.masteryLevel || 1} (${Math.min(card.masteryUses || 0, card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4)}/${card.masteryThresholds?.level4 || getTierMasteryThresholdDefaults(card.tier).level4} uses)</p>
                 <p>Automation: ${summarizeModifiers(card.modifiers || {})}</p>
                 ${
                   options.inactive
@@ -3017,7 +3032,13 @@ function wirePlayerCardUses(participant) {
       if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
       if (idx < 0 || idx >= cards.length) return;
       cards[idx] = applyManualMastery(cards[idx], level);
-      await patchParticipant(participant.id, { cards });
+      const response = await patchParticipant(participant.id, { cards });
+      const savedCards = response?.participant?.cards || cards;
+      const savedCard =
+        savedCards.find((entry) => cardId && entry.id === cardId) ||
+        (Number.isInteger(idx) ? savedCards[idx] : null) ||
+        cards[idx];
+      await resolvePlayerMasteryChoicePrompt(participant.id, getPendingPlayerMasteryChoicePrompt(savedCard, level));
       fetchState();
     };
   });
