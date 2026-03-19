@@ -1083,6 +1083,18 @@ function executeCardAction(body) {
         .map((entry) => detectStatusType({ presetId: entry, name: entry }))
         .filter(Boolean);
   const uniqueRemoveStatusIds = Array.from(new Set(removeStatusIds));
+  const selectedRemoveStatusIds = Array.isArray(body.selectedRemoveStatusIds)
+    ? body.selectedRemoveStatusIds
+        .map((entry) => detectStatusType({ presetId: entry, name: entry }))
+        .filter(Boolean)
+    : String(body.selectedRemoveStatusIds || '')
+        .split(',')
+        .map((entry) => detectStatusType({ presetId: entry, name: entry }))
+        .filter(Boolean);
+  const uniqueSelectedRemoveStatusIds = Array.from(new Set(selectedRemoveStatusIds)).slice(
+    0,
+    Math.max(0, removeStatusCount)
+  );
   const rangedUntargetableTurnsGrant = Math.max(
     0,
     Math.round(
@@ -1666,10 +1678,20 @@ function executeCardAction(body) {
     for (const statusTarget of cleanseTargets) {
       if (!statusTarget) continue;
       const removedStatuses = [];
-      for (let index = 0; index < removeStatusCount; index += 1) {
-        const removed = clearOneStatusEffect(statusTarget);
-        if (!removed) break;
-        removedStatuses.push(removed);
+      if (uniqueSelectedRemoveStatusIds.length) {
+        for (const statusId of uniqueSelectedRemoveStatusIds) {
+          if (removedStatuses.length >= removeStatusCount) break;
+          const existingStacks = getStatusStacks(statusTarget, statusId);
+          if (existingStacks <= 0) continue;
+          setStatusStacks(statusTarget, statusId, 0);
+          removedStatuses.push(statusDisplayName(statusId));
+        }
+      } else {
+        for (let index = 0; index < removeStatusCount; index += 1) {
+          const removed = clearOneStatusEffect(statusTarget);
+          if (!removed) break;
+          removedStatuses.push(removed);
+        }
       }
       enforceControlHierarchy(statusTarget);
       if (removedStatuses.length) {

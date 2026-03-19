@@ -2354,6 +2354,73 @@ async function resolveMasteryChoicePrompt(participantId, promptPayload) {
   notify(`${promptPayload.cardName || 'Card'} mastery path set: ${selectedOption.label || selectedOption.id}.`, 'success');
 }
 
+async function resolveCardStatusSelectionPrompt(participant, card, targetId, targetIds = []) {
+  const removeCount = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'removeStatusCountByLevel',
+        Number(card?.masteryLevel || 1),
+        Number(card?.removeStatusCount ?? card?.cleanseStatusCount ?? 0)
+      )
+    )
+  );
+  const fixedRemoveIds = Array.isArray(card?.removeStatusIds)
+    ? card.removeStatusIds
+    : String(card?.removeStatusIds || card?.removeStatusId || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+  if (removeCount <= 0 || fixedRemoveIds.length) return [];
+  const selfOnly = isSelfTargetCard(card);
+  const targetMode = getCardTargetMode(card);
+  let recipients = [];
+  if (selfOnly) {
+    recipients = [participant];
+  } else if (targetMode === 'single') {
+    const resolved = (state.encounter.participants || []).find((entry) => entry.id === targetId);
+    if (resolved) recipients = [resolved];
+  } else if (targetMode === 'multi_select') {
+    recipients = (state.encounter.participants || []).filter((entry) => targetIds.includes(entry.id));
+  }
+  if (recipients.length !== 1) return [];
+  const target = recipients[0];
+  const statuses = Array.isArray(target?.statuses)
+    ? target.statuses.filter((entry) => Number(entry?.stacks || 0) > 0 || entry?.name)
+    : [];
+  if (!statuses.length) {
+    notify(`${target.name} has no removable statuses.`);
+    return null;
+  }
+  const lines = statuses
+    .map((status, index) => `${index + 1}. ${status.name}${status.stacks ? ` x${status.stacks}` : ''}`)
+    .join('\n');
+  const raw = window.prompt(
+    `${card.name || 'Card'} on ${target.name}:\n${lines}\nEnter up to ${removeCount} status number${removeCount === 1 ? '' : 's'} to remove (comma-separated):`,
+    statuses.slice(0, removeCount).map((_, index) => String(index + 1)).join(', ')
+  );
+  if (raw == null) {
+    notify('Card use canceled.');
+    return null;
+  }
+  const selectedIndexes = Array.from(
+    new Set(
+      String(raw || '')
+        .split(',')
+        .map((entry) => Number(entry.trim()))
+        .filter((value) => Number.isInteger(value) && value >= 1 && value <= statuses.length)
+    )
+  ).slice(0, removeCount);
+  if (!selectedIndexes.length) {
+    notify('No statuses selected. Card use canceled.');
+    return null;
+  }
+  return selectedIndexes
+    .map((index) => statuses[index - 1]?.id || statuses[index - 1]?.presetId || statuses[index - 1]?.name || '')
+    .filter(Boolean);
+}
+
 function getPendingMasteryChoicePrompt(card = {}, level = Number(card?.masteryLevel || 1)) {
   const options = Array.isArray(card?.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
   if (Math.max(1, Math.min(4, Number(level || 1))) < 2) return null;
@@ -2417,6 +2484,11 @@ function getParticipantAllies(participant) {
         .toLowerCase() === sourceTeam;
     return sameTeam || manualIds.has(entry.id);
   });
+}
+
+function isParticipantEnemyForUi(participant, target) {
+  if (!participant?.id || !target?.id || participant.id === target.id) return false;
+  return !getParticipantAllies(participant).some((entry) => entry.id === target.id);
 }
 
 function mergeUniqueText(existing = [], value = '') {
@@ -2961,7 +3033,10 @@ function wireDetailEvents(participant) {
       const secondaryTargetId = article?.querySelector(`[data-card-secondary-target="${cardId}"]`)?.value || '';
       const arcaneSplitTargetId = article?.querySelector(`[data-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-card-override-damage-type="${cardId}"]`)?.value || '';
+      const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
       try {
+        const selectedRemoveStatusIds = await resolveCardStatusSelectionPrompt(participant, card, targetId, targetIds);
+        if (selectedRemoveStatusIds == null) return;
         const result = await api('/api/actions/card', 'POST', {
           participantId: participant.id,
           cardId,
@@ -2969,7 +3044,8 @@ function wireDetailEvents(participant) {
           targetIds,
           secondaryTargetId,
           arcaneSplitTargetId,
-          overrideDamageType
+          overrideDamageType,
+          selectedRemoveStatusIds
         });
         await resolveMasteryChoicePrompt(participant.id, result?.masteryChoicePrompt);
         fetchState();
@@ -3620,7 +3696,12 @@ function renderCardTargetControl(card = {}, participant = {}) {
   return `<label>Target
     <select data-card-target="${card.id || ''}">
       <option value="">Select target…</option>
-      ${renderParticipantTargetOptions(participant.id, allowSelfTarget)}
+      ${renderParticipantTargetOptions(
+        participant.id,
+        allowSelfTarget,
+        card.targetAlliesOnly === true ? 'allies' : card.targetEnemiesOnly === true ? 'enemies' : 'all',
+        participant
+      )}
     </select>
   </label>
   ${
@@ -3661,13 +3742,15 @@ function renderArcaneCardControls(card = {}, participant = {}, options = {}) {
   return `<div class="form-row">${controls.join('')}</div>`;
 }
 
-function renderParticipantTargetOptions(actorId, includeSelf = false) {
+function renderParticipantTargetOptions(actorId, includeSelf = false, filterMode = 'all', participant = null) {
   const options = [];
   if (includeSelf && actorId) {
     options.push(`<option value="${actorId}">Self</option>`);
   }
   for (const entry of state.encounter.participants || []) {
     if (entry.id === actorId) continue;
+    if (filterMode === 'allies' && participant && !getParticipantAllies(participant).some((ally) => ally.id === entry.id)) continue;
+    if (filterMode === 'enemies' && participant && !isParticipantEnemyForUi(participant, entry)) continue;
     options.push(`<option value="${entry.id}">${entry.name}</option>`);
   }
   return options.join('');

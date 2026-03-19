@@ -1758,6 +1758,11 @@ function getPlayerAllies(participant) {
   });
 }
 
+function isPlayerEnemyForUi(participant, target) {
+  if (!participant?.id || !target?.id || participant.id === target.id) return false;
+  return !getPlayerAllies(participant).some((entry) => entry.id === target.id);
+}
+
 function mergePlayerUniqueText(existing = [], value = '') {
   const token = String(value || '').trim();
   if (!token) return existing;
@@ -2038,6 +2043,73 @@ async function resolvePlayerMasteryChoicePrompt(participantId, promptPayload) {
   notify(`${promptPayload.cardName || 'Card'} mastery path set: ${selectedOption.label || selectedOption.id}.`);
 }
 
+async function resolvePlayerCardStatusSelectionPrompt(participant, card, targetId, targetIds = []) {
+  const removeCount = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'removeStatusCountByLevel',
+        Number(card?.masteryLevel || 1),
+        Number(card?.removeStatusCount ?? card?.cleanseStatusCount ?? 0)
+      )
+    )
+  );
+  const fixedRemoveIds = Array.isArray(card?.removeStatusIds)
+    ? card.removeStatusIds
+    : String(card?.removeStatusIds || card?.removeStatusId || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+  if (removeCount <= 0 || fixedRemoveIds.length) return [];
+  const selfOnly = isSelfTargetCard(card);
+  const targetMode = getCardTargetMode(card);
+  let recipients = [];
+  if (selfOnly) {
+    recipients = [participant];
+  } else if (targetMode === 'single') {
+    const resolved = (state.encounter.participants || []).find((entry) => entry.id === targetId);
+    if (resolved) recipients = [resolved];
+  } else if (targetMode === 'multi_select') {
+    recipients = (state.encounter.participants || []).filter((entry) => targetIds.includes(entry.id));
+  }
+  if (recipients.length !== 1) return [];
+  const target = recipients[0];
+  const statuses = Array.isArray(target?.statuses)
+    ? target.statuses.filter((entry) => Number(entry?.stacks || 0) > 0 || entry?.name)
+    : [];
+  if (!statuses.length) {
+    notify(`${target.name} has no removable statuses.`);
+    return null;
+  }
+  const lines = statuses
+    .map((status, index) => `${index + 1}. ${status.name}${status.stacks ? ` x${status.stacks}` : ''}`)
+    .join('\n');
+  const raw = window.prompt(
+    `${card.name || 'Card'} on ${target.name}:\n${lines}\nEnter up to ${removeCount} status number${removeCount === 1 ? '' : 's'} to remove (comma-separated):`,
+    statuses.slice(0, removeCount).map((_, index) => String(index + 1)).join(', ')
+  );
+  if (raw == null) {
+    notify('Card use canceled.');
+    return null;
+  }
+  const selectedIndexes = Array.from(
+    new Set(
+      String(raw || '')
+        .split(',')
+        .map((entry) => Number(entry.trim()))
+        .filter((value) => Number.isInteger(value) && value >= 1 && value <= statuses.length)
+    )
+  ).slice(0, removeCount);
+  if (!selectedIndexes.length) {
+    notify('No statuses selected. Card use canceled.');
+    return null;
+  }
+  return selectedIndexes
+    .map((index) => statuses[index - 1]?.id || statuses[index - 1]?.presetId || statuses[index - 1]?.name || '')
+    .filter(Boolean);
+}
+
 function getPendingPlayerMasteryChoicePrompt(card = {}, level = Number(card?.masteryLevel || 1)) {
   const options = Array.isArray(card?.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
   if (Math.max(1, Math.min(4, Number(level || 1))) < 2) return null;
@@ -2256,7 +2328,12 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
   return `<label>Target
     <select data-player-card-target="${card.id}">
       <option value="">Select target…</option>
-      ${renderPlayerTargetOptions(participant.id, allowSelfTarget)}
+      ${renderPlayerTargetOptions(
+        participant.id,
+        allowSelfTarget,
+        card.targetAlliesOnly === true ? 'allies' : card.targetEnemiesOnly === true ? 'enemies' : 'all',
+        participant
+      )}
     </select>
   </label>
   ${
@@ -2297,13 +2374,15 @@ function renderPlayerArcaneCardControls(card = {}, participant = {}, options = {
   return `<div class="form-row">${controls.join('')}</div>`;
 }
 
-function renderPlayerTargetOptions(actorId, includeSelf = false) {
+function renderPlayerTargetOptions(actorId, includeSelf = false, filterMode = 'all', participant = null) {
   const options = [];
   if (includeSelf && actorId) {
     options.push(`<option value="${actorId}">Self</option>`);
   }
   for (const entry of state.encounter.participants || []) {
     if (entry.id === actorId) continue;
+    if (filterMode === 'allies' && participant && !getPlayerAllies(participant).some((ally) => ally.id === entry.id)) continue;
+    if (filterMode === 'enemies' && participant && !isPlayerEnemyForUi(participant, entry)) continue;
     options.push(`<option value="${entry.id}">${entry.name}</option>`);
   }
   return options.join('');
@@ -3004,7 +3083,10 @@ function wirePlayerCardUses(participant) {
       const secondaryTargetId = article?.querySelector(`[data-player-card-secondary-target="${cardId}"]`)?.value || '';
       const arcaneSplitTargetId = article?.querySelector(`[data-player-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-player-card-override-damage-type="${cardId}"]`)?.value || '';
+      const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
       try {
+        const selectedRemoveStatusIds = await resolvePlayerCardStatusSelectionPrompt(participant, card, targetId, targetIds);
+        if (selectedRemoveStatusIds == null) return;
         const result = await api('/api/actions/card', 'POST', {
           participantId: participant.id,
           cardId,
@@ -3012,7 +3094,8 @@ function wirePlayerCardUses(participant) {
           targetIds,
           secondaryTargetId,
           arcaneSplitTargetId,
-          overrideDamageType
+          overrideDamageType,
+          selectedRemoveStatusIds
         });
         await resolvePlayerMasteryChoicePrompt(participant.id, result?.masteryChoicePrompt);
         fetchState();

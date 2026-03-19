@@ -121,6 +121,132 @@ export const CARD_PRESETS = [
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
     }
+  },
+  {
+    id: 'elemental_flicker',
+    card: {
+      id: 'elemental_flicker',
+      name: 'Flicker',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 10,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      effect: 'Apply Burning 1.',
+      targetEnemiesOnly: true,
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'burning_to_2',
+          label: 'Burning increases to 2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: {
+                dexterity: 1
+              },
+              3: {
+                dexterity: 1
+              },
+              4: {
+                dexterity: 1
+              }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Burning increases to 2 or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'divine_cleansing_light',
+    card: {
+      id: 'divine_cleansing_light',
+      name: 'Cleansing Light',
+      set: 'Divine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Remove one status effect from an ally fully.',
+      utilityNote: 'Choose which status effects to remove from the target.',
+      targetAlliesOnly: true,
+      removeStatusCountByLevel: {
+        1: 1
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'remove_two_statuses',
+          label: 'Remove two statuses instead',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            removeStatusCountByLevel: {
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        },
+        {
+          id: 'wisdom_plus_1',
+          label: 'WIS +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: {
+                wisdom: 1
+              },
+              3: {
+                wisdom: 1
+              },
+              4: {
+                wisdom: 1
+              }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Remove two statuses instead or WIS +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
   }
 ];
 
