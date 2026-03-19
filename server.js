@@ -857,14 +857,14 @@ function executeCardAction(body) {
   const constructShieldRestore = Math.max(
     0,
     Math.round(
-      getCardScaledValue(card.constructShieldRestoreByLevel, masteryLevel, Number(card.constructShieldRestore || 0))
+      getCardScaledEffectValue(card, 'constructShieldRestoreByLevel', masteryLevel, Number(card.constructShieldRestore || 0))
     )
   );
   const constructShieldRestoreAlliesOnly = card.constructShieldRestoreAlliesOnly === true;
   const constructHeal = Math.max(
     0,
     Math.round(
-      getCardScaledValue(card.constructHealByLevel, masteryLevel, Number(card.constructHeal || 0))
+      getCardScaledEffectValue(card, 'constructHealByLevel', masteryLevel, Number(card.constructHeal || 0))
     )
   );
   const constructHealAlliesOnly = card.constructHealAlliesOnly === true;
@@ -876,7 +876,7 @@ function executeCardAction(body) {
       ? getAbilityModifier(participant, 'constitution')
       : 0;
   const constructBaseMaxHpRaw = getCardScaledValue(
-    card.constructMaxHpByLevel,
+    getCardScaledEffectValue(card, 'constructMaxHpByLevel', masteryLevel, Number(card.constructMaxHp ?? card.constructHp ?? 1)),
     masteryLevel,
     Number(card.constructMaxHp ?? card.constructHp ?? 1)
   );
@@ -886,19 +886,19 @@ function executeCardAction(body) {
   const constructAuraRadiusFt = Math.max(
     0,
     Math.round(
-      getCardScaledValue(card.constructAuraRadiusByLevel, masteryLevel, Number(card.constructAuraRadiusFt || 0))
+      getCardScaledEffectValue(card, 'constructAuraRadiusByLevel', masteryLevel, Number(card.constructAuraRadiusFt || 0))
     )
   );
   const constructDetectDc = Math.max(
     0,
     Math.round(
-      getCardScaledValue(card.constructDetectDcByLevel, masteryLevel, Number(card.constructDetectDc || 0))
+      getCardScaledEffectValue(card, 'constructDetectDcByLevel', masteryLevel, Number(card.constructDetectDc || 0))
     )
   );
   const constructVisionRangeFt = Math.max(
     0,
     Math.round(
-      getCardScaledValue(card.constructVisionRangeByLevel, masteryLevel, Number(card.constructVisionRangeFt || 0))
+      getCardScaledEffectValue(card, 'constructVisionRangeByLevel', masteryLevel, Number(card.constructVisionRangeFt || 0))
     )
   );
   const constructUtilityKind = String(card.constructUtilityKind || '').trim().toLowerCase();
@@ -936,26 +936,37 @@ function executeCardAction(body) {
         )
       : 0;
   const secondaryRawDamage = isConstruct ? 0 : Math.max(0, secondaryBaseDamage);
-  const shieldRestoreBase = getCardScaledValue(card.shieldRestoreByLevel, masteryLevel, 0);
+  const shieldRestoreBase = getCardScaledEffectValue(card, 'shieldRestoreByLevel', masteryLevel, 0);
   const shieldRestoreBonus = getGlobalShieldRestoreBonus(participant);
   const shieldRestoreTotal = Math.max(0, shieldRestoreBase + (shieldRestoreBase > 0 ? shieldRestoreBonus : 0));
   let healTotal = Math.max(
     0,
-    Math.round(getCardScaledValue(card.healByLevel, masteryLevel, Number(card.heal || 0)))
+    Math.round(getCardScaledEffectValue(card, 'healByLevel', masteryLevel, Number(card.heal || 0)))
   );
   if (healTotal > 0 && hasNature3) {
     healTotal += 2;
   }
-  const moveDistance = getCardScaledValue(card.movementByLevel, masteryLevel, 0);
-  const pushDistance = getCardScaledValue(card.pushDistanceByLevel, masteryLevel, 0);
-  const pullDistance = getCardScaledValue(card.pullDistanceByLevel, masteryLevel, 0);
+  const moveDistance = getCardScaledEffectValue(card, 'movementByLevel', masteryLevel, 0);
+  const pushDistance = getCardScaledEffectValue(card, 'pushDistanceByLevel', masteryLevel, 0);
+  const pullDistance = getCardScaledEffectValue(card, 'pullDistanceByLevel', masteryLevel, 0);
   const statusApply = normalizeCardStatusApply(card, masteryLevel);
   const zoneStatusApply = zoneCard ? normalizeCardStatusApply(card, masteryLevel) : null;
-  const zoneEnterStatusApply = zoneCard ? normalizeStatusApplyConfig(card.zoneEnterStatusApply, masteryLevel) : null;
+  const zoneEnterStatusBase = zoneCard ? normalizeStatusApplyConfig(card.zoneEnterStatusApply, masteryLevel) : null;
+  const zoneEnterStatusApply = zoneEnterStatusBase
+    ? {
+        ...zoneEnterStatusBase,
+        stacks: Math.max(
+          1,
+          Math.round(
+            getCardScaledEffectValue(card, 'zoneEnterStatusStacksByLevel', masteryLevel, zoneEnterStatusBase.stacks)
+          )
+        )
+      }
+    : null;
   const zoneEnterDamage = zoneCard
     ? Math.max(
         0,
-        Math.round(getCardScaledValue(card.zoneEnterDamageByLevel, masteryLevel, Number(card.zoneEnterDamage || 0)))
+        Math.round(getCardScaledEffectValue(card, 'zoneEnterDamageByLevel', masteryLevel, Number(card.zoneEnterDamage || 0)))
       )
     : 0;
   const zoneTickOnTurn = card.zoneTickOnTurn !== false;
@@ -964,13 +975,13 @@ function executeCardAction(body) {
   const zoneShieldRestore = zoneCard
     ? Math.max(
         0,
-        Math.round(getCardScaledValue(card.zoneShieldRestoreByLevel, masteryLevel, Number(card.zoneShieldRestore || 0)))
+        Math.round(getCardScaledEffectValue(card, 'zoneShieldRestoreByLevel', masteryLevel, Number(card.zoneShieldRestore || 0)))
       )
     : 0;
   const zoneHeal = zoneCard
     ? Math.max(
         0,
-        Math.round(getCardScaledValue(card.zoneHealByLevel, masteryLevel, Number(card.zoneHeal || 0)))
+        Math.round(getCardScaledEffectValue(card, 'zoneHealByLevel', masteryLevel, Number(card.zoneHeal || 0)))
       )
     : 0;
   const zoneShieldRestoreAlliesOnly = zoneCard ? card.zoneShieldRestoreAlliesOnly !== false : false;
@@ -978,20 +989,21 @@ function executeCardAction(body) {
   const zoneDetectDc = zoneCard
     ? Math.max(
         0,
-        Math.round(getCardScaledValue(card.zoneDetectDcByLevel, masteryLevel, Number(card.zoneDetectDc || 0)))
+        Math.round(getCardScaledEffectValue(card, 'zoneDetectDcByLevel', masteryLevel, Number(card.zoneDetectDc || 0)))
       )
     : 0;
   const zoneTriggerMode = zoneCard ? String(card.zoneTriggerMode || '').trim().toLowerCase() : '';
   const selfTarget = isSelfTargetCard(card, masteryLevel);
   const conditionalShieldDamageBonus = Math.max(
     0,
-    Math.round(getCardScaledValue(card.bonusDamageIfTargetHasShieldByLevel, masteryLevel, Number(card.bonusDamageIfTargetHasShield || 0)))
+    Math.round(getCardScaledEffectValue(card, 'bonusDamageIfTargetHasShieldByLevel', masteryLevel, Number(card.bonusDamageIfTargetHasShield || 0)))
   );
   const conditionalNotActedDamageBonus = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.bonusDamageIfTargetNotActedByLevel,
+      getCardScaledEffectValue(
+        card,
+        'bonusDamageIfTargetNotActedByLevel',
         masteryLevel,
         Number(card.bonusDamageIfTargetNotActed || 0)
       )
@@ -1000,8 +1012,9 @@ function executeCardAction(body) {
   const conditionalBelowHalfHpDamageBonus = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.bonusDamageIfTargetBelowHalfHpByLevel,
+      getCardScaledEffectValue(
+        card,
+        'bonusDamageIfTargetBelowHalfHpByLevel',
         masteryLevel,
         Number(card.bonusDamageIfTargetBelowHalfHp || 0)
       )
@@ -1009,29 +1022,42 @@ function executeCardAction(body) {
   );
   const fullyBlockedHpDamage = Math.max(
     0,
-    Math.round(getCardScaledValue(card.directHpDamageOnFullyBlockedByLevel, masteryLevel, Number(card.directHpDamageOnFullyBlocked || 0)))
+    Math.round(getCardScaledEffectValue(card, 'directHpDamageOnFullyBlockedByLevel', masteryLevel, Number(card.directHpDamageOnFullyBlocked || 0)))
   );
   const nextAttackGrant = Math.max(
     0,
-    Math.round(getCardScaledValue(card.nextAttackDamageBonusByLevel, masteryLevel, Number(card.nextAttackDamageBonus || 0)))
+    Math.round(getCardScaledEffectValue(card, 'nextAttackDamageBonusByLevel', masteryLevel, Number(card.nextAttackDamageBonus || 0)))
   );
   const cardUtilityNote = String(card.utilityNote || '').trim();
   const effectTextNote = String(card.effect || '').trim();
   const targetApNextTurnGrant = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.grantTargetApNextTurnByLevel,
+      getCardScaledEffectValue(
+        card,
+        'grantTargetApNextTurnByLevel',
         masteryLevel,
         Number(card.grantTargetApNextTurn || 0)
+      )
+    )
+  );
+  const selfApNextTurnGrant = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'selfApNextTurnByLevel',
+        masteryLevel,
+        Number(card.selfApNextTurn || 0)
       )
     )
   );
   const apGainNow = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.apGainByLevel,
+      getCardScaledEffectValue(
+        card,
+        'apGainByLevel',
         masteryLevel,
         Number(card.apGain || 0)
       )
@@ -1040,8 +1066,9 @@ function executeCardAction(body) {
   const removeStatusCount = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.removeStatusCountByLevel ?? card.cleanseStatusCountByLevel,
+      getCardScaledEffectValue(
+        card,
+        'removeStatusCountByLevel',
         masteryLevel,
         Number(card.removeStatusCount ?? card.cleanseStatusCount ?? 0)
       )
@@ -1059,8 +1086,9 @@ function executeCardAction(body) {
   const rangedUntargetableTurnsGrant = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.rangedUntargetableTurnsByLevel,
+      getCardScaledEffectValue(
+        card,
+        'rangedUntargetableTurnsByLevel',
         masteryLevel,
         Number(card.rangedUntargetableTurns || 0)
       )
@@ -1069,20 +1097,21 @@ function executeCardAction(body) {
   const guardActionBonusGrant = Math.max(
     0,
     Math.round(
-      getCardScaledValue(card.guardActionBonusByLevel, masteryLevel, Number(card.guardActionBonus || 0))
+      getCardScaledEffectValue(card, 'guardActionBonusByLevel', masteryLevel, Number(card.guardActionBonus || 0))
     )
   );
   const guardActionBonusTurnsGrant = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.guardActionBonusTurnsByLevel,
+      getCardScaledEffectValue(
+        card,
+        'guardActionBonusTurnsByLevel',
         masteryLevel,
         Number(card.guardActionBonusTurns || 0)
       )
     )
   );
-  const scaledRange = getCardScaledValue(card.rangeByLevel, masteryLevel, Number(card.range || 0));
+  const scaledRange = getCardScaledEffectValue(card, 'rangeByLevel', masteryLevel, Number(card.range || 0));
   const isRangedAttackCard = !isConstruct && !zoneCard && rawDamage > 0 && Number(scaledRange || 0) > 5;
 
   const targetId = String(body.targetId || '').trim();
@@ -1259,6 +1288,7 @@ function executeCardAction(body) {
     Boolean(statusApply) ||
     nextAttackGrant > 0 ||
     targetApNextTurnGrant > 0 ||
+    selfApNextTurnGrant > 0 ||
     apGainNow > 0 ||
     removeStatusCount > 0 ||
     uniqueRemoveStatusIds.length > 0 ||
@@ -1727,6 +1757,14 @@ function executeCardAction(body) {
     if (queuedTargets.length) {
       notes.push(`Queues AP for next turn: ${queuedTargets.join(', ')}.`);
     }
+  }
+
+  if (!isConstruct && selfApNextTurnGrant > 0) {
+    participant.pendingApNextTurn = Math.max(
+      0,
+      Math.round(Number(participant.pendingApNextTurn || 0) + selfApNextTurnGrant)
+    );
+    notes.push(`${participant.name} gains +${selfApNextTurnGrant} AP on their next turn.`);
   }
 
   if (!isConstruct && moveDistance > 0) {
@@ -3818,6 +3856,24 @@ function normalizeMasteryChoiceOptions(value = []) {
       ? Math.max(unlockLevel, Math.min(4, Math.round(deferredUnlockLevelRaw)))
       : Math.min(4, unlockLevel + 1);
     const effects = entry.effects && typeof entry.effects === 'object' ? entry.effects : {};
+    const scaledEffects = {};
+    const explicitScaledKeys = new Set(['damageBonusByLevel', 'damageByLevel', 'masteryDamageByLevel', 'abilityBonusesByLevel']);
+    const candidateScaledKeys = new Set();
+    for (const key of Object.keys(effects)) {
+      if (key.endsWith('ByLevel')) candidateScaledKeys.add(key);
+    }
+    for (const key of Object.keys(entry)) {
+      if (key.endsWith('ByLevel')) candidateScaledKeys.add(key);
+    }
+    for (const key of candidateScaledKeys) {
+      if (explicitScaledKeys.has(key)) continue;
+      const normalizedByLevel =
+        normalizeNumberByLevelMap(effects[key], -9999) ||
+        normalizeNumberByLevelMap(entry[key], -9999);
+      if (normalizedByLevel) {
+        scaledEffects[key] = normalizedByLevel;
+      }
+    }
     normalized.push({
       id,
       label: label || id,
@@ -3834,7 +3890,8 @@ function normalizeMasteryChoiceOptions(value = []) {
           normalizeNumberByLevelMap(entry.masteryDamageByLevel, 0),
         abilityBonusesByLevel:
           normalizeAbilityBonusesByLevel(effects.abilityBonusesByLevel) ||
-          normalizeAbilityBonusesByLevel(entry.abilityBonusesByLevel)
+          normalizeAbilityBonusesByLevel(entry.abilityBonusesByLevel),
+        ...scaledEffects
       }
     });
   });
@@ -3911,7 +3968,7 @@ function isConstructCard(card = {}) {
 
 function isZoneCard(card = {}, level = 1) {
   if (card?.isZone === true) return true;
-  const radius = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
+  const radius = getCardScaledEffectValue(card, 'zoneRadiusByLevel', level, Number(card.zoneRadius || 0));
   if (Number(radius || 0) > 0) return true;
   if (Number(card.zoneDurationTurns || 0) > 0) return true;
   return false;
@@ -4273,7 +4330,7 @@ function getCardDamageAtCurrentMastery(card) {
 function getCardSecondaryDamageAtCurrentMastery(card) {
   const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const fallback = Number(card.secondaryDamage || 0);
-  const value = getCardScaledValue(card.secondaryDamageByLevel, level, fallback);
+  const value = getCardScaledEffectValue(card, 'secondaryDamageByLevel', level, fallback);
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
@@ -4296,7 +4353,7 @@ function getCardMultiTargetCap(card = {}, level = 1) {
   const fallback = Number.isFinite(Number(card.multiTargetMax))
     ? Math.max(1, Math.round(Number(card.multiTargetMax)))
     : 3;
-  const scaled = getCardScaledValue(card.multiTargetMaxByLevel, level, fallback);
+  const scaled = getCardScaledEffectValue(card, 'multiTargetMaxByLevel', level, fallback);
   return Number.isFinite(Number(scaled)) ? Math.max(1, Math.round(Number(scaled))) : fallback;
 }
 
@@ -4328,22 +4385,48 @@ function getCardScaledValue(source, level = 1, fallback = 0) {
   return fallback;
 }
 
-function normalizeStatusApplyConfig(source, level = 1) {
+function getCardScaledEffectValue(card = {}, effectKey = '', level = 1, fallback = 0) {
+  const key = String(effectKey || '').trim();
+  if (!key) return fallback;
+  const base = getCardScaledValue(card?.[key], level, fallback);
+  const activeChoices = getCardActiveMasteryChoiceOptions(card, level);
+  if (!activeChoices.length) return base;
+  let override = null;
+  for (const choice of activeChoices) {
+    const scaled = getCardScaledValue(choice.effects?.[key], level, Number.NaN);
+    if (!Number.isFinite(scaled)) continue;
+    override = override == null ? Number(scaled) : Math.max(override, Number(scaled));
+  }
+  return override == null ? base : override;
+}
+
+function normalizeStatusApplyConfig(source, level = 1, options = {}) {
   if (!source || typeof source !== 'object') return null;
   const id = detectStatusType({ presetId: source.id, name: source.name });
   if (!id) return null;
-  const stacks = Math.max(1, Math.round(getCardScaledValue(source.stacksByLevel, level, source.stacks ?? 1)));
+  let stacks = Math.max(1, Math.round(getCardScaledValue(source.stacksByLevel, level, source.stacks ?? 1)));
+  const stacksByLevelOverride = options?.stacksByLevelOverride;
+  if (stacksByLevelOverride && typeof stacksByLevelOverride === 'object') {
+    stacks = Math.max(1, Math.round(getCardScaledValue(stacksByLevelOverride, level, stacks)));
+  }
+  const stacksOverride = Number(options?.stacksOverride);
+  if (Number.isFinite(stacksOverride)) {
+    stacks = Math.max(1, Math.round(stacksOverride));
+  }
   return { id, stacks };
 }
 
 function normalizeCardStatusApply(card = {}, level = 1) {
-  return normalizeStatusApplyConfig(card.statusApply, level);
+  const base = normalizeStatusApplyConfig(card.statusApply, level);
+  if (!base) return null;
+  const stacks = Math.max(1, Math.round(getCardScaledEffectValue(card, 'statusApplyStacksByLevel', level, base.stacks)));
+  return { ...base, stacks };
 }
 
 function isSelfTargetCard(card = {}, level = 1) {
   const rangeText = String(card.rangeText || '').trim().toLowerCase();
   if (rangeText === 'self') return true;
-  const scaledRange = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
+  const scaledRange = getCardScaledEffectValue(card, 'rangeByLevel', level, Number(card.range || 0));
   return Number(scaledRange || 0) <= 0;
 }
 
@@ -5072,7 +5155,7 @@ function deployConstructFromCard(participant, card, options = {}) {
 
 function deployZoneFromCard(participant, card, options = {}) {
   const level = Math.max(1, Math.min(4, Number(options.masteryLevel || card?.masteryLevel || 1)));
-  const radiusRaw = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
+  const radiusRaw = getCardScaledEffectValue(card, 'zoneRadiusByLevel', level, Number(card.zoneRadius || 0));
   const radiusBonusFt = Number.isFinite(Number(options.radiusBonusFt))
     ? Math.max(0, Math.round(Number(options.radiusBonusFt)))
     : 0;

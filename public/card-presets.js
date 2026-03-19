@@ -2012,10 +2012,19 @@ export const CARD_PRESETS = [
       damage: 8,
       damageType: 'Piercing',
       targetEnemiesOnly: true,
-      bonusDamageIfTargetNotActedByLevel: { 1: 4, 2: 6, 3: 6 },
-      mastery: ['Level 1: Base', 'Level 2: Bonus damage increases to +6', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 },
-      masteryDamageByLevel: { 1: 8, 2: 8, 3: 8 }
+      bonusDamageIfTargetNotActedByLevel: { 1: 4, 2: 6, 3: 6, 4: 6 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Bonus damage increases to +6',
+        'Level 3: Dex +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 },
+      masteryDamageByLevel: { 1: 8, 2: 8, 3: 8, 4: 8 }
     }
   },
   {
@@ -2035,10 +2044,19 @@ export const CARD_PRESETS = [
       damage: 7,
       damageType: 'Piercing',
       targetEnemiesOnly: true,
-      bonusDamageIfTargetNotActedByLevel: { 1: 4, 2: 6, 3: 6 },
-      mastery: ['Level 1: Base', 'Level 2: Bonus damage increases to +6', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 },
-      masteryDamageByLevel: { 1: 7, 2: 7, 3: 7 }
+      bonusDamageIfTargetNotActedByLevel: { 1: 4, 2: 6, 3: 6, 4: 6 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Bonus damage increases to +6',
+        'Level 3: Dex +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 },
+      masteryDamageByLevel: { 1: 7, 2: 7, 3: 7, 4: 7 }
     }
   },
   {
@@ -2055,13 +2073,22 @@ export const CARD_PRESETS = [
       range: 0,
       rangeText: 'Self',
       tags: ['Utility'],
-      effect: 'You cannot be targeted by ranged attacks until your next turn.',
+      effect: 'You cannot be targeted by ranged attacks until your next turn. You may still be hit by indirect area of effect damage.',
       damage: 0,
       damageType: '',
-      rangedUntargetableTurnsByLevel: { 1: 1, 2: 1, 3: 1 },
-      movementByLevel: { 1: 0, 2: 10, 3: 10 },
-      mastery: ['Level 1: Base', 'Level 2: Gain 10 ft free movement', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      rangedUntargetableTurnsByLevel: { 1: 1, 2: 1, 3: 1, 4: 1 },
+      movementByLevel: { 1: 0, 2: 10, 3: 10, 4: 10 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Gain 10 ft free movement',
+        'Level 3: Dex +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 }
     }
   },
   {
@@ -2081,10 +2108,19 @@ export const CARD_PRESETS = [
       damage: 14,
       damageType: 'Piercing',
       targetEnemiesOnly: true,
-      bonusDamageIfTargetBelowHalfHpByLevel: { 1: 6, 2: 8, 3: 8 },
-      mastery: ['Level 1: Base', 'Level 2: Bonus damage increases to +8', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 },
-      masteryDamageByLevel: { 1: 14, 2: 14, 3: 14 }
+      bonusDamageIfTargetBelowHalfHpByLevel: { 1: 6, 2: 8, 3: 8, 4: 8 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Bonus damage increases to +8',
+        'Level 3: Dex +2',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 17, level3: 46, level4: 99 },
+      masteryDamageByLevel: { 1: 14, 2: 14, 3: 14, 4: 14 }
     }
   },
   {
@@ -2106,11 +2142,57 @@ export const CARD_PRESETS = [
       targetEnemiesOnly: true,
       statusApply: {
         id: 'poisoned',
-        stacksByLevel: { 1: 2, 2: 3, 3: 3 }
+        stacksByLevel: { 1: 2, 2: 3, 3: 3, 4: 3 }
       },
-      mastery: ['Level 1: Base', 'Level 2: Poison increases to 3', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 },
-      masteryDamageByLevel: { 1: 5, 2: 5, 3: 5 }
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Poison increases to 3',
+        'Level 3: Con +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 },
+      masteryDamageByLevel: { 1: 5, 2: 5, 3: 5, 4: 5 }
+    }
+  },
+  {
+    id: 'venom_cloud',
+    name: 'Venom Cloud',
+    card: {
+      name: 'Venom Cloud',
+      set: 'Nature',
+      type: 'Utility',
+      tier: 'Uncommon',
+      healthBonus: 1,
+      shieldBonus: 1,
+      apCost: 3,
+      range: 20,
+      tags: ['Poison'],
+      effect: 'Create Poison Zone (Radius 10 ft). Enemies inside gain Poisoned 2 each turn. Duration: 2 turns.',
+      damage: 0,
+      damageType: '',
+      targetMode: 'multi_select',
+      multiTargetMaxByLevel: { 1: 10, 2: 10, 3: 10, 4: 10 },
+      zoneRadiusByLevel: { 1: 10, 2: 10, 3: 10, 4: 10 },
+      zoneDurationTurns: 2,
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: { 1: 2, 2: 3, 3: 3, 4: 3 }
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Poison increases to 3',
+        'Level 3: Con +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 }
     }
   },
   {
@@ -2133,9 +2215,18 @@ export const CARD_PRESETS = [
       damageType: '',
       targetMode: 'all_others',
       targetAlliesOnly: true,
-      healByLevel: { 1: 4, 2: 6, 3: 6 },
-      mastery: ['Level 1: Base', 'Level 2: Healing increases to 6 HP', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      healByLevel: { 1: 4, 2: 6, 3: 6, 4: 6 },
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Healing increases to 6 HP',
+        'Level 3: Wis +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 }
     }
   },
   {
@@ -2158,9 +2249,18 @@ export const CARD_PRESETS = [
       damageType: '',
       targetAlliesOnly: true,
       allowSelfTarget: false,
-      healByLevel: { 1: 4, 2: 6, 3: 6 },
-      mastery: ['Level 1: Base', 'Level 2: Healing increases to 6 HP', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      healByLevel: { 1: 4, 2: 6, 3: 6, 4: 6 },
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Healing increases to 6 HP',
+        'Level 3: Wis +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 }
     }
   },
   {
@@ -2183,10 +2283,19 @@ export const CARD_PRESETS = [
       damageType: '',
       targetAlliesOnly: true,
       allowSelfTarget: true,
-      healByLevel: { 1: 5, 2: 7, 3: 7 },
+      healByLevel: { 1: 5, 2: 7, 3: 7, 4: 7 },
       removeStatusIds: ['bleeding'],
-      mastery: ['Level 1: Base', 'Level 2: Healing increases to 7 HP', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Healing increases to 7 HP',
+        'Level 3: Wis +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 }
     }
   },
   {
@@ -2202,14 +2311,23 @@ export const CARD_PRESETS = [
       apCost: 2,
       range: 20,
       tags: ['Utility'],
-      effect: 'Remove one status effect from an ally.',
+      effect: 'Remove one status effect from an ally fully.',
       damage: 0,
       damageType: '',
       targetAlliesOnly: true,
       allowSelfTarget: false,
-      removeStatusCountByLevel: { 1: 1, 2: 2, 3: 2 },
-      mastery: ['Level 1: Base', 'Level 2: Remove two statuses instead', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      removeStatusCountByLevel: { 1: 1, 2: 2, 3: 2, 4: 2 },
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Remove two statuses instead',
+        'Level 3: Wis +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 }
     }
   },
   {
@@ -2254,9 +2372,18 @@ export const CARD_PRESETS = [
       damageType: '',
       targetAlliesOnly: true,
       allowSelfTarget: false,
-      shieldRestoreByLevel: { 1: 8, 2: 10, 3: 10 },
-      mastery: ['Level 1: Base', 'Level 2: Shield increases to 10', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      shieldRestoreByLevel: { 1: 8, 2: 10, 3: 10, 4: 10 },
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Shield increases to 10',
+        'Level 3: Wis +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 }
     }
   },
   {
@@ -2279,9 +2406,18 @@ export const CARD_PRESETS = [
       damageType: '',
       targetAlliesOnly: true,
       allowSelfTarget: false,
-      healByLevel: { 1: 6, 2: 8, 3: 8 },
-      mastery: ['Level 1: Base', 'Level 2: Healing increases to 8 HP', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      healByLevel: { 1: 6, 2: 8, 3: 8, 4: 8 },
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Healing increases to 8 HP',
+        'Level 3: Wis +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 13, level3: 34, level4: 71 }
     }
   },
   {
@@ -2341,25 +2477,36 @@ export const CARD_PRESETS = [
     name: 'Dust Cloud',
     card: {
       name: 'Dust Cloud',
-      set: 'Elemental',
+      set: 'Shadow',
       type: 'Utility',
       tier: 'Common',
       healthBonus: 1,
       shieldBonus: 1,
       apCost: 2,
       range: 15,
-      tags: ['Earth'],
-      effect: 'Apply Blinded 1 to enemies within 5 ft radius.',
+      tags: ['Utility'],
+      effect: 'Create Obscuring Cloud (Radius 10 ft). Creatures inside gain Blinded 1. Duration 2 turns.',
       damage: 0,
       damageType: '',
-      targetMode: 'all_others',
-      targetEnemiesOnly: true,
+      targetMode: 'multi_select',
+      multiTargetMaxByLevel: { 1: 10, 2: 10, 3: 10, 4: 10 },
+      zoneRadiusByLevel: { 1: 10, 2: 15, 3: 15, 4: 15 },
+      zoneDurationTurns: 2,
       statusApply: {
         id: 'blinded',
-        stacksByLevel: { 1: 1, 2: 1, 3: 1 }
+        stacksByLevel: { 1: 1, 2: 1, 3: 1, 4: 1 }
       },
-      mastery: ['Level 1: Base', 'Level 2: Radius increases to 10 ft', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Radius increases to 15 ft',
+        'Level 3: Wis +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 }
     }
   },
   {
@@ -2452,10 +2599,19 @@ export const CARD_PRESETS = [
       targetEnemiesOnly: true,
       statusApply: {
         id: 'burning',
-        stacksByLevel: { 1: 1, 2: 2, 3: 2 }
+        stacksByLevel: { 1: 1, 2: 2, 3: 2, 4: 2 }
       },
-      mastery: ['Level 1: Base', 'Level 2: Burning increases to 2', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Burning increases to 2',
+        'Level 3: Dex +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 }
     }
   },
   {
@@ -2548,10 +2704,51 @@ export const CARD_PRESETS = [
       damageType: 'Lightning',
       targetMode: 'multi_select',
       targetEnemiesOnly: true,
-      multiTargetMaxByLevel: { 1: 2, 2: 2, 3: 2 },
-      mastery: ['Level 1: Base', 'Level 2: Damage increases to 4 each', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 },
-      masteryDamageByLevel: { 1: 3, 2: 4, 3: 4 }
+      multiTargetMaxByLevel: { 1: 2, 2: 2, 3: 2, 4: 2 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Damage increases to 4 each',
+        'Level 3: Dex +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 },
+      masteryDamageByLevel: { 1: 3, 2: 4, 3: 4, 4: 4 }
+    }
+  },
+  {
+    id: 'storm_charge',
+    name: 'Storm Charge',
+    card: {
+      name: 'Storm Charge',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      healthBonus: 2,
+      shieldBonus: 2,
+      apCost: 4,
+      range: 0,
+      rangeText: 'Self',
+      tags: ['Lightning'],
+      effect: 'Gain +2 AP on your next turn.',
+      damage: 0,
+      damageType: '',
+      selfApNextTurnByLevel: { 1: 2, 2: 2, 3: 2, 4: 2 },
+      apGainByLevel: { 1: 0, 2: 1, 3: 1, 4: 1 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Gain +1 AP this turn as well',
+        'Level 3: Dex +2',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 17, level3: 46, level4: 99 }
     }
   },
   {
@@ -2593,9 +2790,18 @@ export const CARD_PRESETS = [
       effect: 'Restore 3 Shield.',
       damage: 0,
       damageType: '',
-      shieldRestoreByLevel: { 1: 3, 2: 4, 3: 4 },
-      mastery: ['Level 1: Base', 'Level 2: Shield restored increases to 4', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      shieldRestoreByLevel: { 1: 3, 2: 4, 3: 4, 4: 4 },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Shield restored increases to 4',
+        'Level 3: Con +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 }
     }
   },
   {
@@ -2661,8 +2867,54 @@ export const CARD_PRESETS = [
       damage: 0,
       damageType: '',
       movementByLevel: { 1: 10, 2: 15, 3: 15 },
-      mastery: ['Level 1: Base', 'Level 2: Movement increases to 15 ft', 'Level 3: Unlocks Fusion eligibility'],
-      masteryThresholds: { level2: 25, level3: 55 }
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Movement increases to 15 ft',
+        'Level 3: Dex +1',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 10, level3: 25, level4: 50 }
+    }
+  },
+  {
+    id: 'healing_spring',
+    name: 'Healing Spring',
+    card: {
+      name: 'Healing Spring',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      healthBonus: 2,
+      shieldBonus: 2,
+      apCost: 3,
+      chargesMax: 3,
+      chargesCurrent: 3,
+      range: 20,
+      tags: ['Water'],
+      effect: 'Create Healing Zone (Radius 10 ft). Allies restore 4 HP each turn for 2 turns.',
+      damage: 0,
+      damageType: '',
+      targetMode: 'multi_select',
+      multiTargetMaxByLevel: { 1: 10, 2: 10, 3: 10, 4: 10 },
+      zoneRadiusByLevel: { 1: 10, 2: 10, 3: 10, 4: 10 },
+      zoneDurationTurns: 2,
+      zoneHealByLevel: { 1: 4, 2: 6, 3: 6, 4: 6 },
+      zoneHealAlliesOnly: true,
+      abilityBonusesByLevel: {
+        3: { wisdom: 2 },
+        4: { wisdom: 2 }
+      },
+      mastery: [
+        'Level 1: Base',
+        'Level 2: Healing increases to 6 HP',
+        'Level 3: Wis +2',
+        'Level 4: Unlocks Fusion eligibility'
+      ],
+      masteryThresholds: { level2: 17, level3: 46, level4: 99 }
     }
   },
   {

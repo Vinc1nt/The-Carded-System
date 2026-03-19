@@ -3906,6 +3906,13 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (nextTurnAp > 0) {
     parts.push(`Target gains +${nextTurnAp} AP on their next turn.`);
   }
+  const selfNextTurnAp = Math.max(
+    0,
+    Math.round(getCardScaledValue(card.selfApNextTurnByLevel, level, Number(card.selfApNextTurn || 0)))
+  );
+  if (selfNextTurnAp > 0) {
+    parts.push(`Gain +${selfNextTurnAp} AP on your next turn.`);
+  }
   const apGainNow = Math.max(
     0,
     Math.round(getCardScaledValue(card.apGainByLevel, level, Number(card.apGain || 0)))
