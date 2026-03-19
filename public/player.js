@@ -31,6 +31,7 @@ let eventSource;
 const playerSectionState = new Map();
 const playerJournalState = new Map();
 const playerManageState = new Map();
+const playerCardOpenState = new Map();
 
 const els = {
   select: document.getElementById('playerSelect'),
@@ -247,6 +248,7 @@ function renderSelectOptions() {
 
 function renderStats() {
   rememberPlayerSections();
+  rememberPlayerCardDetails();
   const participant = getFocusedParticipant();
   if (!participant) {
     const hasCombatants = (state.encounter.participants || []).length > 0;
@@ -263,7 +265,6 @@ function renderStats() {
     }
     return;
   }
-  const stats = participant.stats || {};
   const manageState = getPlayerManageState(participant.id);
   const showZoneSection = participantHasActiveZoneCard(participant);
   const showConstructSection = participantHasActiveConstructCard(participant);
@@ -305,7 +306,7 @@ function renderStats() {
           <label>Proficiency Bonus
             <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
           </label>
-          ${renderAbilityTable(stats)}
+          ${renderAbilityTable(participant)}
         </div>
       </details>
       <details class="player-collapsible" data-player-section="saves">
@@ -917,12 +918,34 @@ function rememberPlayerSections() {
   playerSectionState.set(current.id, snapshot);
 }
 
+function rememberPlayerCardDetails() {
+  const current = getFocusedParticipant();
+  if (!current || !els.stats) return;
+  const snapshot = {};
+  els.stats.querySelectorAll('details[data-player-card-details-key]').forEach((node) => {
+    snapshot[node.dataset.playerCardDetailsKey] = node.open;
+  });
+  playerCardOpenState.set(current.id, snapshot);
+}
+
 function restorePlayerSections(participantId) {
   if (!participantId || !els.stats) return;
   const snapshot = playerSectionState.get(participantId);
   if (!snapshot) return;
   els.stats.querySelectorAll('details[data-player-section]').forEach((node) => {
     const key = node.dataset.playerSection;
+    if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+      node.open = Boolean(snapshot[key]);
+    }
+  });
+}
+
+function restorePlayerCardDetails(participantId) {
+  if (!participantId || !els.cardList) return;
+  const snapshot = playerCardOpenState.get(participantId);
+  if (!snapshot) return;
+  els.cardList.querySelectorAll('details[data-player-card-details-key]').forEach((node) => {
+    const key = node.dataset.playerCardDetailsKey;
     if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
       node.open = Boolean(snapshot[key]);
     }
@@ -1237,21 +1260,23 @@ const ABILITIES = [
   { key: 'charisma', label: 'CHA' }
 ];
 
-function renderAbilityTable(stats) {
+function renderAbilityTable(participant) {
   const rows = ABILITIES.map(({ key, label }) => {
-    const value = stats[key] ?? 0;
+    const value = getPlayerEffectiveAbilityScore(participant, key);
+    const bonus = getPlayerAbilityBonus(participant, key);
     const mod = abilityMod(value);
     return `
       <tr>
         <th>${label}</th>
         <td><input type="number" data-ability-input="${key}" value="${value}" /></td>
+        <td>${bonus ? formatSignedValue(bonus) : '0'}</td>
         <td>${formatMod(mod)}</td>
       </tr>`;
   }).join('');
   return `
     <table class="player-table">
       <thead>
-        <tr><th>Ability</th><th>Score</th><th>Mod</th></tr>
+        <tr><th>Ability</th><th>Score</th><th>Bonus</th><th>Mod</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -1534,9 +1559,8 @@ async function handlePlayerDamageRemove(participant, field, index) {
 }
 
 function renderSavingThrows(participant) {
-  const stats = participant.stats || {};
   const rows = ABILITIES.map(({ key, label }) => {
-    const mod = abilityMod(stats[key] ?? 0);
+    const mod = abilityMod(getPlayerEffectiveAbilityScore(participant, key));
     const proficient = Boolean(participant.savingThrows?.[key]);
     const total = mod + (proficient ? participant.proficiencyBonus || 0 : 0);
     return `
@@ -1578,10 +1602,9 @@ const SKILLS = [
 ];
 
 function renderSkillsTable(participant) {
-  const stats = participant.stats || {};
   const prof = participant.proficiencyBonus || 0;
   const rows = SKILLS.map(([skill, ability, key]) => {
-    const mod = abilityMod(stats[ability] ?? 0);
+    const mod = abilityMod(getPlayerEffectiveAbilityScore(participant, ability));
     const entry = getSkillState(participant, key);
     const total = mod + prof * (entry.expert ? 2 : entry.proficient ? 1 : 0);
     return `
@@ -1617,6 +1640,21 @@ function formatSignedValue(value = 0) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return '+0';
   return `${amount >= 0 ? '+' : ''}${Math.round(amount)}`;
+}
+
+function getPlayerAbilityBonus(participant = {}, ability = '') {
+  const amount = Number(participant?.derivedBonuses?.abilityBonuses?.[ability] || 0);
+  return Number.isFinite(amount) ? Math.round(amount) : 0;
+}
+
+function getPlayerEffectiveAbilityScore(participant = {}, ability = '') {
+  const derived = Number(participant?.derivedBonuses?.effectiveStats?.[ability]);
+  if (Number.isFinite(derived)) {
+    return Math.round(derived);
+  }
+  const base = Number(participant?.stats?.[ability] ?? 0);
+  const safeBase = Number.isFinite(base) ? Math.round(base) : 0;
+  return safeBase + getPlayerAbilityBonus(participant, ability);
 }
 
 function getTierMasteryThresholdDefaults(tier = 'Common') {
@@ -2057,6 +2095,7 @@ function renderCards() {
   wirePlayerCardUses(participant);
   wirePlayerCardExports(participant);
   wirePlayerCardActivation(participant);
+  restorePlayerCardDetails(participant?.id);
 }
 
 function renderPlayerInactiveCardsDropdown(participant, inactiveEntries = []) {
@@ -2069,7 +2108,7 @@ function renderPlayerInactiveCardsDropdown(participant, inactiveEntries = []) {
     })
     .join('');
   return `
-    <details class="inactive-cards-dropdown">
+    <details class="inactive-cards-dropdown" data-player-card-details-key="inactiveCards">
       <summary><strong>Inactive Cards (${inactiveEntries.length})</strong></summary>
       <div class="collapsible-body">
         ${
@@ -2099,6 +2138,7 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
   }
   return entries
     .map(({ card, index }) => {
+      const cardKey = card.id || `card-${index}`;
       const activeActions = `
               <button type="button" data-player-use-card="${card.id}">Use</button>
               <button type="button" data-player-deactivate-card="${card.id}" data-player-card-index="${index}">Deactivate</button>
@@ -2109,7 +2149,7 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
       const compactEffect = formatCardEffectAtMastery(card, participant);
       return `
           <article class="card-item" data-player-card="${card.id}" data-player-card-index="${index}">
-            <details class="card-collapse">
+            <details class="card-collapse" data-player-card-details-key="${escapeHtml(cardKey)}">
               <summary>
                 <div class="card-summary-row">
                   <div class="card-summary-main">
@@ -3618,7 +3658,9 @@ function wirePlayerSheetEvents(participant) {
   panel.querySelectorAll('[data-ability-input]').forEach((input) => {
     input.onchange = async () => {
       const ability = input.dataset.abilityInput;
-      const value = Number(input.value || 0);
+      const totalValue = Number(input.value || 0);
+      const bonus = getPlayerAbilityBonus(participant, ability);
+      const value = Math.round((Number.isFinite(totalValue) ? totalValue : 0) - bonus);
       participant.stats = participant.stats || {};
       participant.stats[ability] = value;
       await patchParticipant(participant.id, { stats: { [ability]: value } });

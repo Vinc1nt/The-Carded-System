@@ -2522,6 +2522,7 @@ function createParticipant(body = {}) {
       base: baseStats,
       totals: createZeroModifier(),
       abilityBonuses: createZeroAbilityBonuses(),
+      effectiveStats: buildEffectiveAbilityScores(body.stats || {}, createZeroAbilityBonuses()),
       cardModifiers: [],
       cardLoadout: {
         maxActive: MAX_ACTIVE_CARDS,
@@ -3751,11 +3752,32 @@ function normalizeSkills(value) {
 function getAbilityModifier(participant = {}, ability = '') {
   const key = String(ability || '').trim().toLowerCase();
   if (!ABILITY_KEYS.includes(key)) return 0;
-  const score = Number(participant?.stats?.[key]);
-  const safeScore = Number.isFinite(score) ? score : 10;
-  const bonus = Number(participant?.derivedBonuses?.abilityBonuses?.[key] || 0);
-  const total = safeScore + (Number.isFinite(bonus) ? bonus : 0);
+  const total = getEffectiveAbilityScore(participant, key);
   return Math.floor((total - 10) / 2);
+}
+
+function getEffectiveAbilityScore(participant = {}, ability = '') {
+  const key = String(ability || '').trim().toLowerCase();
+  if (!ABILITY_KEYS.includes(key)) return 0;
+  const derivedScore = Number(participant?.derivedBonuses?.effectiveStats?.[key]);
+  if (Number.isFinite(derivedScore)) {
+    return Math.round(derivedScore);
+  }
+  const baseScore = Number(participant?.stats?.[key]);
+  const safeBase = Number.isFinite(baseScore) ? Math.round(baseScore) : 0;
+  const bonus = Number(participant?.derivedBonuses?.abilityBonuses?.[key] || 0);
+  return safeBase + (Number.isFinite(bonus) ? Math.round(bonus) : 0);
+}
+
+function buildEffectiveAbilityScores(stats = {}, abilityBonuses = {}) {
+  const totals = {};
+  for (const key of ABILITY_KEYS) {
+    const baseScore = Number(stats?.[key]);
+    const safeBase = Number.isFinite(baseScore) ? Math.round(baseScore) : 0;
+    const bonus = Number(abilityBonuses?.[key] || 0);
+    totals[key] = safeBase + (Number.isFinite(bonus) ? Math.round(bonus) : 0);
+  }
+  return totals;
 }
 
 function normalizeRelics(list) {
@@ -5513,11 +5535,13 @@ function recalculateParticipant(participant) {
   if (participant.guardActionBonusTurns <= 0) {
     participant.guardActionBonus = 0;
   }
-  participant.initiative = Math.round(participant.stats.dexterity + Number(abilityBonuses.dexterity || 0));
+  const effectiveStats = buildEffectiveAbilityScores(participant.stats, abilityBonuses);
+  participant.initiative = Math.round(Number(effectiveStats.dexterity || 0));
   participant.derivedBonuses = {
     base,
     totals,
     abilityBonuses,
+    effectiveStats,
     cardModifiers,
     cardLoadout: {
       maxActive: MAX_ACTIVE_CARDS,

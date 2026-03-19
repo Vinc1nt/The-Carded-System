@@ -87,6 +87,7 @@ const state = {
 
 const detailSectionState = new Map();
 const detailDrawerState = new Map();
+const detailCardOpenState = new Map();
 
 let selectedParticipantId = null;
 let activeHelpTopic = 'combat';
@@ -660,6 +661,7 @@ function renderDetailPanel() {
   const previousId = els.detailPanel.dataset.participantId;
   if (previousId) {
     rememberDetailSections(previousId);
+    rememberDetailCardDetails(previousId);
   }
   const participant = getSelectedParticipant();
   if (!participant) {
@@ -721,6 +723,7 @@ function renderDetailPanel() {
   wireDetailEvents(participant);
   if (previousId && previousId === participant.id) {
     restoreDetailSections(participant.id);
+    restoreDetailCardDetails(participant.id);
   }
 }
 
@@ -1055,7 +1058,7 @@ function renderInactiveCardsDropdown(participant, inactiveEntries = []) {
     })
     .join('');
   return `
-    <details class="inactive-cards-dropdown" data-section="inactiveCards">
+    <details class="inactive-cards-dropdown" data-section="inactiveCards" data-card-details-key="inactiveCards">
       <summary><strong>Inactive Cards (${inactiveEntries.length})</strong></summary>
       <div class="collapsible-body">
         ${
@@ -2115,12 +2118,12 @@ function renderAdvancedSection(participant, base) {
         </div>
         <div class="stats-grid">
           ${renderNumberInput('Mastery', 'mastery', participant.mastery)}
-          ${renderNumberInput('STR', 'strength', participant.stats?.strength || 0)}
-          ${renderNumberInput('DEX', 'dexterity', participant.stats?.dexterity || 0)}
-          ${renderNumberInput('CON', 'constitution', participant.stats?.constitution || 0)}
-          ${renderNumberInput('INT', 'intelligence', participant.stats?.intelligence || 0)}
-          ${renderNumberInput('WIS', 'wisdom', participant.stats?.wisdom || 0)}
-          ${renderNumberInput('CHA', 'charisma', participant.stats?.charisma || 0)}
+          ${renderAbilityNumberInput(participant, 'STR', 'strength')}
+          ${renderAbilityNumberInput(participant, 'DEX', 'dexterity')}
+          ${renderAbilityNumberInput(participant, 'CON', 'constitution')}
+          ${renderAbilityNumberInput(participant, 'INT', 'intelligence')}
+          ${renderAbilityNumberInput(participant, 'WIS', 'wisdom')}
+          ${renderAbilityNumberInput(participant, 'CHA', 'charisma')}
         </div>
         <label>Tags
           <input type="text" name="tags" value="${(participant.tags || []).join(', ')}" placeholder="Melee, Shield, Bleed" />
@@ -3417,12 +3420,12 @@ function wireDetailEvents(participant) {
       notes: formData.get('notes') || ''
     };
     payload.stats = {
-      strength: Number(formData.get('strength') || participant.stats?.strength || 0),
-      dexterity: Number(formData.get('dexterity') || participant.stats?.dexterity || 0),
-      constitution: Number(formData.get('constitution') || participant.stats?.constitution || 0),
-      intelligence: Number(formData.get('intelligence') || participant.stats?.intelligence || 0),
-      wisdom: Number(formData.get('wisdom') || participant.stats?.wisdom || 0),
-      charisma: Number(formData.get('charisma') || participant.stats?.charisma || 0)
+      strength: Math.round(Number(formData.get('strength') || getParticipantEffectiveAbilityScore(participant, 'strength')) - getParticipantAbilityBonus(participant, 'strength')),
+      dexterity: Math.round(Number(formData.get('dexterity') || getParticipantEffectiveAbilityScore(participant, 'dexterity')) - getParticipantAbilityBonus(participant, 'dexterity')),
+      constitution: Math.round(Number(formData.get('constitution') || getParticipantEffectiveAbilityScore(participant, 'constitution')) - getParticipantAbilityBonus(participant, 'constitution')),
+      intelligence: Math.round(Number(formData.get('intelligence') || getParticipantEffectiveAbilityScore(participant, 'intelligence')) - getParticipantAbilityBonus(participant, 'intelligence')),
+      wisdom: Math.round(Number(formData.get('wisdom') || getParticipantEffectiveAbilityScore(participant, 'wisdom')) - getParticipantAbilityBonus(participant, 'wisdom')),
+      charisma: Math.round(Number(formData.get('charisma') || getParticipantEffectiveAbilityScore(participant, 'charisma')) - getParticipantAbilityBonus(participant, 'charisma'))
     };
     try {
       await api(`/api/participants/${participant.id}`, 'PATCH', payload);
@@ -3492,6 +3495,7 @@ function renderCards(participant, entries = [], options = {}) {
   }
   return entries
     .map(({ card, index }) => {
+      const cardKey = card.id || `card-${index}`;
       const activeActions = `
           <button type="button" data-use-card="${card.id || ''}">Use</button>
           <button type="button" data-deactivate-card="${card.id || ''}" data-card-index="${index}">Deactivate</button>
@@ -3504,7 +3508,7 @@ function renderCards(participant, entries = [], options = {}) {
       const compactEffect = formatCardEffectAtMastery(card, participant);
       return `
       <article class="card-item" data-card="${card.id}" data-card-index="${index}">
-        <details class="card-collapse">
+        <details class="card-collapse" data-card-details-key="${escapeHtml(cardKey)}">
           <summary>
             <div class="card-summary-row">
               <div class="card-summary-main">
@@ -3690,6 +3694,21 @@ function formatSignedValue(value = 0) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return '+0';
   return `${amount >= 0 ? '+' : ''}${Math.round(amount)}`;
+}
+
+function getParticipantAbilityBonus(participant = {}, ability = '') {
+  const amount = Number(participant?.derivedBonuses?.abilityBonuses?.[ability] || 0);
+  return Number.isFinite(amount) ? Math.round(amount) : 0;
+}
+
+function getParticipantEffectiveAbilityScore(participant = {}, ability = '') {
+  const derived = Number(participant?.derivedBonuses?.effectiveStats?.[ability]);
+  if (Number.isFinite(derived)) {
+    return Math.round(derived);
+  }
+  const base = Number(participant?.stats?.[ability] ?? 0);
+  const safeBase = Number.isFinite(base) ? Math.round(base) : 0;
+  return safeBase + getParticipantAbilityBonus(participant, ability);
 }
 
 function getTierMasteryThresholdDefaults(tier = 'Common') {
@@ -4271,6 +4290,16 @@ function renderNumberInput(label, name, value = 0) {
     </label>`;
 }
 
+function renderAbilityNumberInput(participant, label, name) {
+  const total = getParticipantEffectiveAbilityScore(participant, name);
+  const bonus = getParticipantAbilityBonus(participant, name);
+  return `
+    <label>${label}
+      <input type="number" name="${name}" value="${total}" />
+      ${bonus ? `<small class="muted">Includes ${formatSignedValue(bonus)} mastery</small>` : ''}
+    </label>`;
+}
+
 function formatStatusesSummary(participant) {
   const statuses = participant.statuses || [];
   if (!statuses.length) return 'No statuses';
@@ -4338,6 +4367,15 @@ function rememberDetailSections(participantId) {
   detailSectionState.set(participantId, nextState);
 }
 
+function rememberDetailCardDetails(participantId) {
+  if (!participantId) return;
+  const nextState = {};
+  els.detailPanel.querySelectorAll('details[data-card-details-key]').forEach((node) => {
+    nextState[node.dataset.cardDetailsKey] = node.open;
+  });
+  detailCardOpenState.set(participantId, nextState);
+}
+
 function restoreDetailSections(participantId) {
   if (!participantId) return;
   const stored = detailSectionState.get(participantId);
@@ -4346,6 +4384,18 @@ function restoreDetailSections(participantId) {
     const key = node.dataset.section || node.dataset.sectionKey || node.id || node.className;
     if (stored[key]) {
       node.open = true;
+    }
+  });
+}
+
+function restoreDetailCardDetails(participantId) {
+  if (!participantId) return;
+  const stored = detailCardOpenState.get(participantId);
+  if (!stored) return;
+  els.detailPanel.querySelectorAll('details[data-card-details-key]').forEach((node) => {
+    const key = node.dataset.cardDetailsKey;
+    if (Object.prototype.hasOwnProperty.call(stored, key)) {
+      node.open = Boolean(stored[key]);
     }
   });
 }
