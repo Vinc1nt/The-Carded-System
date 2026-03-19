@@ -2303,7 +2303,7 @@ function formatCardRange(card = {}) {
   const text = String(card.rangeText || '').trim();
   if (text) return text;
   const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
-  const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
+  const range = getCardScaledEffectValue(card, 'rangeByLevel', level, Number(card.range || 0));
   return `${range} ft`;
 }
 
@@ -2311,7 +2311,7 @@ function isSelfTargetCard(card = {}) {
   const text = String(card.rangeText || '').trim().toLowerCase();
   if (text === 'self') return true;
   const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
-  const range = getCardScaledValue(card.rangeByLevel, level, Number(card.range || 0));
+  const range = getCardScaledEffectValue(card, 'rangeByLevel', level, Number(card.range || 0));
   return Number(range || 0) <= 0;
 }
 
@@ -2329,7 +2329,7 @@ function getCardMultiTargetCap(card = {}) {
   const fallback = Number.isFinite(Number(card.multiTargetMax))
     ? Math.max(1, Math.round(Number(card.multiTargetMax)))
     : 3;
-  const value = getCardScaledValue(card.multiTargetMaxByLevel, level, fallback);
+  const value = getCardScaledEffectValue(card, 'multiTargetMaxByLevel', level, fallback);
   return Number.isFinite(Number(value)) ? Math.max(1, Math.round(Number(value))) : fallback;
 }
 
@@ -2341,7 +2341,7 @@ function getCardSecondaryTargetMode(card = {}) {
 
 function getCardSecondaryDamage(card = {}) {
   const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
-  const value = getCardScaledValue(card.secondaryDamageByLevel, level, Number(card.secondaryDamage || 0));
+  const value = getCardScaledEffectValue(card, 'secondaryDamageByLevel', level, Number(card.secondaryDamage || 0));
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
@@ -2356,12 +2356,13 @@ function getStatusApplyAtMastery(card = {}, level = 1) {
   if (!source || typeof source !== 'object') return null;
   const id = String(source.id || source.statusId || '').trim();
   const name = resolveStatusName(id, String(source.name || '').trim());
-  const stacks = Math.max(
+  let stacks = Math.max(
     1,
     Math.round(
       getCardScaledValue(source.stacksByLevel, level, Number(source.stacks ?? source.defaultStacks ?? 1))
     )
   );
+  stacks = Math.max(1, Math.round(getCardScaledEffectValue(card, 'statusApplyStacksByLevel', level, stacks)));
   if (!id && !name) return null;
   return { id, name, stacks };
 }
@@ -2372,6 +2373,28 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     return fallback || '—';
   }
   const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
+  if (isZoneCard(card, level)) {
+    const radius = Math.max(0, Math.round(getCardScaledEffectValue(card, 'zoneRadiusByLevel', level, Number(card.zoneRadius || 0))));
+    const duration = Math.max(0, Math.round(Number(card.zoneDurationTurns || 0)));
+    const zoneDamage = getCardDisplayDamage(card);
+    const zoneHeal = Math.max(0, Math.round(getCardScaledEffectValue(card, 'zoneHealByLevel', level, Number(card.zoneHeal || 0))));
+    const zoneShield = Math.max(0, Math.round(getCardScaledEffectValue(card, 'zoneShieldRestoreByLevel', level, Number(card.zoneShieldRestore || 0))));
+    const zoneStatus = getStatusApplyAtMastery(card, level);
+    const parts = [`Create zone (${radius} ft radius${duration > 0 ? `, ${duration} turn${duration === 1 ? '' : 's'}` : ''}).`];
+    if (zoneDamage > 0) {
+      parts.push(`Deals ${zoneDamage}${card.damageType ? ` ${card.damageType}` : ''} damage each turn.`);
+    }
+    if (zoneStatus) {
+      parts.push(`Applies ${zoneStatus.name} ${zoneStatus.stacks} each turn.`);
+    }
+    if (zoneHeal > 0) {
+      parts.push(`Restores ${zoneHeal} HP${card.zoneHealAlliesOnly !== false ? ' to allies' : ''} each turn.`);
+    }
+    if (zoneShield > 0) {
+      parts.push(`Restores ${zoneShield} Shield${card.zoneShieldRestoreAlliesOnly !== false ? ' to allies' : ''} each turn.`);
+    }
+    return parts.join(' ');
+  }
   const targetMode = getCardTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
@@ -2402,23 +2425,23 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   } else if (secondaryDamage > 0) {
     parts.push(`Deal ${secondaryDamage}${secondaryType ? ` ${secondaryType}` : ''} damage.`);
   }
-  const shield = Math.max(0, Math.round(getCardScaledValue(card.shieldRestoreByLevel, level, 0)));
+  const shield = Math.max(0, Math.round(getCardScaledEffectValue(card, 'shieldRestoreByLevel', level, 0)));
   if (shield > 0) {
     parts.push(`Restore ${shield} Shield.`);
   }
-  const heal = Math.max(0, Math.round(getCardScaledValue(card.healByLevel, level, Number(card.heal || 0))));
+  const heal = Math.max(0, Math.round(getCardScaledEffectValue(card, 'healByLevel', level, Number(card.heal || 0))));
   if (heal > 0) {
     parts.push(`Restore ${heal} HP.`);
   }
-  const move = Math.max(0, Math.round(getCardScaledValue(card.movementByLevel, level, 0)));
+  const move = Math.max(0, Math.round(getCardScaledEffectValue(card, 'movementByLevel', level, 0)));
   if (move > 0) {
     parts.push(`Move ${move} ft.`);
   }
-  const pull = Math.max(0, Math.round(getCardScaledValue(card.pullDistanceByLevel, level, 0)));
+  const pull = Math.max(0, Math.round(getCardScaledEffectValue(card, 'pullDistanceByLevel', level, 0)));
   if (pull > 0) {
     parts.push(`Pull target ${pull} ft.`);
   }
-  const push = Math.max(0, Math.round(getCardScaledValue(card.pushDistanceByLevel, level, 0)));
+  const push = Math.max(0, Math.round(getCardScaledEffectValue(card, 'pushDistanceByLevel', level, 0)));
   if (push > 0) {
     parts.push(`Push target ${push} ft.`);
   }
@@ -2434,7 +2457,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   }
   const shieldBonus = Math.max(
     0,
-    Math.round(getCardScaledValue(card.bonusDamageIfTargetHasShieldByLevel, level, Number(card.bonusDamageIfTargetHasShield || 0)))
+    Math.round(getCardScaledEffectValue(card, 'bonusDamageIfTargetHasShieldByLevel', level, Number(card.bonusDamageIfTargetHasShield || 0)))
   );
   if (shieldBonus > 0) {
     parts.push(`If target has Shield, deal +${shieldBonus} damage.`);
@@ -2442,11 +2465,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   const fullyBlockedDirectHp = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.directHpDamageOnFullyBlockedByLevel,
-        level,
-        Number(card.directHpDamageOnFullyBlocked || 0)
-      )
+      getCardScaledEffectValue(card, 'directHpDamageOnFullyBlockedByLevel', level, Number(card.directHpDamageOnFullyBlocked || 0))
     )
   );
   if (fullyBlockedDirectHp > 0) {
@@ -2454,7 +2473,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   }
   const nextAttackBonus = Math.max(
     0,
-    Math.round(getCardScaledValue(card.nextAttackDamageBonusByLevel, level, Number(card.nextAttackDamageBonus || 0)))
+    Math.round(getCardScaledEffectValue(card, 'nextAttackDamageBonusByLevel', level, Number(card.nextAttackDamageBonus || 0)))
   );
   if (nextAttackBonus > 0) {
     parts.push(`Target gains +${nextAttackBonus} damage on their next attack.`);
@@ -2462,7 +2481,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   const nextTurnAp = Math.max(
     0,
     Math.round(
-      getCardScaledValue(card.grantTargetApNextTurnByLevel, level, Number(card.grantTargetApNextTurn || 0))
+      getCardScaledEffectValue(card, 'grantTargetApNextTurnByLevel', level, Number(card.grantTargetApNextTurn || 0))
     )
   );
   if (nextTurnAp > 0) {
@@ -2470,14 +2489,14 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   }
   const selfNextTurnAp = Math.max(
     0,
-    Math.round(getCardScaledValue(card.selfApNextTurnByLevel, level, Number(card.selfApNextTurn || 0)))
+    Math.round(getCardScaledEffectValue(card, 'selfApNextTurnByLevel', level, Number(card.selfApNextTurn || 0)))
   );
   if (selfNextTurnAp > 0) {
     parts.push(`Gain +${selfNextTurnAp} AP on your next turn.`);
   }
   const apGainNow = Math.max(
     0,
-    Math.round(getCardScaledValue(card.apGainByLevel, level, Number(card.apGain || 0)))
+    Math.round(getCardScaledEffectValue(card, 'apGainByLevel', level, Number(card.apGain || 0)))
   );
   if (apGainNow > 0) {
     parts.push(`Gain +${apGainNow} AP this turn.`);
@@ -2485,11 +2504,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   const removeStatusCount = Math.max(
     0,
     Math.round(
-      getCardScaledValue(
-        card.removeStatusCountByLevel ?? card.cleanseStatusCountByLevel,
-        level,
-        Number(card.removeStatusCount ?? card.cleanseStatusCount ?? 0)
-      )
+      getCardScaledEffectValue(card, 'removeStatusCountByLevel', level, Number(card.removeStatusCount ?? card.cleanseStatusCount ?? 0))
     )
   );
   if (removeStatusCount > 0) {
@@ -2525,6 +2540,44 @@ function getCardScaledValue(source, level = 1, fallback = 0) {
   return fallback;
 }
 
+function getCardActiveMasteryChoiceOptions(card = {}, level = 1) {
+  const choices = Array.isArray(card.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
+  if (!choices.length) return [];
+  const selectedId = String(card.masteryChoiceSelected || '').trim();
+  const hasSelected = Boolean(selectedId && choices.some((entry) => entry?.id === selectedId));
+  if (!hasSelected) return [];
+  const currentLevel = Math.max(1, Math.min(4, Number(level || card.masteryLevel || 1)));
+  const active = [];
+  for (const choice of choices) {
+    if (!choice || typeof choice !== 'object') continue;
+    const unlockLevel = Math.max(2, Math.min(4, Number(choice.unlockLevel || 2)));
+    const deferredUnlockLevel = Math.max(
+      unlockLevel,
+      Math.min(4, Number(choice.deferredUnlockLevel || unlockLevel + 1))
+    );
+    const activeFromLevel = choice.id === selectedId ? unlockLevel : deferredUnlockLevel;
+    if (currentLevel >= activeFromLevel) {
+      active.push(choice);
+    }
+  }
+  return active;
+}
+
+function getCardScaledEffectValue(card = {}, effectKey = '', level = 1, fallback = 0) {
+  const key = String(effectKey || '').trim();
+  if (!key) return fallback;
+  const base = getCardScaledValue(card?.[key], level, fallback);
+  const activeChoices = getCardActiveMasteryChoiceOptions(card, level);
+  if (!activeChoices.length) return base;
+  let override = null;
+  for (const choice of activeChoices) {
+    const scaled = getCardScaledValue(choice.effects?.[key], level, Number.NaN);
+    if (!Number.isFinite(scaled)) continue;
+    override = override == null ? Number(scaled) : Math.max(override, Number(scaled));
+  }
+  return override == null ? base : override;
+}
+
 function isConstructCard(card = {}) {
   if (card?.isConstruct === false) return false;
   if (card?.isZone === true) return false;
@@ -2538,7 +2591,7 @@ function isConstructCard(card = {}) {
 
 function isZoneCard(card = {}, level = 1) {
   if (card?.isZone === true) return true;
-  const radius = getCardScaledValue(card.zoneRadiusByLevel, level, Number(card.zoneRadius || 0));
+  const radius = getCardScaledEffectValue(card, 'zoneRadiusByLevel', level, Number(card.zoneRadius || 0));
   if (Number(radius || 0) > 0) return true;
   if (Number(card.zoneDurationTurns || 0) > 0) return true;
   return false;
@@ -2825,7 +2878,7 @@ function getCardDisplayDamage(card = {}) {
   const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
   const byLevel = card.masteryDamageByLevel || {};
   const base = Number(card.damage || 0);
-  const levelDamage = Number(
+  let damage = Number(
     byLevel[level] ??
       byLevel[`level${level}`] ??
       (level >= 4
@@ -2837,7 +2890,26 @@ function getCardDisplayDamage(card = {}) {
             : byLevel[1] ?? byLevel.level1) ??
       base
   );
-  return Number.isFinite(levelDamage) ? Math.max(0, Math.round(levelDamage)) : Math.max(0, Math.round(base));
+  if (!Number.isFinite(damage)) {
+    damage = base;
+  }
+  let overrideDamage = null;
+  for (const option of getCardActiveMasteryChoiceOptions(card, level)) {
+    const damageByLevel = option.effects?.damageByLevel;
+    const override = Number(damageByLevel?.[level] ?? damageByLevel?.[`level${level}`]);
+    if (Number.isFinite(override)) {
+      overrideDamage = overrideDamage == null ? Math.round(override) : Math.max(overrideDamage, Math.round(override));
+    }
+    const damageBonusByLevel = option.effects?.damageBonusByLevel;
+    const bonus = Number(damageBonusByLevel?.[level] ?? damageBonusByLevel?.[`level${level}`]);
+    if (Number.isFinite(bonus)) {
+      damage += Math.round(bonus);
+    }
+  }
+  if (overrideDamage != null) {
+    damage = overrideDamage;
+  }
+  return Math.max(0, Math.round(damage));
 }
 
 function wirePlayerCardExports(participant) {

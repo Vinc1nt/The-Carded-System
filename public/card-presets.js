@@ -3145,6 +3145,170 @@ export const CARD_PRESETS = [
   }
 ];
 
+const FOUR_LEVEL_MASTERY_CHOICE_IDS = new Set([
+  'backstab',
+  'shadow_strike',
+  'smoke_veil',
+  'assassinate',
+  'poison_dart',
+  'venom_cloud',
+  'natures_renewal',
+  'healing_touch',
+  'light_bandage',
+  'cleansing_light',
+  'guardian_halo',
+  'revitalize',
+  'dust_cloud',
+  'flicker',
+  'static_chain',
+  'storm_charge',
+  'stone_guard',
+  'wind_step',
+  'healing_spring'
+]);
+
+const FOUR_LEVEL_MASTERY_CHOICE_KEYS = [
+  'masteryDamageByLevel',
+  'bonusDamageIfTargetNotActedByLevel',
+  'bonusDamageIfTargetBelowHalfHpByLevel',
+  'movementByLevel',
+  'healByLevel',
+  'removeStatusCountByLevel',
+  'shieldRestoreByLevel',
+  'zoneRadiusByLevel',
+  'zoneHealByLevel',
+  'statusApplyStacksByLevel',
+  'apGainByLevel'
+];
+
+function getNumberByLevel(source, level, fallback = Number.NaN) {
+  if (source == null) return fallback;
+  const direct = Number(source[level]);
+  if (Number.isFinite(direct)) return direct;
+  const named = Number(source[`level${level}`]);
+  if (Number.isFinite(named)) return named;
+  return fallback;
+}
+
+function repeatNumberByLevel(value) {
+  return { 1: value, 2: value, 3: value, 4: value };
+}
+
+function cloneAbilityBonuses(source = {}) {
+  const cloned = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric) || numeric === 0) continue;
+    cloned[key] = numeric;
+  }
+  return cloned;
+}
+
+function buildDeferredAbilityChoiceMap(source = {}) {
+  const level3 = source?.[3] ?? source?.level3 ?? source?.[4] ?? source?.level4;
+  const level4 = source?.[4] ?? source?.level4 ?? level3;
+  if (!level3 || typeof level3 !== 'object') return null;
+  const selectedEarly = cloneAbilityBonuses(level3);
+  const selectedAtFour = cloneAbilityBonuses(level4 && typeof level4 === 'object' ? level4 : level3);
+  if (!Object.keys(selectedEarly).length) return null;
+  return {
+    2: selectedEarly,
+    3: selectedEarly,
+    4: Object.keys(selectedAtFour).length ? selectedAtFour : selectedEarly
+  };
+}
+
+function stripMasteryPrefix(line = '', level = 0) {
+  return String(line || '')
+    .replace(new RegExp(`^Level\\s*${level}\\s*:\\s*`, 'i'), '')
+    .trim();
+}
+
+function slugifyMasteryChoice(label = '', fallback = 'choice') {
+  const slug = String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return slug || fallback;
+}
+
+function detectFourLevelUpgrade(card = {}) {
+  const candidates = [];
+  for (const key of FOUR_LEVEL_MASTERY_CHOICE_KEYS) {
+    const source = key === 'statusApplyStacksByLevel' ? card.statusApply?.stacksByLevel : card[key];
+    if (!source || typeof source !== 'object') continue;
+    const level1 = getNumberByLevel(source, 1);
+    if (!Number.isFinite(level1)) continue;
+    const level2 = getNumberByLevel(source, 2, level1);
+    const level3 = getNumberByLevel(source, 3, level2);
+    const level4 = getNumberByLevel(source, 4, level3);
+    if (level2 === level1 && level3 === level1 && level4 === level1) continue;
+    candidates.push({ key, level1, level2, level3, level4 });
+  }
+  if (candidates.length !== 1) {
+    throw new Error(`Expected exactly one Level 2/3 numeric upgrade for ${card.name || 'card'}, found ${candidates.length}.`);
+  }
+  return candidates[0];
+}
+
+function applyDeferredMasteryChoice(entry = {}) {
+  const card = entry?.card;
+  if (!card || !FOUR_LEVEL_MASTERY_CHOICE_IDS.has(entry.id)) return;
+  if (Array.isArray(card.masteryChoiceOptions) && card.masteryChoiceOptions.length) return;
+  const upgrade = detectFourLevelUpgrade(card);
+  const abilityChoice = buildDeferredAbilityChoiceMap(card.abilityBonusesByLevel);
+  if (!abilityChoice) {
+    throw new Error(`Missing Level 3 ability bonus for ${card.name || 'card'}.`);
+  }
+  const mastery = Array.isArray(card.mastery) ? card.mastery.slice() : [];
+  const upgradeLabel = stripMasteryPrefix(mastery[1], 2) || 'Upgrade effect';
+  const abilityLabel = stripMasteryPrefix(mastery[2], 3) || 'Ability bonus';
+  const upgradeEffectKey = upgrade.key === 'masteryDamageByLevel' ? 'damageByLevel' : upgrade.key;
+  const upgradeEffectByLevel = {
+    2: upgrade.level2,
+    3: upgrade.level3,
+    4: upgrade.level4
+  };
+  if (upgrade.key === 'statusApplyStacksByLevel') {
+    card.statusApply = {
+      ...(card.statusApply || {}),
+      stacksByLevel: repeatNumberByLevel(upgrade.level1)
+    };
+  } else {
+    card[upgrade.key] = repeatNumberByLevel(upgrade.level1);
+  }
+  delete card.abilityBonusesByLevel;
+  card.mastery = [
+    mastery[0] || 'Level 1: Base',
+    `Level 2: Choose ${upgradeLabel} or ${abilityLabel}`,
+    'Level 3: Gain the option not chosen at Level 2',
+    mastery[3] || 'Level 4: Unlocks Fusion eligibility'
+  ];
+  card.masteryChoiceOptions = [
+    {
+      id: slugifyMasteryChoice(upgradeLabel, 'upgrade'),
+      label: upgradeLabel,
+      unlockLevel: 2,
+      deferredUnlockLevel: 3,
+      effects: {
+        [upgradeEffectKey]: upgradeEffectByLevel
+      }
+    },
+    {
+      id: slugifyMasteryChoice(abilityLabel, 'ability_bonus'),
+      label: abilityLabel,
+      unlockLevel: 2,
+      deferredUnlockLevel: 3,
+      effects: {
+        abilityBonusesByLevel: abilityChoice
+      }
+    }
+  ];
+}
+
+CARD_PRESETS.forEach(applyDeferredMasteryChoice);
+
 export const RARITY_ORDER = [
   'Common',
   'Uncommon',
