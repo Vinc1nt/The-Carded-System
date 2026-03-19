@@ -36,6 +36,45 @@ export const CARD_PRESETS = [
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
     }
+  },
+  {
+    id: 'elemental_wind_step',
+    card: {
+      id: 'elemental_wind_step',
+      name: 'Wind Step',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Wind'],
+      effect: 'Move 10 ft without triggering opportunity attacks.',
+      movementByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      utilityNote: 'Does not trigger opportunity attacks.',
+      abilityBonusesByLevel: {
+        3: {
+          dexterity: 1
+        },
+        4: {
+          dexterity: 1
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Movement increases to 15 ft.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
   }
 ];
 
