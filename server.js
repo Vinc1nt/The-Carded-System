@@ -1395,6 +1395,7 @@ function executeCardAction(body) {
   if (isConstruct) {
     constructDeployResult = deployConstructFromCard(participant, card, {
       targetId: primaryTarget?.id || null,
+      targetIds: effectivePrimaryTargets.map((entry) => entry.id),
       baseDamage,
       damageType,
       bonusDamage: constructDamageBonus,
@@ -1848,11 +1849,19 @@ function executeCardAction(body) {
             : [];
     if (statusTargets.length) {
       statusTargets.forEach((statusTarget) => {
-        addStatusStacks(statusTarget, statusApply.id, statusStacks);
+        if (statusApply.isCustom) {
+          addCustomStatus(statusTarget, {
+            name: statusApply.name,
+            stacks: statusStacks,
+            notes: statusApply.notes
+          });
+        } else {
+          addStatusStacks(statusTarget, statusApply.id, statusStacks);
+        }
         enforceControlHierarchy(statusTarget);
       });
       const names = statusTargets.map((entry) => entry.name).join(', ');
-      notes.push(`Applies ${statusDisplayName(statusApply.id)} ${statusStacks} to ${names}.`);
+      notes.push(`Applies ${statusApply.name || statusDisplayName(statusApply.id)} ${statusStacks} to ${names}.`);
       if (hasElemental10 && !elemental.burstUsedTurn) {
         const burstTargets = Array.from(
           new Map(
@@ -3181,9 +3190,14 @@ function applyConstructStartOfTurnEffects(participant) {
       const utilityKind = String(refreshed.utilityKind || '').trim().toLowerCase();
       const utilityNote = String(refreshed.utilityNote || '').trim();
       if (shieldRestore > 0) {
-        const recipients = refreshed.shieldRestoreAlliesOnly
-          ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(participant, entry))
-          : [participant];
+        const assignedTargets = (refreshed.targetIds || [])
+          .map((id) => findParticipant(id))
+          .filter(Boolean);
+        const recipients = assignedTargets.length
+          ? assignedTargets.filter((entry) => !refreshed.shieldRestoreAlliesOnly || isParticipantAlly(participant, entry))
+          : refreshed.shieldRestoreAlliesOnly
+            ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(participant, entry))
+            : [participant];
         const restoredTargets = [];
         for (const entry of recipients) {
           const beforeShield = entry.shield;
@@ -4172,6 +4186,9 @@ function normalizeConstructs(list = [], ownerId = '') {
             .split(',')
             .map((value) => value.trim())
             .filter(Boolean);
+      const targetIds = Array.isArray(entry.targetIds)
+        ? Array.from(new Set(entry.targetIds.map((value) => String(value || '').trim()).filter(Boolean)))
+        : [];
       return {
         id: entry.id || randomUUID(),
         ownerId: String(entry.ownerId || ownerId || '').trim(),
@@ -4189,6 +4206,7 @@ function normalizeConstructs(list = [], ownerId = '') {
         damageType: String(entry.damageType || '').trim(),
         remainingTurns: Number.isFinite(remainingTurns) ? Math.max(0, Math.round(remainingTurns)) : 1,
         targetId: String(entry.targetId || '').trim(),
+        targetIds,
         mode,
         statusId: String(entry.statusId || entry.constructStatusId || '').trim(),
         statusName: String(entry.statusName || entry.constructStatusName || '').trim(),
@@ -4548,6 +4566,26 @@ function getCardScaledEffectValue(card = {}, effectKey = '', level = 1, fallback
 function normalizeStatusApplyConfig(source, level = 1, options = {}) {
   if (!source || typeof source !== 'object') return null;
   const id = detectStatusType({ presetId: source.id, name: source.name });
+  const customName = String(source.name || '').trim();
+  const customNotes = String(source.notes || '').trim();
+  if (!id && customName) {
+    let stacks = Math.max(1, Math.round(getCardScaledValue(source.stacksByLevel, level, source.stacks ?? 1)));
+    const stacksByLevelOverride = options?.stacksByLevelOverride;
+    if (stacksByLevelOverride && typeof stacksByLevelOverride === 'object') {
+      stacks = Math.max(1, Math.round(getCardScaledValue(stacksByLevelOverride, level, stacks)));
+    }
+    const stacksOverride = Number(options?.stacksOverride);
+    if (Number.isFinite(stacksOverride)) {
+      stacks = Math.max(1, Math.round(stacksOverride));
+    }
+    return {
+      id: '',
+      name: customName,
+      notes: customNotes,
+      stacks,
+      isCustom: true
+    };
+  }
   if (!id) return null;
   let stacks = Math.max(1, Math.round(getCardScaledValue(source.stacksByLevel, level, source.stacks ?? 1)));
   const stacksByLevelOverride = options?.stacksByLevelOverride;
@@ -5077,6 +5115,22 @@ function clearOneStatusEffect(target) {
   return removed?.name || 'a status effect';
 }
 
+function addCustomStatus(participant, status = {}) {
+  if (!participant || !status || typeof status !== 'object') return;
+  const name = String(status.name || '').trim();
+  if (!name) return;
+  participant.statuses = normalizeStatuses([
+    ...(participant.statuses || []),
+    {
+      id: randomUUID(),
+      presetId: '',
+      name,
+      stacks: Math.max(1, Number(status.stacks || 1)),
+      notes: String(status.notes || '').trim()
+    }
+  ]);
+}
+
 function resolveStatusStacksForCard(statusApply, deps = {}) {
   if (!statusApply) return 0;
   let stacks = Math.max(1, Number(statusApply.stacks || 1));
@@ -5268,6 +5322,7 @@ function deployConstructFromCard(participant, card, options = {}) {
     damageType: finalDamageType,
     remainingTurns: durationTurns,
     targetId: String(options.targetId || '').trim(),
+    targetIds: Array.from(new Set((options.targetIds || []).map((value) => String(value || '').trim()).filter(Boolean))),
     mode,
     statusId,
     statusName,

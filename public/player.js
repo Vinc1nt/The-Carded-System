@@ -2596,6 +2596,24 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (shieldBonus > 0) {
     parts.push(`If target has Shield, deal +${shieldBonus} damage.`);
   }
+  const notActedBonus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(card, 'bonusDamageIfTargetNotActedByLevel', level, Number(card.bonusDamageIfTargetNotActed || 0))
+    )
+  );
+  if (notActedBonus > 0) {
+    parts.push(`If target has not acted yet this round, deal +${notActedBonus} damage.`);
+  }
+  const belowHalfHpBonus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(card, 'bonusDamageIfTargetBelowHalfHpByLevel', level, Number(card.bonusDamageIfTargetBelowHalfHp || 0))
+    )
+  );
+  if (belowHalfHpBonus > 0) {
+    parts.push(`If target is below half HP, deal +${belowHalfHpBonus} damage.`);
+  }
   const fullyBlockedDirectHp = Math.max(
     0,
     Math.round(
@@ -3211,18 +3229,15 @@ function renderPlayerConstructs(participant) {
     <p class="muted small-note">Active ${constructs.length}/${cap} • Bonus +${summary.damageBonus || 0} damage, +${summary.durationBonusTurns || 0} duration.</p>
     <div class="cards-grid construct-grid">
       ${constructs
-        .map(
-          (construct) => `
-            <article class="card-item construct-item">
-              <h4>${escapeHtml(construct.name || 'Construct')}</h4>
-              <p>${escapeHtml(renderConstructCardSummary(construct))}</p>
-              <p>${
-                Number(construct.remainingTurns || 0) > 0
-                  ? `Turns Remaining: ${Number(construct.remainingTurns || 0)}`
-                  : 'Duration: Until removed'
-              }</p>
-              <p>HP: ${Number(construct.hp || 0)}/${Number(construct.maxHp || 0)} • AP: ${Number(construct.apCurrent || 0)}/${Number(construct.apMax || 0)}</p>
-              <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
+        .map((construct) => {
+          const assignedTargets = Array.isArray(construct.targetIds)
+            ? construct.targetIds
+                .map((targetId) => (state.encounter.participants || []).find((entry) => entry.id === targetId)?.name || '')
+                .filter(Boolean)
+            : [];
+          const targetMarkup = assignedTargets.length
+            ? `<p class="muted small-note">Assigned targets: ${escapeHtml(assignedTargets.join(', '))}</p>`
+            : `
               <label>Target
                 <select data-player-construct-target="${construct.id || ''}">
                   <option value="">Select target…</option>
@@ -3234,13 +3249,25 @@ function renderPlayerConstructs(participant) {
                     )
                     .join('')}
                 </select>
-              </label>
+              </label>`;
+          return `
+            <article class="card-item construct-item">
+              <h4>${escapeHtml(construct.name || 'Construct')}</h4>
+              <p>${escapeHtml(renderConstructCardSummary(construct))}</p>
+              <p>${
+                Number(construct.remainingTurns || 0) > 0
+                  ? `Turns Remaining: ${Number(construct.remainingTurns || 0)}`
+                  : 'Duration: Until removed'
+              }</p>
+              <p>HP: ${Number(construct.hp || 0)}/${Number(construct.maxHp || 0)} • AP: ${Number(construct.apCurrent || 0)}/${Number(construct.apMax || 0)}</p>
+              <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
+              ${targetMarkup}
               <div class="card-actions">
                 <button type="button" data-player-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
                 <button type="button" data-player-remove-construct="${construct.id || ''}">Remove</button>
               </div>
-            </article>`
-        )
+            </article>`;
+        })
         .join('')}
     </div>
   `;
@@ -4270,6 +4297,7 @@ function normalizeCardPayload(raw = {}) {
         ? {
             id: String(raw.statusApply.id || '').trim(),
             name: String(raw.statusApply.name || '').trim(),
+            notes: String(raw.statusApply.notes || '').trim(),
             stacksByLevel:
               raw.statusApply.stacksByLevel && typeof raw.statusApply.stacksByLevel === 'object'
                 ? { ...raw.statusApply.stacksByLevel }

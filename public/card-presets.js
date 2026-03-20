@@ -491,6 +491,1041 @@ export const CARD_PRESETS = [
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
     }
+  },
+  {
+    id: 'elemental_stone_strike',
+    card: {
+      id: 'elemental_stone_strike',
+      name: 'Stone Strike',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Earth'],
+      damage: 7,
+      damageType: 'Bludgeoning',
+      effect: 'Deal 7 Bludgeoning damage.',
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_8',
+          label: 'Damage increases to 8',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 8,
+              3: 8,
+              4: 8
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_1',
+          label: 'CON +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 1 },
+              3: { constitution: 1 },
+              4: { constitution: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 8 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_shield_slam',
+    card: {
+      id: 'machine_shield_slam',
+      name: 'Shield Slam',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Bludgeoning'],
+      damage: 7,
+      effect: 'Deal 7 damage. Push the target 10 ft.',
+      pushDistanceByLevel: {
+        1: 10
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'push_to_15',
+          label: 'Push increases to 15 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            pushDistanceByLevel: {
+              2: 15,
+              3: 15,
+              4: 15
+            }
+          }
+        },
+        {
+          id: 'strength_plus_1',
+          label: 'STR +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { strength: 1 },
+              3: { strength: 1 },
+              4: { strength: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Push increases to 15 ft or STR +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_flame_touch',
+    card: {
+      id: 'elemental_flame_touch',
+      name: 'Flame Touch',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 7,
+      effect: 'Deal 7 Fire damage.',
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_8',
+          label: 'Damage increases to 8',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 8,
+              3: 8,
+              4: 8
+            }
+          }
+        },
+        {
+          id: 'intelligence_plus_1',
+          label: 'INT +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { intelligence: 1 },
+              3: { intelligence: 1 },
+              4: { intelligence: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 8 or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_wind_slash',
+    card: {
+      id: 'elemental_wind_slash',
+      name: 'Wind Slash',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Wind'],
+      damage: 6,
+      effect: 'Deal 6 damage. Push target 5 ft.',
+      pushDistanceByLevel: {
+        1: 5
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'push_to_10',
+          label: 'Push increases to 10 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            pushDistanceByLevel: {
+              2: 10,
+              3: 10,
+              4: 10
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Push increases to 10 ft or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_iron_rampart',
+    card: {
+      id: 'machine_iron_rampart',
+      name: 'Iron Rampart',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 10,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Construct'],
+      effect: 'Deploy Rampart Construct (HP 8). Allies within 5 ft gain 2 Shield each turn. Duration: 2 turns.',
+      utilityNote: 'Select the allies you want the construct to support. GM handles range feasibility.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetAlliesOnly: true,
+      isConstruct: true,
+      constructMode: 'utility',
+      constructTargetRequired: true,
+      constructDurationTurns: 2,
+      constructMaxHp: 8,
+      constructAuraRadiusFt: 5,
+      constructShieldRestoreByLevel: {
+        1: 2
+      },
+      constructShieldRestoreAlliesOnly: true,
+      masteryChoiceOptions: [
+        {
+          id: 'shield_to_3',
+          label: 'Shield increases to 3',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            constructShieldRestoreByLevel: {
+              2: 3,
+              3: 3,
+              4: 3
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_1',
+          label: 'CON +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 1 },
+              3: { constitution: 1 },
+              4: { constitution: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Shield increases to 3 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_earth_spike',
+    card: {
+      id: 'elemental_earth_spike',
+      name: 'Earth Spike',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 25,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Earth'],
+      damage: 8,
+      effect: 'Deal 8 damage. Apply Rooted 1.',
+      statusApply: {
+        id: 'rooted',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'rooted_to_2',
+          label: 'Rooted increases to 2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_1',
+          label: 'CON +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 1 },
+              3: { constitution: 1 },
+              4: { constitution: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Rooted increases to 2 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'divine_fortress_stance',
+    card: {
+      id: 'divine_fortress_stance',
+      name: 'Fortress Stance',
+      set: 'Divine',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 2,
+      tags: ['Utility'],
+      effect: 'Restore 6 Shield. For the next 2 turns, your Guard action restores +1 Shield.',
+      shieldRestoreByLevel: {
+        1: 6
+      },
+      guardActionBonusByLevel: {
+        1: 1
+      },
+      guardActionBonusTurnsByLevel: {
+        1: 2
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'shield_restore_8',
+          label: 'Shield restored increases to 8',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            shieldRestoreByLevel: {
+              2: 8,
+              3: 8,
+              4: 8
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_1',
+          label: 'CON +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 1 },
+              3: { constitution: 1 },
+              4: { constitution: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Shield restored increases to 8 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'beast_savage_strike',
+    card: {
+      id: 'beast_savage_strike',
+      name: 'Savage Strike',
+      set: 'Beast',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 3,
+      range: 5,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Slashing'],
+      damage: 10,
+      effect: 'Deal 10 damage. If the target has Shield remaining, deal +4 damage.',
+      bonusDamageIfTargetHasShieldByLevel: {
+        1: 4
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'bonus_damage_to_6',
+          label: 'Bonus damage increases to +6',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            bonusDamageIfTargetHasShieldByLevel: {
+              2: 6,
+              3: 6,
+              4: 6
+            }
+          }
+        },
+        {
+          id: 'strength_plus_2',
+          label: 'STR +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { strength: 2 },
+              3: { strength: 2 },
+              4: { strength: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Bonus damage increases to +6 or STR +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_earthquake',
+    card: {
+      id: 'elemental_earthquake',
+      name: 'Earthquake',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Earth'],
+      damage: 10,
+      effect: 'Deal 10 damage to enemies within Radius 10 ft. Apply Prone.',
+      utilityNote: 'Manually select enemies within the 10 ft radius. Prone is tracked as a removable status note.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      statusApply: {
+        name: 'Prone',
+        notes: 'Removable note from Earthquake.',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_11',
+          label: 'Damage increases to 11',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 11,
+              3: 11,
+              4: 11
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_2',
+          label: 'CON +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 2 },
+              3: { constitution: 2 },
+              4: { constitution: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 11 or CON +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'shadow_dagger_flurry',
+    card: {
+      id: 'shadow_dagger_flurry',
+      name: 'Dagger Flurry',
+      set: 'Shadow',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 4,
+      damageType: 'Piercing',
+      targetMode: 'multi_select',
+      multiTargetMax: 2,
+      effect: 'Deal 4 Piercing damage to up to 2 targets.',
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_5',
+          label: 'Damage increases to 5 each',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 5,
+              3: 5,
+              4: 5
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 5 each or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_static_chain',
+    card: {
+      id: 'elemental_static_chain',
+      name: 'Static Chain',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 25,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Lightning'],
+      damage: 3,
+      damageType: 'Lightning',
+      targetMode: 'multi_select',
+      multiTargetMax: 2,
+      effect: 'Deal 3 Lightning damage to up to 2 targets.',
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_4',
+          label: 'Damage increases to 4 each',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 4,
+              3: 4,
+              4: 4
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 4 each or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'nature_poison_dart',
+    card: {
+      id: 'nature_poison_dart',
+      name: 'Poison Dart',
+      set: 'Nature',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Poison'],
+      damage: 5,
+      damageType: 'Poison',
+      effect: 'Deal 5 Poison damage. Apply Poisoned 2.',
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 2
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'poisoned_to_3',
+          label: 'Poisoned increases to 3',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 3,
+              3: 3,
+              4: 3
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_1',
+          label: 'CON +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 1 },
+              3: { constitution: 1 },
+              4: { constitution: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Poisoned increases to 3 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'shadow_dust_cloud',
+    card: {
+      id: 'shadow_dust_cloud',
+      name: 'Dust Cloud',
+      set: 'Shadow',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 15,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Create Obscuring Cloud (Radius 10 ft). Creatures inside gain Blinded 1. Duration: 2 turns.',
+      utilityNote: 'Manually select creatures inside the cloud to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      statusApply: {
+        id: 'blinded',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'radius_to_15',
+          label: 'Radius increases to 15 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            zoneRadiusByLevel: {
+              2: 15,
+              3: 15,
+              4: 15
+            }
+          }
+        },
+        {
+          id: 'wisdom_plus_1',
+          label: 'WIS +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { wisdom: 1 },
+              3: { wisdom: 1 },
+              4: { wisdom: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Radius increases to 15 ft or WIS +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'shadow_backstab',
+    card: {
+      id: 'shadow_backstab',
+      name: 'Backstab',
+      set: 'Shadow',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 8,
+      damageType: 'Piercing',
+      effect: 'Deal 8 Piercing damage. If the target has not acted yet this round, deal +4 damage.',
+      bonusDamageIfTargetNotActedByLevel: {
+        1: 4
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'bonus_damage_to_6',
+          label: 'Bonus damage increases to +6',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            bonusDamageIfTargetNotActedByLevel: {
+              2: 6,
+              3: 6,
+              4: 6
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Bonus damage increases to +6 or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'nature_venom_cloud',
+    card: {
+      id: 'nature_venom_cloud',
+      name: 'Venom Cloud',
+      set: 'Nature',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Poison'],
+      effect: 'Create Poison Zone (Radius 10 ft). Enemies inside gain Poisoned 2 each turn. Duration: 2 turns.',
+      utilityNote: 'Manually select enemies inside the zone to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 2
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'poisoned_to_3',
+          label: 'Poisoned increases to 3',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 3,
+              3: 3,
+              4: 3
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_1',
+          label: 'CON +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 1 },
+              3: { constitution: 1 },
+              4: { constitution: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Poisoned increases to 3 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_storm_charge',
+    card: {
+      id: 'elemental_storm_charge',
+      name: 'Storm Charge',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Lightning'],
+      effect: 'Gain +2 AP on your next turn.',
+      selfApNextTurnByLevel: {
+        1: 2
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'gain_1_ap_now',
+          label: 'Gain +1 AP this turn as well',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            apGainByLevel: {
+              2: 1,
+              3: 1,
+              4: 1
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_2',
+          label: 'DEX +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 2 },
+              3: { dexterity: 2 },
+              4: { dexterity: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Gain +1 AP this turn as well or DEX +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'shadow_assassinate',
+    card: {
+      id: 'shadow_assassinate',
+      name: 'Assassinate',
+      set: 'Shadow',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Piercing'],
+      damage: 14,
+      damageType: 'Piercing',
+      effect: 'Deal 14 Piercing damage. If the target is below half HP, deal +6 damage.',
+      bonusDamageIfTargetBelowHalfHpByLevel: {
+        1: 6
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'bonus_damage_to_8',
+          label: 'Bonus damage increases to +8',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            bonusDamageIfTargetBelowHalfHpByLevel: {
+              2: 8,
+              3: 8,
+              4: 8
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_2',
+          label: 'DEX +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 2 },
+              3: { dexterity: 2 },
+              4: { dexterity: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Bonus damage increases to +8 or DEX +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'shadow_smoke_veil',
+    card: {
+      id: 'shadow_smoke_veil',
+      name: 'Smoke Veil',
+      set: 'Shadow',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 4,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'You cannot be targeted by ranged attacks until your next turn. You may still be hit by indirect area damage.',
+      rangedUntargetableTurnsByLevel: {
+        1: 1
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'movement_10',
+          label: 'Gain 10 ft free movement',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            movementByLevel: {
+              2: 10,
+              3: 10,
+              4: 10
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Gain 10 ft free movement or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
   }
 ];
 
