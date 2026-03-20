@@ -2037,6 +2037,11 @@ function renderBaseStatsPanel(participant) {
     <div class="base-edit-panel hidden" data-base-panel>
       <form data-form="baseStats" class="stacked-form">
         <div class="form-row">
+          <label>Name
+            <input type="text" name="name" value="${escapeHtml(participant.name || '')}" />
+          </label>
+        </div>
+        <div class="form-row">
           <label>HP (current / max)
             <div class="dual-inputs">
               <input type="number" name="hp" value="${participant.hp || 0}" />
@@ -2725,6 +2730,7 @@ function wireDetailEvents(participant) {
     event.preventDefault();
     const formData = new FormData(event.target);
     const payload = {
+      name: String(formData.get('name') ?? participant.name ?? '').trim() || participant.name || 'Combatant',
       hp: Number(formData.get('hp') ?? participant.hp ?? 0),
       maxHp: Number(formData.get('maxHp') ?? participant.maxHp ?? 0),
       shield: Number(formData.get('shield') ?? participant.shield ?? 0),
@@ -4400,6 +4406,10 @@ function renderRelicCards(participant) {
 
 function populateBaseForm(panel, participant) {
   if (!panel) return;
+  const nameInput = panel.querySelector('input[name="name"]');
+  if (nameInput) {
+    nameInput.value = String(participant.name || '');
+  }
   const pairs = [
     ['hp', participant.hp],
     ['maxHp', participant.maxHp],

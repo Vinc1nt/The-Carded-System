@@ -559,7 +559,7 @@ function renderPlayerStandardActionsSection() {
 
 function renderPlayerStandardActionButtons() {
   const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
-  const order = ['move', 'disengage', 'slip', 'interact', 'recover', 'cleanse', 'guard'];
+  const order = ['move', 'disengage', 'slip', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
   const actions = order.map((id) => actionsById.get(id)).filter(Boolean);
   if (!actions.length) {
     return '<p class="empty-state">Standard actions will appear once the server boots.</p>';
@@ -1284,6 +1284,10 @@ function renderAbilityTable(participant) {
 
 function populatePlayerBaseForm(participant) {
   if (!els.baseForm || !participant) return;
+  const nameInput = els.baseForm.querySelector('input[name="name"]');
+  if (nameInput) {
+    nameInput.value = String(participant.name || '');
+  }
   const pairs = [
     ['hp', participant.hp],
     ['maxHp', participant.maxHp],
@@ -1307,6 +1311,7 @@ async function handlePlayerBaseSubmit(event) {
   }
   const formData = new FormData(event.target);
   const payload = {
+    name: String(formData.get('name') ?? participant.name ?? '').trim() || participant.name || 'Combatant',
     hp: Number(formData.get('hp') ?? participant.hp ?? 0),
     maxHp: Number(formData.get('maxHp') ?? participant.maxHp ?? 0),
     shield: Number(formData.get('shield') ?? participant.shield ?? 0),

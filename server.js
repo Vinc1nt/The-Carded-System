@@ -78,6 +78,13 @@ const STANDARD_ACTIONS = {
     apCost: 1,
     logText: 'slips 5 ft without provoking.'
   },
+  half_cover: {
+    id: 'half_cover',
+    label: 'Duck Behind Half Cover',
+    summary: '1 AP: Gain Half Cover until the start of your next turn.',
+    apCost: 1,
+    logText: 'ducks behind half cover.'
+  },
   interact: {
     id: 'interact',
     label: 'Interact/Use',
@@ -230,6 +237,14 @@ const STATUS_LIBRARY = [
     description:
       'Debuff. Under suppressive pressure; penalties and limitations are defined by the triggering source.',
     tags: ['Debuff']
+  },
+  {
+    id: 'half_cover',
+    name: 'Half Cover',
+    defaultStacks: 1,
+    description:
+      'Positional defense. GM adjudicates whether attacks are reduced or prevented by the available cover. Clears at the start of your next turn.',
+    tags: ['Buff']
   }
 ];
 
@@ -726,6 +741,7 @@ function executeStandardAction(body) {
     resolveActor,
     applyRecoverAction,
     applyCleanseAction,
+    setStatusStacks,
     markTurnActionTaken,
     pushLog,
     touchState,
@@ -2791,6 +2807,7 @@ function detectStatusType(status) {
     if (token.includes('charmed') || token.includes('charm')) return 'charmed';
     if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
+    if (token.includes('halfcover')) return 'half_cover';
   }
   return null;
 }
@@ -2860,7 +2877,8 @@ function statusDisplayName(type) {
     silenced: 'Silenced',
     charmed: 'Charmed',
     frightened: 'Frightened',
-    suppressed: 'Suppressed'
+    suppressed: 'Suppressed',
+    half_cover: 'Half Cover'
   };
   return labels[type] || type;
 }
@@ -2879,7 +2897,8 @@ const KNOWN_STATUS_TYPES = [
   'silenced',
   'charmed',
   'frightened',
-  'suppressed'
+  'suppressed',
+  'half_cover'
 ];
 
 function buildStatusMergeKey(status, fallbackIndex = 0) {
