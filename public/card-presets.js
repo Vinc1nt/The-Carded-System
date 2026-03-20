@@ -187,6 +187,382 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'arcane_analysis',
+    card: {
+      id: 'arcane_analysis',
+      name: 'Analysis',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      rangeText: 'Touch',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Reveal properties of magical items, relics, or enchantments you are holding. Requires currency per cast. Cost scales with complexity.',
+      masteryChoiceOptions: [
+        {
+          id: 'identify_curses',
+          label: 'Can identify curses',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {}
+        },
+        {
+          id: 'intelligence_plus_1',
+          label: 'INT +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { intelligence: 1 },
+              3: { intelligence: 1 },
+              4: { intelligence: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Can identify curses or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_arcane_eye',
+    card: {
+      id: 'arcane_arcane_eye',
+      name: 'Arcane Eye',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Unveil Arcane Eye on your limb that reveals hidden enemies and traps within 15 ft. Duration 2 turns. Cannot use limb to hold items or cast while spell is active.',
+      masteryChoiceOptions: [
+        {
+          id: 'radius_to_25',
+          label: 'Radius increases to 25 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {}
+        },
+        {
+          id: 'intelligence_plus_1',
+          label: 'INT +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { intelligence: 1 },
+              3: { intelligence: 1 },
+              4: { intelligence: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Radius increases to 25 ft or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_arcane_message',
+    card: {
+      id: 'arcane_arcane_message',
+      name: 'Arcane Message',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 0,
+      rangeText: 'Unlimited',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: "Send a short message to an ally anywhere or a creature within line of sight. Recipient does not need to understand caster's language. Limited to 6 words.",
+      masteryChoiceOptions: [
+        {
+          id: 'receive_one_word_reply',
+          label: 'Can receive 1-word answer',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {}
+        },
+        {
+          id: 'charisma_plus_1',
+          label: 'CHA +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { charisma: 1 },
+              3: { charisma: 1 },
+              4: { charisma: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Can receive 1-word answer or CHA +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_arcane_sense',
+    card: {
+      id: 'arcane_arcane_sense',
+      name: 'Arcane Sense',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Detect magic effects, hidden traps, or magical objects within 30 ft. Caster may not move for 10 minutes. Caster may be moved by external forces.',
+      masteryChoiceOptions: [
+        {
+          id: 'range_to_60',
+          label: 'Range increases to 60 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {}
+        },
+        {
+          id: 'wisdom_plus_1',
+          label: 'WIS +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { wisdom: 1 },
+              3: { wisdom: 1 },
+              4: { wisdom: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Range increases to 60 ft or WIS +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_blink_step',
+    card: {
+      id: 'arcane_blink_step',
+      name: 'Blink Step',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 3,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Teleport 15 ft. Caster must have line of sight to destination.',
+      masteryChoiceOptions: [
+        {
+          id: 'teleport_to_20',
+          label: 'Teleport increases to 20 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {}
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Teleport increases to 20 ft or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_force_push',
+    card: {
+      id: 'arcane_force_push',
+      name: 'Force Push',
+      set: 'Arcane',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Force'],
+      damage: 6,
+      damageType: 'Force',
+      effect: 'Deal 6 Force damage and push the target 10 ft.',
+      pushDistanceByLevel: {
+        1: 10
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'push_to_15',
+          label: 'Push increases to 15 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            pushDistanceByLevel: {
+              2: 15,
+              3: 15,
+              4: 15
+            }
+          }
+        },
+        {
+          id: 'strength_plus_1',
+          label: 'STR +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { strength: 1 },
+              3: { strength: 1 },
+              4: { strength: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Push increases to 15 ft or STR +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_locate_presence',
+    card: {
+      id: 'arcane_locate_presence',
+      name: 'Locate Presence',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Caster can sense the direction of the nearest hidden creature within 40 ft.',
+      masteryChoiceOptions: [
+        {
+          id: 'range_to_60',
+          label: 'Range increases to 60 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {}
+        },
+        {
+          id: 'wisdom_plus_1',
+          label: 'WIS +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { wisdom: 1 },
+              3: { wisdom: 1 },
+              4: { wisdom: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Range increases to 60 ft or WIS +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_mage_arm_tm',
+    card: {
+      id: 'arcane_mage_arm_tm',
+      name: 'Mage Arm (TM)',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Interact with objects at range (pull levers, open containers, retrieve items).',
+      masteryChoiceOptions: [
+        {
+          id: 'range_to_40',
+          label: 'Range increases to 40 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {}
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Range increases to 40 ft or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'divine_cleansing_light',
     card: {
       id: 'divine_cleansing_light',
