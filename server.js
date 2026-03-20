@@ -245,6 +245,14 @@ const STATUS_LIBRARY = [
     description:
       'Positional defense. GM adjudicates whether attacks are reduced or prevented by the available cover. Clears at the start of your next turn.',
     tags: ['Buff']
+  },
+  {
+    id: 'mind_shield',
+    name: 'Mind Shield',
+    defaultStacks: 2,
+    description:
+      'Buff. Immune to Charmed and Frightened while active. Loses 1 stack at the start of your turn.',
+    tags: ['Buff']
   }
 ];
 
@@ -1467,6 +1475,12 @@ function executeCardAction(body) {
       healAlliesOnly: zoneHealAlliesOnly
     });
     const zone = zoneDeployResult.zone;
+    if (zone.triggerOnTargetAdd && effectivePrimaryTargets.length) {
+      effectivePrimaryTargets.forEach((entry) => {
+        const events = applyZoneTargetAddTriggers(participant, zone, entry);
+        events.forEach((event) => notes.push(event));
+      });
+    }
     const durationText =
       zone.remainingTurns > 0
         ? `${zone.remainingTurns} turn${zone.remainingTurns === 1 ? '' : 's'}`
@@ -1864,6 +1878,7 @@ function executeCardAction(body) {
             ? effectivePrimaryTargets
             : [];
     if (statusTargets.length) {
+      const appliedTargets = [];
       statusTargets.forEach((statusTarget) => {
         if (statusApply.isCustom) {
           addCustomStatus(statusTarget, {
@@ -1871,13 +1886,19 @@ function executeCardAction(body) {
             stacks: statusStacks,
             notes: statusApply.notes
           });
+          appliedTargets.push(statusTarget.name);
         } else {
-          addStatusStacks(statusTarget, statusApply.id, statusStacks);
+          if (addStatusStacks(statusTarget, statusApply.id, statusStacks)) {
+            appliedTargets.push(statusTarget.name);
+          }
         }
         enforceControlHierarchy(statusTarget);
       });
-      const names = statusTargets.map((entry) => entry.name).join(', ');
-      notes.push(`Applies ${statusApply.name || statusDisplayName(statusApply.id)} ${statusStacks} to ${names}.`);
+      if (appliedTargets.length) {
+        notes.push(
+          `Applies ${statusApply.name || statusDisplayName(statusApply.id)} ${statusStacks} to ${appliedTargets.join(', ')}.`
+        );
+      }
       if (hasElemental10 && !elemental.burstUsedTurn) {
         const burstTargets = Array.from(
           new Map(
@@ -2484,6 +2505,9 @@ function sanitizeParticipantUpdate(body, current) {
   if (Array.isArray(body.vulnerabilities)) {
     update.vulnerabilities = normalizeDamageTypes(body.vulnerabilities);
   }
+  if (Array.isArray(body.immunities)) {
+    update.immunities = normalizeImmunities(body.immunities);
+  }
   if (body.setRuntime && typeof body.setRuntime === 'object') {
     update.setRuntime = normalizeSetRuntime(body.setRuntime);
   }
@@ -2528,6 +2552,7 @@ function createParticipant(body = {}) {
     achievements: normalizeJournalEntries(body.achievements, 'achievement'),
     resistances: normalizeDamageTypes(body.resistances),
     vulnerabilities: normalizeDamageTypes(body.vulnerabilities),
+    immunities: normalizeImmunities(body.immunities),
     notes: body.notes || '',
     setFocus: body.setFocus || '',
     stats: {
@@ -2808,6 +2833,7 @@ function detectStatusType(status) {
     if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
     if (token.includes('halfcover')) return 'half_cover';
+    if (token.includes('mindshield')) return 'mind_shield';
   }
   return null;
 }
@@ -2878,7 +2904,8 @@ function statusDisplayName(type) {
     charmed: 'Charmed',
     frightened: 'Frightened',
     suppressed: 'Suppressed',
-    half_cover: 'Half Cover'
+    half_cover: 'Half Cover',
+    mind_shield: 'Mind Shield'
   };
   return labels[type] || type;
 }
@@ -2898,8 +2925,11 @@ const KNOWN_STATUS_TYPES = [
   'charmed',
   'frightened',
   'suppressed',
-  'half_cover'
+  'half_cover',
+  'mind_shield'
 ];
+
+const MIND_SHIELD_IMMUNITIES = ['Charmed', 'Frightened'];
 
 function buildStatusMergeKey(status, fallbackIndex = 0) {
   const type = detectStatusType(status);
@@ -2929,7 +2959,11 @@ function normalizeStatuses(statuses = []) {
       });
       return;
     }
-    existing.stacks += stacks;
+    if (type) {
+      existing.stacks += stacks;
+    } else {
+      existing.stacks = Math.max(existing.stacks, stacks);
+    }
     if (!existing.notes && rawStatus.notes) {
       existing.notes = rawStatus.notes;
     }
@@ -2948,6 +2982,9 @@ function setStatusStacks(participant, type, stacks) {
   }
   const matches = getStatusesByType(participant.statuses, type);
   const nextStacks = Math.max(0, Number(stacks || 0));
+  if (nextStacks > 0 && isStatusImmune(participant, type)) {
+    return false;
+  }
   if (!matches.length) {
     if (nextStacks > 0) {
       participant.statuses.push({
@@ -2958,14 +2995,14 @@ function setStatusStacks(participant, type, stacks) {
         notes: ''
       });
     }
-    return;
+    return nextStacks > 0;
   }
   const [first, ...rest] = matches;
   if (nextStacks <= 0) {
     [first, ...rest]
       .sort((a, b) => b.index - a.index)
       .forEach((entry) => participant.statuses.splice(entry.index, 1));
-    return;
+    return true;
   }
   first.status.stacks = nextStacks;
   if (!first.status.name) first.status.name = statusDisplayName(type);
@@ -2973,12 +3010,13 @@ function setStatusStacks(participant, type, stacks) {
   rest
     .sort((a, b) => b.index - a.index)
     .forEach((entry) => participant.statuses.splice(entry.index, 1));
+  return true;
 }
 
 function addStatusStacks(participant, type, amount = 1) {
   const existing = getStatusStacks(participant, type);
   const increment = Math.max(1, Number(amount || 1));
-  setStatusStacks(participant, type, existing + increment);
+  return setStatusStacks(participant, type, existing + increment);
 }
 
 function enforceControlHierarchy(participant) {
@@ -3114,16 +3152,6 @@ function applyStartOfTurnStatusEffects(participant) {
     setStatusStacks(participant, type, nextStacks[type] || 0);
   });
 
-  // Also decay custom/unknown statuses by 1 stack.
-  participant.statuses = participant.statuses
-    .map((status) => {
-      if (detectStatusType(status)) return status;
-      const stacks = Math.max(0, Number(status.stacks || 1) - 1);
-      if (stacks <= 0) return null;
-      return { ...status, stacks };
-    })
-    .filter(Boolean);
-
   // Re-apply hierarchy after all mutations.
   enforceControlHierarchy(participant);
 
@@ -3157,10 +3185,11 @@ function applyConstructStartOfTurnEffects(participant) {
         name: refreshed.statusName
       });
       if (statusType) {
-        addStatusStacks(target, statusType, stacks);
-        events.push(
-          `${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${target.name}.`
-        );
+        if (addStatusStacks(target, statusType, stacks)) {
+          events.push(
+            `${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${target.name}.`
+          );
+        }
       } else {
         const statusName = String(refreshed.statusName || refreshed.statusId || 'Status').trim();
         target.statuses = normalizeStatuses([...(target.statuses || []), {
@@ -3318,11 +3347,12 @@ function applyIncomingConstructTurnEffects(participant) {
           name: refreshed.statusName
         });
         if (statusType) {
-          addStatusStacks(participant, statusType, stacks);
-          enforceControlHierarchy(participant);
-          events.push(
-            `${owner.name}'s ${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${participant.name}.`
-          );
+          if (addStatusStacks(participant, statusType, stacks)) {
+            enforceControlHierarchy(participant);
+            events.push(
+              `${owner.name}'s ${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${participant.name}.`
+            );
+          }
         }
         const forceDamage = Math.max(0, Number(refreshed.damage || 0));
         if (forceDamage > 0) {
@@ -3417,6 +3447,8 @@ function applyZoneTurnEffects(participant, zone) {
   if (!entry) return [`${participant.name}'s zone no longer exists.`];
   const tickOnTurn = entry.tickOnTurn !== false;
   const turnStatusType = detectStatusType({ presetId: entry.statusId, name: entry.statusName });
+  const turnStatusName = String(entry.statusName || entry.statusId || '').trim();
+  const turnStatusNotes = String(entry.statusNotes || '').trim();
   const turnStatusStacks = Math.max(1, Number(entry.statusStacks || 1));
   const targets = (entry.targetIds || [])
     .map((id) => findParticipant(id))
@@ -3452,12 +3484,23 @@ function applyZoneTurnEffects(participant, zone) {
         `${participant.name}'s zone ${entry.name} hits ${target.name} for ${result.finalDamage} ${entry.damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
       );
     }
-    if (tickOnTurn && turnStatusType && !(allied && nature5)) {
-      addStatusStacks(target, turnStatusType, turnStatusStacks);
-      enforceControlHierarchy(target);
-      events.push(
-        `${participant.name}'s zone ${entry.name} applies ${statusDisplayName(turnStatusType)} ${turnStatusStacks} to ${target.name}.`
-      );
+    if (tickOnTurn && (turnStatusType || turnStatusName) && !(allied && nature5)) {
+      if (turnStatusType) {
+        addStatusStacks(target, turnStatusType, turnStatusStacks);
+        enforceControlHierarchy(target);
+        events.push(
+          `${participant.name}'s zone ${entry.name} applies ${statusDisplayName(turnStatusType)} ${turnStatusStacks} to ${target.name}.`
+        );
+      } else {
+        addCustomStatus(target, {
+          name: turnStatusName,
+          stacks: turnStatusStacks,
+          notes: turnStatusNotes
+        });
+        events.push(
+          `${participant.name}'s zone ${entry.name} applies ${turnStatusName} ${turnStatusStacks} to ${target.name}.`
+        );
+      }
     }
     if (zoneShieldRestore > 0 && (!entry.shieldRestoreAlliesOnly || allied)) {
       const beforeShield = target.shield;
@@ -3518,15 +3561,28 @@ function applyZoneTargetAddTriggers(participant, zone, target) {
     );
   }
   const enterStatusType = detectStatusType({ presetId: entry.enterStatusId, name: entry.enterStatusName });
+  const enterStatusName = String(entry.enterStatusName || entry.enterStatusId || '').trim();
+  const enterStatusNotes = String(entry.enterStatusNotes || '').trim();
   const enterStatusStacks = Math.max(1, Number(entry.enterStatusStacks || 1));
-  if (enterStatusType && !blockedByNature) {
-    addStatusStacks(target, enterStatusType, enterStatusStacks);
-    enforceControlHierarchy(target);
-    events.push(
-      `${participant.name}'s zone ${entry.name} applies ${statusDisplayName(enterStatusType)} ${enterStatusStacks} to ${target.name}.`
-    );
+  if ((enterStatusType || enterStatusName) && !blockedByNature) {
+    if (enterStatusType) {
+      addStatusStacks(target, enterStatusType, enterStatusStacks);
+      enforceControlHierarchy(target);
+      events.push(
+        `${participant.name}'s zone ${entry.name} applies ${statusDisplayName(enterStatusType)} ${enterStatusStacks} to ${target.name}.`
+      );
+    } else {
+      addCustomStatus(target, {
+        name: enterStatusName,
+        stacks: enterStatusStacks,
+        notes: enterStatusNotes
+      });
+      events.push(
+        `${participant.name}'s zone ${entry.name} applies ${enterStatusName} ${enterStatusStacks} to ${target.name}.`
+      );
+    }
   }
-  if (blockedByNature && (enterDamage > 0 || enterStatusType)) {
+  if (blockedByNature && (enterDamage > 0 || enterStatusType || enterStatusName)) {
     events.push(`${participant.name}'s zone ${entry.name} does not trigger on ally ${target.name}.`);
   }
   if (entry.consumeOnTrigger === true) {
@@ -4291,6 +4347,7 @@ function normalizeZones(list = [], ownerId = '') {
         tickOnTurn: entry.tickOnTurn !== false,
         statusId: String(entry.statusId || '').trim(),
         statusName: String(entry.statusName || '').trim(),
+        statusNotes: String(entry.statusNotes || '').trim(),
         statusStacks: Number.isFinite(Number(entry.statusStacks))
           ? Math.max(1, Math.round(Number(entry.statusStacks)))
           : 1,
@@ -4302,6 +4359,7 @@ function normalizeZones(list = [], ownerId = '') {
         enterDamageType: String(entry.enterDamageType || entry.damageType || '').trim(),
         enterStatusId: String(entry.enterStatusId || '').trim(),
         enterStatusName: String(entry.enterStatusName || '').trim(),
+        enterStatusNotes: String(entry.enterStatusNotes || '').trim(),
         enterStatusStacks: Number.isFinite(Number(entry.enterStatusStacks))
           ? Math.max(1, Math.round(Number(entry.enterStatusStacks)))
           : 1,
@@ -4645,12 +4703,64 @@ function hasDamageTypeEntry(list = [], type = '') {
   return (list || []).some((entry) => String(entry || '').trim().toLowerCase() === target);
 }
 
+function normalizeImmunityToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+function normalizeImmunities(list = []) {
+  if (!Array.isArray(list)) return [];
+  const normalized = [];
+  for (const entry of list) {
+    const value = String(entry || '').trim();
+    if (!value) continue;
+    const token = normalizeImmunityToken(value);
+    if (!token) continue;
+    if (!normalized.some((current) => normalizeImmunityToken(current) === token)) {
+      normalized.push(value);
+    }
+  }
+  return normalized;
+}
+
+function getEffectiveImmunities(participant = {}) {
+  const combined = normalizeImmunities(participant.immunities);
+  if (getStatusStacks(participant, 'mind_shield') > 0) {
+    return normalizeImmunities([...combined, ...MIND_SHIELD_IMMUNITIES]);
+  }
+  return combined;
+}
+
+function hasImmunityEntry(list = [], value = '') {
+  const target = normalizeImmunityToken(value);
+  if (!target) return false;
+  return (list || []).some((entry) => normalizeImmunityToken(entry) === target);
+}
+
+function hasParticipantImmunity(participant = {}, value = '') {
+  return hasImmunityEntry(getEffectiveImmunities(participant), value);
+}
+
+function isStatusImmune(participant = {}, type = '') {
+  const normalizedType = String(type || '').trim();
+  if (!normalizedType) return false;
+  return (
+    hasParticipantImmunity(participant, normalizedType) ||
+    hasParticipantImmunity(participant, statusDisplayName(normalizedType))
+  );
+}
+
 function applyCardDamageWithType(target, rawDamage, damageType = '') {
   const baseDamage = Math.max(0, Number(rawDamage || 0));
+  const immune = hasParticipantImmunity(target, damageType);
   const resisted = hasDamageTypeEntry(target.resistances, damageType);
   const vulnerable = hasDamageTypeEntry(target.vulnerabilities, damageType);
   let finalDamage = baseDamage;
-  if (resisted && !vulnerable) {
+  if (immune) {
+    finalDamage = 0;
+  } else if (resisted && !vulnerable) {
     finalDamage = Math.floor(baseDamage / 2);
   } else if (vulnerable && !resisted) {
     finalDamage = baseDamage * 2;
@@ -4676,6 +4786,7 @@ function applyCardDamageWithType(target, rawDamage, damageType = '') {
   return {
     baseDamage,
     finalDamage,
+    immune,
     shieldDamage,
     hpDamage,
     resisted,
@@ -5138,16 +5249,29 @@ function addCustomStatus(participant, status = {}) {
   if (!participant || !status || typeof status !== 'object') return;
   const name = String(status.name || '').trim();
   if (!name) return;
-  participant.statuses = normalizeStatuses([
-    ...(participant.statuses || []),
-    {
-      id: randomUUID(),
-      presetId: '',
-      name,
-      stacks: Math.max(1, Number(status.stacks || 1)),
-      notes: String(status.notes || '').trim()
-    }
-  ]);
+  participant.statuses = normalizeStatuses(participant.statuses);
+  const token = normalizeStatusToken(name);
+  const current = Array.isArray(participant.statuses) ? [...participant.statuses] : [];
+  const existingIndex = current.findIndex((entry) => {
+    if (detectStatusType(entry)) return false;
+    return normalizeStatusToken(entry?.name || entry?.presetId || entry?.id || '') === token;
+  });
+  const nextStatus = {
+    id: existingIndex >= 0 ? current[existingIndex].id || randomUUID() : randomUUID(),
+    presetId: '',
+    name,
+    stacks: Math.max(
+      existingIndex >= 0 ? Number(current[existingIndex].stacks || 1) : 1,
+      Number(status.stacks || 1)
+    ),
+    notes: String(status.notes || current[existingIndex]?.notes || '').trim()
+  };
+  if (existingIndex >= 0) {
+    current[existingIndex] = nextStatus;
+  } else {
+    current.push(nextStatus);
+  }
+  participant.statuses = normalizeStatuses(current);
 }
 
 function resolveStatusStacksForCard(statusApply, deps = {}) {
@@ -5410,14 +5534,16 @@ function deployZoneFromCard(participant, card, options = {}) {
     remainingTurns,
     tickOnTurn: options.tickOnTurn !== false,
     statusId: String(statusApply?.id || '').trim(),
-    statusName: statusApply?.id ? statusDisplayName(statusApply.id) : '',
+    statusName: statusApply?.id ? statusDisplayName(statusApply.id) : String(statusApply?.name || '').trim(),
+    statusNotes: String(statusApply?.notes || '').trim(),
     statusStacks: Math.max(1, Number(statusApply?.stacks || 1)),
     triggerOnTargetAdd: options.triggerOnTargetAdd === true,
     consumeOnTrigger: options.consumeOnTrigger === true,
     enterDamage: Math.max(0, Number(options.enterDamage || 0)),
     enterDamageType: String(options.enterDamageType || options.damageType || card?.damageType || '').trim(),
     enterStatusId: String(enterStatusApply?.id || '').trim(),
-    enterStatusName: enterStatusApply?.id ? statusDisplayName(enterStatusApply.id) : '',
+    enterStatusName: enterStatusApply?.id ? statusDisplayName(enterStatusApply.id) : String(enterStatusApply?.name || '').trim(),
+    enterStatusNotes: String(enterStatusApply?.notes || '').trim(),
     enterStatusStacks: Math.max(1, Number(enterStatusApply?.stacks || 1)),
     shieldRestore,
     heal,
@@ -5637,6 +5763,7 @@ function recalculateParticipant(participant) {
   enforceControlHierarchy(participant);
   participant.resistances = normalizeDamageTypes(participant.resistances);
   participant.vulnerabilities = normalizeDamageTypes(participant.vulnerabilities);
+  participant.immunities = normalizeImmunities(participant.immunities);
   const base = ensureBaseStats(participant);
   const totals = createZeroModifier();
   const abilityBonuses = createZeroAbilityBonuses();

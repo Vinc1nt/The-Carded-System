@@ -563,6 +563,136 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'arcane_gravity_spike',
+    card: {
+      id: 'arcane_gravity_spike',
+      name: 'Gravity Spike',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      damage: 1,
+      effect: 'Create Gravity Zone (Radius 10 ft). Creatures inside move at half speed and take 1 damage each turn. Duration 2 turns.',
+      utilityNote: 'Manually assign creatures inside the zone. Remove the Gravity Spike status manually when a creature leaves the zone.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      statusApply: {
+        name: 'Gravity Spike',
+        notes: 'Move at half speed while inside Gravity Zone.',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      zoneEnterStatusApply: {
+        name: 'Gravity Spike',
+        notes: 'Move at half speed while inside Gravity Zone.',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'radius_to_15',
+          label: 'Radius increases to 15 ft',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            zoneRadiusByLevel: {
+              2: 15,
+              3: 15,
+              4: 15
+            }
+          }
+        },
+        {
+          id: 'intelligence_plus_1',
+          label: 'INT +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { intelligence: 1 },
+              3: { intelligence: 1 },
+              4: { intelligence: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Radius increases to 15 ft or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_mind_shield',
+    card: {
+      id: 'arcane_mind_shield',
+      name: 'Mind Shield',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Gain immunity to Charmed and Frightened. Duration 2 turns.',
+      statusApply: {
+        id: 'mind_shield',
+        stacksByLevel: {
+          1: 2
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'gain_2_shield',
+          label: 'Gain 2 Shield as well',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            shieldRestoreByLevel: {
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        },
+        {
+          id: 'wisdom_plus_1',
+          label: 'WIS +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { wisdom: 1 },
+              3: { wisdom: 1 },
+              4: { wisdom: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Gain 2 Shield as well or WIS +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'divine_cleansing_light',
     card: {
       id: 'divine_cleansing_light',

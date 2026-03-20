@@ -396,6 +396,12 @@ function renderCharacterCreator() {
           </select>
           <small class="muted">Use Cmd/Ctrl-click to select multiple.</small>
         </label>
+        <label>Immunities
+          <select name="immunities" multiple size="8">
+            ${renderImmunityOptions(false)}
+          </select>
+          <small class="muted">Use Cmd/Ctrl-click to select multiple.</small>
+        </label>
         <label>Notes
           <textarea name="notes" rows="2" placeholder="Backstory, reminders, etc."></textarea>
         </label>
@@ -522,6 +528,7 @@ function buildParticipantFromCreateForm(formData) {
   const apMax = Number(formData.get('apMax') || 0);
   const resistances = dedupeTypes(formData.getAll('resistances'));
   const vulnerabilities = dedupeTypes(formData.getAll('vulnerabilities'));
+  const immunities = dedupeTypes(formData.getAll('immunities'));
   return {
     name: formData.get('name')?.trim() || 'New Character',
     team: formData.get('team') || '',
@@ -536,7 +543,8 @@ function buildParticipantFromCreateForm(formData) {
     stats,
     notes: formData.get('notes') || '',
     resistances,
-    vulnerabilities
+    vulnerabilities,
+    immunities
   };
 }
 
@@ -728,14 +736,15 @@ function renderPlayerZoneSection() {
 function renderPlayerDamageSection(participant, manageMode = false) {
   return `
     <details class="player-collapsible" data-player-section="mitigation">
-      <summary><strong>Resistances & Vulnerabilities</strong></summary>
+      <summary><strong>Resistances, Vulnerabilities, & Immunities</strong></summary>
       <div class="collapsible-body">
         <div class="section-header">
-          <h4>Resistances & Vulnerabilities</h4>
+          <h4>Resistances, Vulnerabilities, & Immunities</h4>
           <button type="button" data-player-toggle-mitigation-manage>${manageMode ? 'Done' : 'Manage'}</button>
         </div>
         ${renderPlayerDamageGroup('Resistances', participant.resistances, 'resistance', manageMode)}
         ${renderPlayerDamageGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability', manageMode)}
+        ${renderPlayerDamageGroup('Immunities', getPlayerImmunityEntries(participant), 'immunity', manageMode)}
         ${
           manageMode
             ? `
@@ -756,30 +765,59 @@ function renderPlayerDamageSection(participant, manageMode = false) {
                 </label>
                 <button type="submit">Add</button>
               </form>
+              <form data-immunity-form class="stacked-form compact-form">
+                <label class="compact-label">Add Immunity
+                  <select name="immunity">
+                    ${renderImmunityOptions(true)}
+                  </select>
+                </label>
+                <button type="submit">Add</button>
+              </form>
             </div>
           `
             : ''
         }
-        <p class="muted">Resistances halve incoming damage; vulnerabilities double it. Recover (2 AP) removes 1 stack of Bleeding/Poisoned/Burning.</p>
+        <p class="muted">Resistances halve incoming damage; vulnerabilities double it. Immunities prevent matching damage or status effects while active. Recover (2 AP) removes 1 stack of Bleeding/Poisoned/Burning.</p>
       </div>
     </details>
   `;
 }
 
 function renderPlayerDamageGroup(label, values = [], key, manageMode = false) {
-  const list = (values || [])
+  const entries = (values || []).map((value, index) =>
+    typeof value === 'object' && value !== null
+      ? {
+          label: String(value.label || '').trim(),
+          removeIndex: Number.isInteger(value.removeIndex) ? value.removeIndex : index,
+          removable: value.removable !== false
+        }
+      : {
+          label: String(value || '').trim(),
+          removeIndex: index,
+          removable: true
+        }
+  );
+  const list = entries
+    .filter((entry) => entry.label)
     .map(
-      (value, index) => `
+      (entry) => `
         <span class="tag-pill">
-          ${value}
-          ${manageMode ? `<button type="button" aria-label="Remove" data-player-remove-${key}="${index}">×</button>` : ''}
+          ${escapeHtml(entry.label)}
+          ${manageMode && entry.removable ? `<button type="button" aria-label="Remove" data-player-remove-${key}="${entry.removeIndex}">×</button>` : ''}
         </span>`
     )
     .join('');
+  const helperText =
+    key === 'resistance'
+      ? 'Halves incoming damage'
+      : key === 'vulnerability'
+        ? 'Doubles incoming damage'
+        : 'Prevents matching damage or status effects';
   return `
     <div class="damage-group">
       <div class="damage-group-header">
         <h4>${label}</h4>
+        <small class="muted">${helperText}</small>
       </div>
       <div class="tag-list">
         ${list || '<span class="muted">None</span>'}
@@ -2667,6 +2705,10 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (removeStatusCount > 0) {
     parts.push(`Remove up to ${removeStatusCount} status effect${removeStatusCount === 1 ? '' : 's'}.`);
   }
+  const utilityNote = String(card.utilityNote || '').trim();
+  if (utilityNote) {
+    parts.push(utilityNote);
+  }
   if (parts.length) {
     return parts.join(' ');
   }
@@ -3864,6 +3906,13 @@ function wirePlayerSheetEvents(participant) {
     button.onclick = () =>
       handlePlayerDamageRemove(participant, 'vulnerabilities', Number(button.dataset.playerRemoveVulnerability));
   });
+  panel.querySelector('[data-immunity-form]')?.addEventListener('submit', (event) =>
+    handlePlayerDamageForm(event, participant, 'immunities', 'immunity')
+  );
+  panel.querySelectorAll('[data-player-remove-immunity]').forEach((button) => {
+    button.onclick = () =>
+      handlePlayerDamageRemove(participant, 'immunities', Number(button.dataset.playerRemoveImmunity));
+  });
 
   const abilityForm = panel.querySelector('[data-player-ability-form]');
   abilityForm?.addEventListener('submit', async (event) => {
@@ -4665,6 +4714,43 @@ function dedupeTypes(list = []) {
   return normalized;
 }
 
+function normalizeMitigationToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+function getPlayerDerivedImmunities(participant = {}) {
+  const hasMindShield = (participant?.statuses || []).some((status) => {
+    const token = normalizeMitigationToken(status?.presetId || status?.name || status?.id || '');
+    return token === 'mindshield';
+  });
+  return hasMindShield ? ['Charmed', 'Frightened'] : [];
+}
+
+function getPlayerImmunityEntries(participant = {}) {
+  const manual = (participant?.immunities || []).map((value, index) => ({
+    label: String(value || '').trim(),
+    removeIndex: index,
+    removable: true
+  }));
+  const taken = new Set(manual.map((entry) => normalizeMitigationToken(entry.label)));
+  const derived = getPlayerDerivedImmunities(participant)
+    .filter((value) => {
+      const token = normalizeMitigationToken(value);
+      if (!token || taken.has(token)) return false;
+      taken.add(token);
+      return true;
+    })
+    .map((value) => ({
+      label: value,
+      removeIndex: -1,
+      removable: false
+    }));
+  return [...manual, ...derived];
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -4680,6 +4766,13 @@ function renderDamageTypeOptions(includePlaceholder = false) {
     options +
     DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')
   );
+}
+
+function renderImmunityOptions(includePlaceholder = false) {
+  const statusNames = (state.reference?.statuses || []).map((entry) => String(entry?.name || '').trim()).filter(Boolean);
+  const values = dedupeTypes([...DAMAGE_TYPES, ...statusNames]);
+  const options = includePlaceholder ? '<option value="">Select immunity…</option>' : '';
+  return options + values.map((value) => `<option value="${value}">${value}</option>`).join('');
 }
 
 function downloadJson(data, filename) {

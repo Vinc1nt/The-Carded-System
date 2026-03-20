@@ -1134,12 +1134,13 @@ function renderMitigationSection(participant) {
   return `
     <details class="collapsible-block" data-section="mitigation">
       <summary>
-        <strong>Resistances & Vulnerabilities</strong>
+        <strong>Resistances, Vulnerabilities, & Immunities</strong>
       </summary>
       <div class="collapsible-body">
         ${renderMitigationGroup('Resistances', participant.resistances, 'resistance')}
         ${renderMitigationGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
-        <p class="muted small-note">Resistances halve incoming damage; vulnerabilities double it. Recover (2 AP) removes 1 stack of Bleeding, Poisoned, or Burning.</p>
+        ${renderMitigationGroup('Immunities', getMitigationImmunityEntries(participant), 'immunity')}
+        <p class="muted small-note">Resistances halve incoming damage; vulnerabilities double it. Immunities prevent matching damage or status effects while active. Recover (2 AP) removes 1 stack of Bleeding, Poisoned, or Burning.</p>
       </div>
     </details>
   `;
@@ -1255,28 +1256,50 @@ function renderInventoryEntries(participant) {
 }
 
 function renderMitigationGroup(label, values = [], key) {
-  const list = (values || [])
+  const entries = (values || []).map((value, index) =>
+    typeof value === 'object' && value !== null
+      ? {
+          label: String(value.label || '').trim(),
+          removeIndex: Number.isInteger(value.removeIndex) ? value.removeIndex : index,
+          removable: value.removable !== false
+        }
+      : {
+          label: String(value || '').trim(),
+          removeIndex: index,
+          removable: true
+        }
+  );
+  const list = entries
+    .filter((entry) => entry.label)
     .map(
-      (value, index) => `
+      (entry) => `
         <span class="tag-pill">
-          ${value}
-          <button type="button" aria-label="Remove" data-remove-${key}="${index}">×</button>
+          ${escapeHtml(entry.label)}
+          ${entry.removable ? `<button type="button" aria-label="Remove" data-remove-${key}="${entry.removeIndex}">×</button>` : ''}
         </span>`
     )
     .join('');
+  const helperText =
+    key === 'resistance'
+      ? 'Halves incoming damage'
+      : key === 'vulnerability'
+        ? 'Doubles incoming damage'
+        : 'Prevents matching damage or status effects';
+  const selectOptions = key === 'immunity' ? renderImmunityOptions(true) : renderDamageTypeOptions(true);
+  const singularLabel = key === 'immunity' ? 'Immunity' : label.slice(0, -1);
   return `
     <div class="damage-group">
       <div class="damage-group-header">
         <h4>${label}</h4>
-        <small class="muted">${key === 'resistance' ? 'Halves incoming damage' : 'Doubles incoming damage'}</small>
+        <small class="muted">${helperText}</small>
       </div>
       <div class="tag-list">
         ${list || '<span class="muted">None</span>'}
       </div>
       <form data-form="${key}">
-        <label class="compact-label">Add ${label.slice(0, -1)}
+        <label class="compact-label">Add ${singularLabel}
           <select name="${key}">
-            ${renderDamageTypeOptions(true)}
+            ${selectOptions}
           </select>
         </label>
         <button type="submit">Add</button>
@@ -2030,6 +2053,50 @@ function renderDamageTypeOptions(includePlaceholder = false) {
     options +
     DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')
   );
+}
+
+function normalizeMitigationToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+function getDerivedImmunities(participant = {}) {
+  const hasMindShield = (participant?.statuses || []).some((status) => {
+    const token = normalizeMitigationToken(status?.presetId || status?.name || status?.id || '');
+    return token === 'mindshield';
+  });
+  return hasMindShield ? ['Charmed', 'Frightened'] : [];
+}
+
+function getMitigationImmunityEntries(participant = {}) {
+  const manual = (participant?.immunities || []).map((value, index) => ({
+    label: String(value || '').trim(),
+    removeIndex: index,
+    removable: true
+  }));
+  const taken = new Set(manual.map((entry) => normalizeMitigationToken(entry.label)));
+  const derived = getDerivedImmunities(participant)
+    .filter((value) => {
+      const token = normalizeMitigationToken(value);
+      if (!token || taken.has(token)) return false;
+      taken.add(token);
+      return true;
+    })
+    .map((value) => ({
+      label: value,
+      removeIndex: -1,
+      removable: false
+    }));
+  return [...manual, ...derived];
+}
+
+function renderImmunityOptions(includePlaceholder = false) {
+  const statusNames = (state.reference?.statuses || []).map((entry) => String(entry?.name || '').trim()).filter(Boolean);
+  const values = Array.from(new Set([...DAMAGE_TYPES, ...statusNames]));
+  const options = includePlaceholder ? '<option value="">Select immunity…</option>' : '';
+  return options + values.map((value) => `<option value="${value}">${value}</option>`).join('');
 }
 
 function renderBaseStatsPanel(participant) {
@@ -3326,6 +3393,15 @@ function wireDetailEvents(participant) {
       handleMitigationRemove(participant, 'vulnerabilities', Number(button.dataset.removeVulnerability))
     );
   });
+  const immunityForm = panel.querySelector('[data-form="immunity"]');
+  immunityForm?.addEventListener('submit', (event) =>
+    handleMitigationSubmit(event, participant, 'immunities', 'immunity')
+  );
+  panel.querySelectorAll('[data-remove-immunity]').forEach((button) => {
+    button.addEventListener('click', () =>
+      handleMitigationRemove(participant, 'immunities', Number(button.dataset.removeImmunity))
+    );
+  });
 
   const abilityForm = panel.querySelector('[data-form="ability"]');
   abilityForm?.addEventListener('submit', async (event) => {
@@ -4141,6 +4217,10 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   );
   if (removeStatusCount > 0) {
     parts.push(`Remove up to ${removeStatusCount} status effect${removeStatusCount === 1 ? '' : 's'}.`);
+  }
+  const utilityNote = String(card.utilityNote || '').trim();
+  if (utilityNote) {
+    parts.push(utilityNote);
   }
   if (parts.length) {
     return parts.join(' ');
