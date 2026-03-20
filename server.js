@@ -80,7 +80,7 @@ const STANDARD_ACTIONS = {
   },
   half_cover: {
     id: 'half_cover',
-    label: 'Duck Behind Half Cover',
+    label: 'Duck',
     summary: '1 AP: Gain Half Cover until the start of your next turn.',
     apCost: 1,
     logText: 'ducks behind half cover.'
