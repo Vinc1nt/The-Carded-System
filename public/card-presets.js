@@ -1526,6 +1526,526 @@ export const CARD_PRESETS = [
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
     }
+  },
+  {
+    id: 'elemental_fire_bolt',
+    card: {
+      id: 'elemental_fire_bolt',
+      name: 'Fire Bolt',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 6,
+      damageType: 'Fire',
+      effect: 'Deal 6 Fire damage. Apply Burning 1.',
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'burning_to_2',
+          label: 'Burning increases to 2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        },
+        {
+          id: 'intelligence_plus_1',
+          label: 'INT +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { intelligence: 1 },
+              3: { intelligence: 1 },
+              4: { intelligence: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Burning increases to 2 or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_ice_shard',
+    card: {
+      id: 'elemental_ice_shard',
+      name: 'Ice Shard',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Cold'],
+      damage: 6,
+      damageType: 'Cold',
+      effect: 'Deal 6 Cold damage. Apply Rooted 1.',
+      statusApply: {
+        id: 'rooted',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_7',
+          label: 'Damage increases to 7',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 7,
+              3: 7,
+              4: 7
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 7 or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_lightning_spark',
+    card: {
+      id: 'elemental_lightning_spark',
+      name: 'Lightning Spark',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Lightning'],
+      damage: 6,
+      damageType: 'Lightning',
+      effect: 'Deal 6 Lightning damage.',
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_7',
+          label: 'Damage increases to 7',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 7,
+              3: 7,
+              4: 7
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 7 or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_jolt',
+    card: {
+      id: 'elemental_jolt',
+      name: 'Jolt',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 1,
+      range: 15,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Lightning'],
+      damage: 3,
+      damageType: 'Lightning',
+      effect: 'Deal 3 Lightning damage.',
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_4',
+          label: 'Damage increases to 4',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 4,
+              3: 4,
+              4: 4
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 4 or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_flame_wave',
+    card: {
+      id: 'elemental_flame_wave',
+      name: 'Flame Wave',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 15,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 8,
+      damageType: 'Fire',
+      effect: 'Deal 8 Fire damage. Apply Burning 2.',
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 2
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'burning_to_3',
+          label: 'Burning increases to 3',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 3,
+              3: 3,
+              4: 3
+            }
+          }
+        },
+        {
+          id: 'intelligence_plus_1',
+          label: 'INT +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { intelligence: 1 },
+              3: { intelligence: 1 },
+              4: { intelligence: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Burning increases to 3 or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_chain_lightning',
+    card: {
+      id: 'elemental_chain_lightning',
+      name: 'Chain Lightning',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Lightning'],
+      damage: 6,
+      damageType: 'Lightning',
+      targetMode: 'multi_select',
+      multiTargetMax: 3,
+      effect: 'Deal 6 Lightning damage to up to 3 targets.',
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_7',
+          label: 'Damage increases to 7 each',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 7,
+              3: 7,
+              4: 7
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 7 each or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_fire_ring',
+    card: {
+      id: 'elemental_fire_ring',
+      name: 'Fire Ring',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 4,
+      damageType: 'Fire',
+      effect: 'Create a Fire Zone (Radius 10 ft). Enemies inside take 4 Fire damage per turn for 2 turns.',
+      utilityNote: 'Manually select enemies inside the zone to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_5',
+          label: 'Zone damage increases to 5',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 5,
+              3: 5,
+              4: 5
+            }
+          }
+        },
+        {
+          id: 'intelligence_plus_1',
+          label: 'INT +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { intelligence: 1 },
+              3: { intelligence: 1 },
+              4: { intelligence: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Zone damage increases to 5 or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_ice_lance',
+    card: {
+      id: 'elemental_ice_lance',
+      name: 'Ice Lance',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Cold'],
+      damage: 7,
+      damageType: 'Cold',
+      effect: 'Deal 7 Cold damage. Apply Rooted 2.',
+      statusApply: {
+        id: 'rooted',
+        stacksByLevel: {
+          1: 2
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_8',
+          label: 'Damage increases to 8',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 8,
+              3: 8,
+              4: 8
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_1',
+          label: 'DEX +1',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 1 },
+              3: { dexterity: 1 },
+              4: { dexterity: 1 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 8 or DEX +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_blizzard',
+    card: {
+      id: 'elemental_blizzard',
+      name: 'Blizzard',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 30,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Cold'],
+      damage: 8,
+      damageType: 'Cold',
+      effect: 'Deal 8 Cold damage to enemies within Radius 15 ft. Apply Rooted 1.',
+      utilityNote: 'Manually select enemies within the 15 ft radius.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      statusApply: {
+        id: 'rooted',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'rooted_to_2',
+          label: 'Rooted increases to 2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_2',
+          label: 'DEX +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 2 },
+              3: { dexterity: 2 },
+              4: { dexterity: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Rooted increases to 2 or DEX +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
   }
 ];
 
