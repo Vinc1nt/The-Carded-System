@@ -247,6 +247,250 @@ export const CARD_PRESETS = [
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
     }
+  },
+  {
+    id: 'nature_healing_touch',
+    card: {
+      id: 'nature_healing_touch',
+      name: 'Healing Touch',
+      set: 'Nature',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      charges: 2,
+      range: 5,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Healing'],
+      effect: 'Restore 4 HP to an ally.',
+      targetAlliesOnly: true,
+      healByLevel: {
+        1: 4,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      abilityBonusesByLevel: {
+        3: {
+          wisdom: 1
+        },
+        4: {
+          wisdom: 1
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Healing increases to 6 HP.',
+        'Level 3: WIS +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'nature_light_bandage',
+    card: {
+      id: 'nature_light_bandage',
+      name: 'Light Bandage',
+      set: 'Nature',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      charges: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Healing'],
+      effect: 'Restore 5 HP and remove Bleeding.',
+      targetAlliesOnly: true,
+      healByLevel: {
+        1: 5,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      removeStatusIds: ['bleeding'],
+      abilityBonusesByLevel: {
+        3: {
+          wisdom: 1
+        },
+        4: {
+          wisdom: 1
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Healing increases to 7 HP.',
+        'Level 3: WIS +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'divine_revitalize',
+    card: {
+      id: 'divine_revitalize',
+      name: 'Revitalize',
+      set: 'Divine',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      charges: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Healing'],
+      effect: 'Restore 6 HP to an ally.',
+      targetAlliesOnly: true,
+      healByLevel: {
+        1: 6,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      abilityBonusesByLevel: {
+        3: {
+          wisdom: 1
+        },
+        4: {
+          wisdom: 1
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Healing increases to 8 HP.',
+        'Level 3: WIS +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'divine_guardian_halo',
+    card: {
+      id: 'divine_guardian_halo',
+      name: 'Guardian Halo',
+      set: 'Divine',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Grant an ally 8 Shield.',
+      targetAlliesOnly: true,
+      shieldRestoreByLevel: {
+        1: 8,
+        2: 10,
+        3: 10,
+        4: 10
+      },
+      abilityBonusesByLevel: {
+        3: {
+          wisdom: 1
+        },
+        4: {
+          wisdom: 1
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Shield increases to 10.',
+        'Level 3: WIS +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'nature_natures_renewal',
+    card: {
+      id: 'nature_natures_renewal',
+      name: "Nature's Renewal",
+      set: 'Nature',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      charges: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Healing'],
+      effect: 'Restore 4 HP to allies within Radius 10 ft.',
+      utilityNote: 'Manually select allies within the 10 ft radius.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetAlliesOnly: true,
+      healByLevel: {
+        1: 4,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      abilityBonusesByLevel: {
+        3: {
+          wisdom: 1
+        },
+        4: {
+          wisdom: 1
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Healing increases to 6 HP.',
+        'Level 3: WIS +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_healing_spring',
+    card: {
+      id: 'elemental_healing_spring',
+      name: 'Healing Spring',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      charges: 3,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Water'],
+      effect: 'Create Healing Zone (Radius 10 ft). Allies restore 4 HP each turn for 2 turns.',
+      utilityNote: 'Assign allies inside the zone to receive healing each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetAlliesOnly: true,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      zoneHealByLevel: {
+        1: 4,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      zoneHealAlliesOnly: true,
+      abilityBonusesByLevel: {
+        3: {
+          wisdom: 2
+        },
+        4: {
+          wisdom: 2
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Healing increases to 6 HP.',
+        'Level 3: WIS +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
   }
 ];
 
