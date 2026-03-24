@@ -954,6 +954,35 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'arcane_no',
+    card: {
+      id: 'arcane_no',
+      name: 'No',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Cancel a zone effect within range.',
+      targetMode: 'none',
+      customCardEffect: 'arcane_no',
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: May be used as a reaction up to 3 times before your next turn. Reaction cost becomes 4 AP and can reverse the immediately previous card; any shortfall becomes AP debt on future turns.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'divine_cleansing_light',
     card: {
       id: 'divine_cleansing_light',

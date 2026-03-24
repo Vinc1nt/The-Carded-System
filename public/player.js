@@ -1845,6 +1845,33 @@ function formatPlayerTargetableLabel(entry) {
   return entry.name || '';
 }
 
+function getPlayerEncounterZones() {
+  const entries = [];
+  for (const participant of state.encounter.participants || []) {
+    if (!participant?.id) continue;
+    for (const zone of participant.zones || []) {
+      if (!zone?.id) continue;
+      entries.push({
+        ...zone,
+        ownerId: participant.id,
+        ownerName: participant.name || 'Owner'
+      });
+    }
+  }
+  return entries.sort((left, right) => {
+    const ownerCompare = String(left.ownerName || '').localeCompare(String(right.ownerName || ''));
+    if (ownerCompare !== 0) return ownerCompare;
+    const orderCompare = Number(left.createdOrder || 0) - Number(right.createdOrder || 0);
+    if (orderCompare !== 0) return orderCompare;
+    return String(left.name || '').localeCompare(String(right.name || ''));
+  });
+}
+
+function formatPlayerZoneLabel(entry) {
+  if (!entry) return '';
+  return `${entry.name || 'Zone'} (${entry.ownerName || 'Owner'})`;
+}
+
 function isPlayerTargetableAlly(participant, target) {
   if (!participant?.id || !target?.id) return false;
   if (String(target.entityKind || '').toLowerCase() === 'construct') {
@@ -2696,6 +2723,18 @@ function formatPlayerCardTargetSelectionLabel(card = {}, multiTargetCap = 0) {
   return `Targets (up to ${multiTargetCap})`;
 }
 
+function renderPlayerCardCustomEffectControl(card = {}) {
+  const effectId = String(card.customCardEffect || '').trim().toLowerCase();
+  if (effectId !== 'arcane_no') return '';
+  const zones = getPlayerEncounterZones();
+  return `<label>Zone to Cancel
+    <select data-player-card-zone="${card.id}">
+      <option value="">${zones.length ? 'Select zone…' : 'No active zones'}</option>
+      ${zones.map((entry) => `<option value="${entry.id}">${escapeHtml(formatPlayerZoneLabel(entry))}</option>`).join('')}
+    </select>
+  </label>`;
+}
+
 function renderPlayerCardTargetControl(card = {}, participant = {}) {
   const selfOnly = isSelfTargetCard(card);
   const targetMode = getCardTargetMode(card);
@@ -2716,9 +2755,13 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
     splitEnabled: arcaneSplitEnabled,
     shiftEnabled: arcaneShiftEnabled
   });
+  const customEffectControl = renderPlayerCardCustomEffectControl(card);
   const perTargetDetailContainer = getPlayerCardPerTargetInputs(card).length
     ? `<div data-player-card-target-detail-container="${card.id}">${renderPlayerCardPerTargetDetailSection(card)}</div>`
     : '';
+  if (targetMode === 'none') {
+    return [customEffectControl, contestedControl, perTargetDetailContainer, arcaneControls].filter(Boolean).join('');
+  }
   const selfId = participant.id || '';
   if (selfOnly || targetMode === 'all_others') {
     const label = targetMode === 'all_others' ? 'All other combatants' : 'Self';
@@ -2738,6 +2781,7 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
     </label>`
         : ''
     }
+    ${customEffectControl}
     ${contestedControl}
     ${perTargetDetailContainer}
     ${arcaneControls}`;
@@ -2748,6 +2792,7 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
       ${renderPlayerTargetOptions(participant.id, allowSelfTarget, 'all', participant, targetEntityKinds)}
     </select>
   </label>
+  ${customEffectControl}
   ${contestedControl}
   ${perTargetDetailContainer}
   ${arcaneControls}`;
@@ -2774,6 +2819,7 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
       </label>`
       : ''
   }
+  ${customEffectControl}
   ${contestedControl}
   ${perTargetDetailContainer}
   ${arcaneControls}`;
@@ -2883,6 +2929,7 @@ function isSelfTargetCard(card = {}) {
 
 function getCardTargetMode(card = {}) {
   const token = String(card.targetMode || '').trim().toLowerCase();
+  if (token === 'none' || token === 'untargeted' || token === 'no_target') return 'none';
   if (token === 'all_others' || token === 'all-targets') return 'all_others';
   if (token === 'multi' || token === 'multi_select' || token === 'multi_up_to_3' || token === 'up_to_3') {
     return 'multi_select';
@@ -3614,6 +3661,7 @@ function wirePlayerCardUses(participant) {
       const secondaryTargetId = article?.querySelector(`[data-player-card-secondary-target="${cardId}"]`)?.value || '';
       const arcaneSplitTargetId = article?.querySelector(`[data-player-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-player-card-override-damage-type="${cardId}"]`)?.value || '';
+      const zoneId = article?.querySelector(`[data-player-card-zone="${cardId}"]`)?.value || '';
       const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
       const contestedChoiceId =
         article?.querySelector(`[data-player-card-contested-choice="${cardId}"]`)?.value || getPlayerCardDefaultContestedChoiceId(card);
@@ -3637,6 +3685,7 @@ function wirePlayerCardUses(participant) {
           secondaryTargetId,
           arcaneSplitTargetId,
           overrideDamageType,
+          zoneId,
           selectedRemoveStatusIds,
           targetDetails,
           contestedChoiceId: contestedResolution.contestedChoiceId,

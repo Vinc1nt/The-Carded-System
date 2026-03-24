@@ -2793,6 +2793,33 @@ function getEncounterTargetableById(id) {
   return getEncounterTargetablesForUi().find((entry) => entry.id === targetId) || null;
 }
 
+function getEncounterZonesForUi() {
+  const entries = [];
+  for (const participant of state.encounter.participants || []) {
+    if (!participant?.id) continue;
+    for (const zone of participant.zones || []) {
+      if (!zone?.id) continue;
+      entries.push({
+        ...zone,
+        ownerId: participant.id,
+        ownerName: participant.name || 'Owner'
+      });
+    }
+  }
+  return entries.sort((left, right) => {
+    const ownerCompare = String(left.ownerName || '').localeCompare(String(right.ownerName || ''));
+    if (ownerCompare !== 0) return ownerCompare;
+    const orderCompare = Number(left.createdOrder || 0) - Number(right.createdOrder || 0);
+    if (orderCompare !== 0) return orderCompare;
+    return String(left.name || '').localeCompare(String(right.name || ''));
+  });
+}
+
+function formatZoneSelectionLabel(entry) {
+  if (!entry) return '';
+  return `${entry.name || 'Zone'} (${entry.ownerName || 'Owner'})`;
+}
+
 function getConstructOwnerOrdinal(entry) {
   if (!entry || String(entry.entityKind || '').toLowerCase() !== 'construct') return 0;
   const ownerId = String(entry.ownerId || '').trim();
@@ -3384,6 +3411,7 @@ function wireDetailEvents(participant) {
       const secondaryTargetId = article?.querySelector(`[data-card-secondary-target="${cardId}"]`)?.value || '';
       const arcaneSplitTargetId = article?.querySelector(`[data-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-card-override-damage-type="${cardId}"]`)?.value || '';
+      const zoneId = article?.querySelector(`[data-card-zone="${cardId}"]`)?.value || '';
       const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
       const contestedChoiceId =
         article?.querySelector(`[data-card-contested-choice="${cardId}"]`)?.value || getCardDefaultContestedChoiceId(card);
@@ -3407,6 +3435,7 @@ function wireDetailEvents(participant) {
           secondaryTargetId,
           arcaneSplitTargetId,
           overrideDamageType,
+          zoneId,
           selectedRemoveStatusIds,
           targetDetails,
           contestedChoiceId: contestedResolution.contestedChoiceId,
@@ -4212,6 +4241,18 @@ function formatCardTargetSelectionLabel(card = {}, multiTargetCap = 0) {
   return `Targets (up to ${multiTargetCap})`;
 }
 
+function renderCardCustomEffectControl(card = {}) {
+  const effectId = String(card.customCardEffect || '').trim().toLowerCase();
+  if (effectId !== 'arcane_no') return '';
+  const zones = getEncounterZonesForUi();
+  return `<label>Zone to Cancel
+    <select data-card-zone="${card.id || ''}">
+      <option value="">${zones.length ? 'Select zone…' : 'No active zones'}</option>
+      ${zones.map((entry) => `<option value="${entry.id}">${escapeHtml(formatZoneSelectionLabel(entry))}</option>`).join('')}
+    </select>
+  </label>`;
+}
+
 function renderCardTargetControl(card = {}, participant = {}) {
   const selfOnly = isSelfTargetCard(card);
   const targetMode = getCardTargetMode(card);
@@ -4232,9 +4273,13 @@ function renderCardTargetControl(card = {}, participant = {}) {
     splitEnabled: arcaneSplitEnabled,
     shiftEnabled: arcaneShiftEnabled
   });
+  const customEffectControl = renderCardCustomEffectControl(card);
   const perTargetDetailContainer = getCardPerTargetInputs(card).length
     ? `<div data-card-target-detail-container="${card.id || ''}">${renderCardPerTargetDetailSection(card)}</div>`
     : '';
+  if (targetMode === 'none') {
+    return [customEffectControl, contestedControl, perTargetDetailContainer, arcaneControls].filter(Boolean).join('');
+  }
   const selfId = participant.id || '';
   if (selfOnly || targetMode === 'all_others') {
     const label = targetMode === 'all_others' ? 'All other combatants' : 'Self';
@@ -4254,6 +4299,7 @@ function renderCardTargetControl(card = {}, participant = {}) {
     </label>`
         : ''
     }
+    ${customEffectControl}
     ${contestedControl}
     ${perTargetDetailContainer}
     ${arcaneControls}`;
@@ -4264,6 +4310,7 @@ function renderCardTargetControl(card = {}, participant = {}) {
         ${renderParticipantTargetOptions(participant.id, allowSelfTarget, 'all', participant, targetEntityKinds)}
       </select>
     </label>
+    ${customEffectControl}
     ${contestedControl}
     ${perTargetDetailContainer}
     ${arcaneControls}`;
@@ -4290,6 +4337,7 @@ function renderCardTargetControl(card = {}, participant = {}) {
       </label>`
       : ''
   }
+  ${customEffectControl}
   ${contestedControl}
   ${perTargetDetailContainer}
   ${arcaneControls}`;
@@ -4434,6 +4482,7 @@ function isSelfTargetCard(card = {}) {
 
 function getCardTargetMode(card = {}) {
   const token = String(card.targetMode || '').trim().toLowerCase();
+  if (token === 'none' || token === 'untargeted' || token === 'no_target') return 'none';
   if (token === 'all_others' || token === 'all-targets') return 'all_others';
   if (token === 'multi' || token === 'multi_select' || token === 'multi_up_to_3' || token === 'up_to_3') {
     return 'multi_select';

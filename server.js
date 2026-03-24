@@ -335,6 +335,7 @@ const trackerState = {
   reference: buildReferenceData(),
   updatedAt: new Date().toISOString()
 };
+const cardActionHistory = [];
 
 const sseClients = new Map();
 
@@ -722,6 +723,7 @@ async function handleApi(req, res, pathname, method) {
 }
 
 function startEncounter(startingRound = 1) {
+  cardActionHistory.length = 0;
   startEncounterLifecycle(trackerState, startingRound, {
     resetSetCombatState,
     ensureCurrentIndex,
@@ -734,6 +736,7 @@ function startEncounter(startingRound = 1) {
 }
 
 function endEncounter() {
+  cardActionHistory.length = 0;
   endEncounterLifecycle(trackerState, {
     resetSetCombatState,
     pushLog,
@@ -774,6 +777,67 @@ function executeStandardAction(body) {
     broadcastState('standard_action_set_bonus');
   }
   return result;
+}
+
+function spendCardAp(participant, apCost, options = {}) {
+  const allowDebt = options.allowDebt === true;
+  const available = Math.max(0, Number(participant?.apCurrent || 0));
+  if (!allowDebt && available < apCost) {
+    return { error: 'Not enough AP' };
+  }
+  const spentNow = Math.min(available, apCost);
+  participant.apCurrent = Number(participant.apCurrent || 0) - spentNow;
+  let debtAdded = 0;
+  if (allowDebt && apCost > spentNow) {
+    debtAdded = apCost - spentNow;
+    participant.pendingApDebt = Math.max(0, Math.round(Number(participant.pendingApDebt || 0) + debtAdded));
+  }
+  if (!allowDebt) {
+    participant.apCurrent = Math.max(0, participant.apCurrent);
+  }
+  return { spentNow, debtAdded };
+}
+
+function applyCardProgression(card, participant, notes, options = {}) {
+  const chargesMax = Math.max(0, Number(options.chargesMax || 0));
+  const chargesCurrent = Math.max(0, Number(options.chargesCurrent || 0));
+  let masteryChoicePrompt = null;
+  card.masteryUses = Math.max(0, Number(card.masteryUses || 0)) + 1;
+  const thresholds = normalizeCardThresholds(card.masteryThresholds, card.tier);
+  const beforeLevel = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
+  let afterLevel = beforeLevel;
+  if (card.masteryUses >= thresholds.level2) {
+    afterLevel = Math.max(afterLevel, 2);
+  }
+  if (card.masteryUses >= thresholds.level3) {
+    afterLevel = Math.max(afterLevel, 3);
+  }
+  if (card.masteryUses >= thresholds.level4) {
+    afterLevel = Math.max(afterLevel, 4);
+  }
+  card.masteryLevel = Math.max(1, Math.min(4, afterLevel));
+  if (afterLevel > beforeLevel) {
+    notes.push(`Mastery increased to Level ${afterLevel}.`);
+  }
+  const masteryChoiceOptions = Array.isArray(card.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
+  if (afterLevel >= 2 && masteryChoiceOptions.length > 1 && !card.masteryChoiceSelected) {
+    masteryChoicePrompt = {
+      cardId: card.id,
+      cardName: card.name,
+      options: masteryChoiceOptions.map((option) => ({
+        id: option.id,
+        label: option.label || option.id
+      }))
+    };
+    notes.push('Choose your Mastery 2 path now; the other option unlocks at Mastery 3.');
+  }
+  if (chargesMax > 0) {
+    card.chargesMax = chargesMax;
+    card.chargesCurrent = Math.max(0, chargesCurrent - 1);
+    notes.push(`Charges: ${card.chargesCurrent}/${chargesMax}.`);
+  }
+  markTurnActionTaken(participant);
+  return masteryChoicePrompt;
 }
 
 function executeCardAction(body) {
@@ -841,10 +905,6 @@ function executeCardAction(body) {
     }
   }
 
-  if (participant.apCurrent < apCost) {
-    return { error: 'Not enough AP' };
-  }
-
   let damageType = String(card.damageType || '').trim();
   let secondaryDamageType = String(card.secondaryDamageType || '').trim() || damageType;
   const overrideDamageTypeRaw = String(body.overrideDamageType || '').trim();
@@ -872,6 +932,25 @@ function executeCardAction(body) {
   const secondaryTargetMode = normalizeSecondaryTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card, masteryLevel) : 0;
   const customCardEffect = String(card.customCardEffect || '').trim().toLowerCase();
+  const currentTurnParticipant = getCurrentParticipant();
+  const isOffTurnForParticipant =
+    Boolean(currentTurnParticipant?.id) && currentTurnParticipant.id !== participant.id;
+  if (customCardEffect === 'arcane_no' && isOffTurnForParticipant && masteryLevel < 2) {
+    return { error: 'No requires Mastery 2 to be used off-turn as a reaction.' };
+  }
+  const isArcaneNoReaction =
+    customCardEffect === 'arcane_no' &&
+    masteryLevel >= 2 &&
+    isOffTurnForParticipant;
+  if (isArcaneNoReaction) {
+    apCost = Math.max(apCost, 4);
+  }
+  if (isArcaneNoReaction && Number(arcane.noReactionUsesTurn || 0) >= 3) {
+    return { error: 'No can only be used as a reaction 3 times before your next turn.' };
+  }
+  if (!isArcaneNoReaction && participant.apCurrent < apCost) {
+    return { error: 'Not enough AP' };
+  }
   const allowSelfTarget = card.allowSelfTarget !== false;
   const constructDamageBonus = getMachineConstructDamageBonus(participant);
   const constructDurationBonus = getMachineConstructDurationBonus(participant);
@@ -1254,6 +1333,7 @@ function executeCardAction(body) {
   const secondaryTarget = secondaryTargetId ? findTargetableEntity(secondaryTargetId) : null;
   const requiresTarget =
     targetMode !== 'all_others' &&
+    targetMode !== 'none' &&
     !selfTarget &&
     !zoneCard &&
     ((isConstruct && (constructMode === 'damage' || constructMode === 'status') && card.constructAllowUntargetedDeploy !== true) ||
@@ -1373,6 +1453,145 @@ function executeCardAction(body) {
     if (participant.zones.length >= MAX_ACTIVE_ZONES) {
       return { error: `You can only have ${MAX_ACTIVE_ZONES} active zones at once.` };
     }
+  }
+
+  const currentActionSnapshot = createEncounterCardActionSnapshot();
+  if (customCardEffect === 'arcane_no') {
+    if (isArcaneNoReaction) {
+      const previousAction = getLatestCardActionHistoryEntry();
+      if (!previousAction?.snapshot) {
+        return { error: 'No recent card effect is available to reverse.' };
+      }
+      if (!restoreEncounterFromCardSnapshot(previousAction.snapshot)) {
+        return { error: 'Failed to restore the previous card state.' };
+      }
+      if (cardActionHistory.length) {
+        cardActionHistory.pop();
+      }
+      const restoredParticipant = findParticipant(participant.id);
+      if (!restoredParticipant) {
+        return { error: 'The No user could not be resolved after reversing the previous card.' };
+      }
+      const restoredCard = (restoredParticipant.cards || []).find((entry) => String(entry.id || '') === String(card.id || ''));
+      if (!restoredCard) {
+        return { error: 'The No card could not be found after reversing the previous card.' };
+      }
+      const restoredArcane = ensureSetRuntime(restoredParticipant).arcane;
+      const apSpend = spendCardAp(restoredParticipant, apCost, { allowDebt: true });
+      if (apSpend.error) {
+        return apSpend;
+      }
+      restoredArcane.noReactionUsesTurn = Math.max(0, Number(restoredArcane.noReactionUsesTurn || 0)) + 1;
+      if (apSpend.debtAdded > 0) {
+        notes.push(`Adds ${apSpend.debtAdded} AP debt to future turns.`);
+      }
+      notes.push(`Reverses the previous card: ${previousAction.cardName || previousAction.cardId || 'unknown card'}.`);
+      const masteryChoicePrompt = applyCardProgression(restoredCard, restoredParticipant, notes, {
+        chargesMax,
+        chargesCurrent
+      });
+      const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+      const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+      pushLog(`${restoredParticipant.name} plays ${restoredCard.name} (${costText}).${noteText}`, restoredParticipant.id, {
+        cardId: restoredCard.id,
+        apCost,
+        baseCost,
+        targetId: null,
+        targetIds: [],
+        secondaryTargetId: null,
+        arcaneSplitTargetId: null,
+        targetMode: 'none',
+        damageType: '',
+        secondaryDamageType: '',
+        rawDamage: 0,
+        secondaryRawDamage: 0,
+        finalDamage: 0,
+        construct: null,
+        zone: null,
+        reversedCardId: previousAction.cardId || null,
+        reversedCardName: previousAction.cardName || null,
+        reaction: true
+      });
+      recordCardActionHistoryEntry({
+        participantId: restoredParticipant.id,
+        cardId: restoredCard.id,
+        cardName: restoredCard.name,
+        snapshot: currentActionSnapshot
+      });
+      touchState();
+      broadcastState('card_action');
+      return {
+        participant: restoredParticipant,
+        card: restoredCard,
+        apCost,
+        baseCost,
+        target: null,
+        targets: [],
+        secondaryTarget: null,
+        masteryChoicePrompt
+      };
+    }
+
+    const zoneId = String(body.zoneId || '').trim();
+    if (!zoneId) {
+      return { error: 'Choose a zone to cancel.' };
+    }
+    const zoneResult = findZoneWithOwner(zoneId);
+    if (!zoneResult?.owner || !zoneResult?.zone) {
+      return { error: 'Selected zone was not found.' };
+    }
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    zoneResult.owner.zones = normalizeZones(zoneResult.owner.zones, zoneResult.owner.id).filter(
+      (entry) => String(entry.id || '') !== zoneResult.zone.id
+    );
+    ensureCurrentIndex();
+    notes.push(`Cancels ${zoneResult.owner.name}'s zone ${zoneResult.zone.name}.`);
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: null,
+      targetIds: [],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'none',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      cancelledZoneId: zoneResult.zone.id,
+      cancelledZoneOwnerId: zoneResult.owner.id
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: null,
+      targets: [],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
   }
 
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
@@ -2104,44 +2323,10 @@ function executeCardAction(body) {
     notes.push('Shadow set lets you move 10 ft after attacking.');
   }
 
-  let masteryChoicePrompt = null;
-  card.masteryUses = Math.max(0, Number(card.masteryUses || 0)) + 1;
-  const thresholds = normalizeCardThresholds(card.masteryThresholds, card.tier);
-  const beforeLevel = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
-  let afterLevel = beforeLevel;
-  if (card.masteryUses >= thresholds.level2) {
-    afterLevel = Math.max(afterLevel, 2);
-  }
-  if (card.masteryUses >= thresholds.level3) {
-    afterLevel = Math.max(afterLevel, 3);
-  }
-  if (card.masteryUses >= thresholds.level4) {
-    afterLevel = Math.max(afterLevel, 4);
-  }
-  card.masteryLevel = Math.max(1, Math.min(4, afterLevel));
-  if (afterLevel > beforeLevel) {
-    notes.push(`Mastery increased to Level ${afterLevel}.`);
-  }
-  const masteryChoiceOptions = Array.isArray(card.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
-  if (afterLevel >= 2 && masteryChoiceOptions.length > 1 && !card.masteryChoiceSelected) {
-    masteryChoicePrompt = {
-      cardId: card.id,
-      cardName: card.name,
-      options: masteryChoiceOptions.map((option) => ({
-        id: option.id,
-        label: option.label || option.id
-      }))
-    };
-    notes.push('Choose your Mastery 2 path now; the other option unlocks at Mastery 3.');
-  }
-
-  if (chargesMax > 0) {
-    card.chargesMax = chargesMax;
-    card.chargesCurrent = Math.max(0, chargesCurrent - 1);
-    notes.push(`Charges: ${card.chargesCurrent}/${chargesMax}.`);
-  }
-
-  markTurnActionTaken(participant);
+  const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+    chargesMax,
+    chargesCurrent
+  });
   const noteText = notes.length ? ` ${notes.join(' ')}` : '';
   const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
   const damageText = damageResults.length
@@ -2192,6 +2377,12 @@ function executeCardAction(body) {
     finalDamage: totalFinalDamage,
     construct: constructDeployResult?.construct || null,
     zone: zoneDeployResult?.zone || null
+  });
+  recordCardActionHistoryEntry({
+    participantId: participant.id,
+    cardId: card.id,
+    cardName: card.name,
+    snapshot: currentActionSnapshot
   });
   touchState();
   broadcastState('card_action');
@@ -2286,6 +2477,19 @@ function findZone(participant, zoneId) {
   if (!participant || !zoneId) return null;
   participant.zones = normalizeZones(participant.zones, participant.id);
   return findZoneInOwner(participant, String(zoneId || ''));
+}
+
+function findZoneWithOwner(zoneId) {
+  const targetId = String(zoneId || '').trim();
+  if (!targetId) return null;
+  for (const participant of trackerState.encounter.participants || []) {
+    if (!participant?.id) continue;
+    const zone = findZone(participant, targetId);
+    if (zone) {
+      return { owner: participant, zone };
+    }
+  }
+  return null;
 }
 
 function executeAddZoneTargetAction(body) {
@@ -2549,7 +2753,7 @@ function applyAdjustment(participant, adjustment) {
     participant.shield = clampNumber(shield, 0, participant.maxShield);
   }
   if (typeof ap === 'number') {
-    participant.apCurrent = clampNumber(ap, 0, participant.apMax);
+    participant.apCurrent = normalizeCurrentAp(ap, participant.apMax);
   }
   if (Array.isArray(status)) {
     participant.statuses = status;
@@ -2568,7 +2772,8 @@ function sanitizeParticipantUpdate(body, current) {
     'shield',
     'mastery',
     'nextAttackDamageBonus',
-    'pendingApNextTurn'
+    'pendingApNextTurn',
+    'pendingApDebt'
   ];
   for (const field of numericFields) {
     if (typeof body[field] === 'number') {
@@ -2731,6 +2936,9 @@ function createParticipant(body = {}) {
       : 0,
     pendingApNextTurn: Number.isFinite(Number(body.pendingApNextTurn))
       ? Math.max(0, Math.round(Number(body.pendingApNextTurn)))
+      : 0,
+    pendingApDebt: Number.isFinite(Number(body.pendingApDebt))
+      ? Math.max(0, Math.round(Number(body.pendingApDebt)))
       : 0,
     rangedUntargetableTurns: Number.isFinite(Number(body.rangedUntargetableTurns))
       ? Math.max(0, Math.round(Number(body.rangedUntargetableTurns)))
@@ -2896,6 +3104,12 @@ function resetTurn(participant, options = {}) {
       events.push(`gains +${bonus} AP from queued ally support.`);
     }
   }
+  if (Number(participant.pendingApDebt || 0) > 0) {
+    const debt = Math.max(0, Math.round(Number(participant.pendingApDebt || 0)));
+    participant.apCurrent -= debt;
+    participant.pendingApDebt = Math.max(0, debt - participant.apMax);
+    events.push(`loses ${debt} AP to reaction debt.`);
+  }
   if (options.applyStatusTick) {
     const statusEvents = applyStartOfTurnStatusEffects(participant);
     const constructEvents = applyConstructStartOfTurnEffects(participant);
@@ -2906,7 +3120,7 @@ function resetTurn(participant, options = {}) {
 }
 
 function clampParticipant(participant) {
-  participant.apCurrent = clampNumber(participant.apCurrent, 0, participant.apMax);
+  participant.apCurrent = normalizeCurrentAp(participant.apCurrent, participant.apMax);
   participant.hp = clampNumber(participant.hp, 0, participant.maxHp);
   participant.shield = clampNumber(participant.shield, 0, participant.maxShield);
 }
@@ -2982,6 +3196,56 @@ function pushLog(text, participantId = null, meta = {}) {
   if (trackerState.encounter.log.length > 200) {
     trackerState.encounter.log.shift();
   }
+}
+
+function createEncounterCardActionSnapshot() {
+  return structuredClone({
+    name: trackerState.encounter.name,
+    round: trackerState.encounter.round,
+    started: trackerState.encounter.started,
+    currentIndex: trackerState.encounter.currentIndex,
+    currentTurnKey: trackerState.encounter.currentTurnKey,
+    participants: trackerState.encounter.participants || [],
+    log: trackerState.encounter.log || []
+  });
+}
+
+function recordCardActionHistoryEntry(entry = {}) {
+  if (!entry?.snapshot) return null;
+  const historyEntry = {
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    participantId: String(entry.participantId || '').trim(),
+    cardId: String(entry.cardId || '').trim(),
+    cardName: String(entry.cardName || '').trim(),
+    snapshot: entry.snapshot
+  };
+  cardActionHistory.push(historyEntry);
+  if (cardActionHistory.length > 30) {
+    cardActionHistory.shift();
+  }
+  return historyEntry;
+}
+
+function getLatestCardActionHistoryEntry() {
+  return cardActionHistory.length ? cardActionHistory[cardActionHistory.length - 1] : null;
+}
+
+function restoreEncounterFromCardSnapshot(snapshot = null) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  trackerState.encounter.name = String(snapshot.name || trackerState.encounter.name || 'Untitled Encounter');
+  trackerState.encounter.round = Number(snapshot.round) || 1;
+  trackerState.encounter.started = Boolean(snapshot.started);
+  trackerState.encounter.currentIndex =
+    typeof snapshot.currentIndex === 'number' ? snapshot.currentIndex : -1;
+  trackerState.encounter.currentTurnKey = String(snapshot.currentTurnKey || '');
+  trackerState.encounter.participants = Array.isArray(snapshot.participants)
+    ? snapshot.participants.map((entry) => createParticipant(entry))
+    : [];
+  trackerState.encounter.log = Array.isArray(snapshot.log) ? snapshot.log.slice(-200) : [];
+  sortParticipants();
+  ensureCurrentIndex();
+  return true;
 }
 
 function applyShortRest(participant) {
@@ -3956,6 +4220,14 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function normalizeCurrentAp(value, apMax) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return Math.max(0, Number(apMax || 0));
+  }
+  return Math.min(Math.round(parsed), Math.max(0, Number(apMax || 0)));
+}
+
 function createZeroModifier() {
   return {
     apMax: 0,
@@ -4784,6 +5056,7 @@ function getCardSecondaryDamageAtCurrentMastery(card) {
 
 function normalizeCardTargetMode(card = {}) {
   const token = String(card.targetMode || '').trim().toLowerCase();
+  if (token === 'none' || token === 'untargeted' || token === 'no_target') return 'none';
   if (token === 'all_others' || token === 'all-targets') return 'all_others';
   if (token === 'multi' || token === 'multi_select' || token === 'multi_up_to_3' || token === 'up_to_3') {
     return 'multi_select';
@@ -5283,6 +5556,7 @@ function normalizeSetRuntime(runtime = {}) {
     arcane: {
       damageTypeShiftUsedTurn: Boolean(arcane.damageTypeShiftUsedTurn),
       splitUsedTurn: Boolean(arcane.splitUsedTurn),
+      noReactionUsesTurn: Math.max(0, Number(arcane.noReactionUsesTurn || 0)),
       copyUsedEncounter: Boolean(arcane.copyUsedEncounter),
       modifiedCard:
         arcane.modifiedCard && typeof arcane.modifiedCard === 'object'
@@ -6089,6 +6363,7 @@ function resetSetTurnState(participant) {
   machine.autoLoaderDiscountUsedTurn = false;
   runtime.arcane.damageTypeShiftUsedTurn = false;
   runtime.arcane.splitUsedTurn = false;
+  runtime.arcane.noReactionUsesTurn = 0;
   runtime.beast.extraBleedUsedTurn = false;
   runtime.beast.bleedAttackApUsedTurn = false;
   runtime.demonic.statusHealUsedTurn = false;
@@ -6282,11 +6557,7 @@ function recalculateParticipant(participant) {
 
   const overchargeMultiplier = Math.max(1, Number(setRuntime.divine.overchargeMultiplier || 1));
   participant.apMax = Math.max(1, Math.round(((base.apMax ?? 0) + totals.apMax) * overchargeMultiplier));
-  participant.apCurrent = clampNumber(
-    participant.apCurrent ?? participant.apMax,
-    0,
-    participant.apMax
-  );
+  participant.apCurrent = normalizeCurrentAp(participant.apCurrent ?? participant.apMax, participant.apMax);
   participant.maxHp = Math.max(1, Math.round(((base.maxHp ?? 0) + totals.maxHp) * overchargeMultiplier));
   participant.hp = clampNumber(participant.hp ?? participant.maxHp, 0, participant.maxHp);
   participant.maxShield = Math.max(0, Math.round(((base.maxShield ?? 0) + totals.maxShield) * overchargeMultiplier));
@@ -6352,6 +6623,7 @@ function importEncounter(encounter = {}) {
     currentTurnKey: String(encounter.currentTurnKey || ''),
     log: Array.isArray(encounter.log) ? encounter.log.slice(-200) : []
   };
+  cardActionHistory.length = 0;
   const participants = Array.isArray(encounter.participants)
     ? encounter.participants.map((raw) => createParticipant(raw))
     : [];
