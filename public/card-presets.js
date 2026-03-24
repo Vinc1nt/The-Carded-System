@@ -1102,6 +1102,94 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'arcane_maze_of_the_mind',
+    card: {
+      id: 'arcane_maze_of_the_mind',
+      name: 'Maze of the Mind',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Epic',
+      apCost: 4,
+      range: 20,
+      healthBonus: 3,
+      shieldBonus: 3,
+      tags: ['Psychic'],
+      effect:
+        'The target becomes Suppressed 1 (cannot play cards). Target may attempt to resist. Int/Wis vs Int/Wis.',
+      targetMode: 'single',
+      targetEntityKinds: ['participant'],
+      allowSelfTarget: false,
+      contestedEffect: {
+        hostileOnly: true,
+        options: [
+          {
+            id: 'suppressed',
+            label: 'Suppressed',
+            statusId: 'suppressed',
+            statusName: 'Suppressed',
+            statusNotes: 'Cannot play cards while active.',
+            statusStacksByLevel: {
+              1: 1,
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        ]
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Suppressed 2.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_pause_button',
+    card: {
+      id: 'arcane_pause_button',
+      name: 'Pause Button',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Legendary',
+      apCost: 5,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect:
+        'Prevent any and all actions for 1 turn at the cost of forfeiting your next turn. Caster may use 2 AP while the world is paused. Can only be used once per long rest.',
+      targetMode: 'none',
+      customCardEffect: 'arcane_pause_button',
+      durationTurnsByLevel: {
+        1: 1,
+        2: 2,
+        3: 2,
+        4: 2
+      },
+      pauseApByLevel: {
+        1: 2,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 2 turns. Caster may use 4 AP while the world is paused.',
+        'Level 3: -',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'divine_cleansing_light',
     card: {
       id: 'divine_cleansing_light',

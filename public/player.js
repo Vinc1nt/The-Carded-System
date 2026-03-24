@@ -2490,8 +2490,10 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
   return entries
     .map(({ card, index }) => {
       const cardKey = card.id || `card-${index}`;
+      const pauseLocked = isPauseButtonUsedLongRest(card);
+      const useDisabledAttr = pauseLocked ? 'disabled' : '';
       const activeActions = `
-              <button type="button" data-player-use-card="${card.id}">Use</button>
+              <button type="button" data-player-use-card="${card.id}" ${useDisabledAttr}>Use</button>
               <button type="button" data-player-deactivate-card="${card.id}" data-player-card-index="${index}">Deactivate</button>
               <button type="button" data-player-export-card="${card.id}">Export Card</button>`;
       const inactiveActions = `
@@ -2507,12 +2509,13 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
                     <span class="card-summary-ap">AP ${Number(card.apCost || 0)}</span>
                     <span class="card-summary-effect">${escapeHtml(compactEffect || '—')}</span>
                   </div>
-                  ${options.inactive ? '' : `<button type="button" class="card-summary-action" data-player-use-card="${card.id}">Use</button>`}
+                  ${options.inactive ? '' : `<button type="button" class="card-summary-action" data-player-use-card="${card.id}" ${useDisabledAttr}>Use</button>`}
                 </div>
               </summary>
               <div class="card-collapse-body">
                 <h4>${card.name}</h4>
                 <p>• ${card.type || '—'} · ${card.tier || '—'}${options.inactive ? ' · Inactive' : ''}</p>
+                ${pauseLocked ? '<p class="muted">Used this long rest.</p>' : ''}
                 ${renderPlayerCardAttributeTable(card, participant)}
                 ${renderConstructMetaLine(card, participant)}
                 ${renderMasteryLines(card)}
@@ -3001,6 +3004,16 @@ function getPlayerCardContestedEffectSummary(card = {}, level = 1) {
       return {
         label,
         notes: String(entry.statusNotes || entry.notes || '').trim(),
+        statusStacks: Math.max(
+          1,
+          Math.round(
+            getCardScaledValue(
+              entry.statusStacksByLevel,
+              level,
+              Number(entry.statusStacks || 1)
+            )
+          )
+        ),
         durationTurns
       };
     })
@@ -3008,11 +3021,11 @@ function getPlayerCardContestedEffectSummary(card = {}, level = 1) {
   if (!options.length) return '';
   const parts = [
     options.length === 1
-      ? `On success, apply ${options[0].label}${
+      ? `On success, apply ${options[0].label}${options[0].statusStacks > 1 ? ` ${options[0].statusStacks}` : ''}${
           options[0].durationTurns > 0 ? ` for ${options[0].durationTurns} turn${options[0].durationTurns === 1 ? '' : 's'}` : ''
         }.`
       : `Choose ${options
-          .map((entry) => `${entry.label}${entry.durationTurns > 0 ? ` (${entry.durationTurns} turn${entry.durationTurns === 1 ? '' : 's'})` : ''}`)
+          .map((entry) => `${entry.label}${entry.statusStacks > 1 ? ` ${entry.statusStacks}` : ''}${entry.durationTurns > 0 ? ` (${entry.durationTurns} turn${entry.durationTurns === 1 ? '' : 's'})` : ''}`)
           .join(' or ')}.`
   ];
   options.forEach((entry) => {
@@ -3072,6 +3085,10 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   } else if (customEffectId === 'arcane_haste_matrix') {
     const duration = level >= 2 ? 3 : 2;
     parts.push(`Target ally gains +2 AP at the start of each turn for ${duration} turn${duration === 1 ? '' : 's'}. When it ends, Haste Crash applies (-4 AP on the next turn). Each creature can only be targeted twice per encounter.`);
+  } else if (customEffectId === 'arcane_pause_button') {
+    const duration = level >= 2 ? 2 : 1;
+    const pauseAp = level >= 2 ? 4 : 2;
+    parts.push(`After this turn, time pauses for ${duration} extra turn${duration === 1 ? '' : 's'}. You may act with ${pauseAp} AP each paused turn, then forfeit your next normal turn. Once per long rest.`);
   }
   const damage = getCardDisplayDamage(card);
   const secondaryDamage = getCardSecondaryDamage(card);
@@ -3353,6 +3370,12 @@ function renderCardDamageLine(card = {}, participant = {}) {
   }
   const boosted = Math.max(0, baseDamage + constructBonus);
   return `<p>Damage: ${baseDamage} ${typeText} <span class="muted">(Construct +${constructBonus} => ${boosted})</span></p>`;
+}
+
+function isPauseButtonUsedLongRest(card = {}) {
+  const customEffectId = String(card?.customCardEffect || '').trim().toLowerCase();
+  if (customEffectId !== 'arcane_pause_button') return false;
+  return card?.effectState?.pauseButtonUsedLongRest === true;
 }
 
 function renderConstructMetaLine(card = {}, participant = {}) {

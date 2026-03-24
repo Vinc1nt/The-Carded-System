@@ -221,7 +221,7 @@ const STATUS_LIBRARY = [
     name: 'Suppressed',
     defaultStacks: 1,
     description:
-      'Debuff. Under suppressive pressure; penalties and limitations are defined by the triggering source.',
+      'Debuff. Cannot play cards while active. Different sources may add extra notes.',
     tags: ['Debuff']
   },
   {
@@ -361,6 +361,7 @@ const trackerState = {
     participants: [],
     currentIndex: -1,
     currentTurnKey: '',
+    pauseState: null,
     log: []
   },
   reference: buildReferenceData(),
@@ -755,6 +756,7 @@ async function handleApi(req, res, pathname, method) {
 
 function startEncounter(startingRound = 1) {
   cardActionHistory.length = 0;
+  clearEncounterPauseState();
   startEncounterLifecycle(trackerState, startingRound, {
     resetSetCombatState,
     ensureCurrentIndex,
@@ -768,6 +770,7 @@ function startEncounter(startingRound = 1) {
 
 function endEncounter() {
   cardActionHistory.length = 0;
+  clearEncounterPauseState();
   endEncounterLifecycle(trackerState, {
     resetSetCombatState,
     pushLog,
@@ -777,6 +780,12 @@ function endEncounter() {
 }
 
 function executeStandardAction(body) {
+  const actor = resolveActor(body?.participantId);
+  const action = STANDARD_ACTIONS?.[body?.actionId];
+  const pauseError = getPauseActionError(actor, { label: action?.label || 'That action' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   const result = executeStandardActionForEncounter(body, {
     standardActions: STANDARD_ACTIONS,
     defaultGuardRestore: DEFAULT_GUARD_RESTORE,
@@ -877,6 +886,13 @@ function executeCardAction(body) {
     return context;
   }
   const { participant, card } = context;
+  const pauseError = getPauseActionError(participant, { label: card?.name || 'That card' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
+  if (participantHasSuppressedCardLock(participant)) {
+    return { error: `${participant.name} is Suppressed and cannot play cards.` };
+  }
   const setRuntime = ensureSetRuntime(participant);
   const machine = setRuntime.machine;
   const arcane = setRuntime.arcane;
@@ -973,6 +989,9 @@ function executeCardAction(body) {
     customCardEffect === 'arcane_no' &&
     masteryLevel >= 2 &&
     isOffTurnForParticipant;
+  if (customCardEffect === 'arcane_pause_button' && card?.effectState?.pauseButtonUsedLongRest === true) {
+    return { error: 'Pause Button is available once per long rest.' };
+  }
   if (isArcaneNoReaction) {
     apCost = Math.max(apCost, 4);
   }
@@ -1781,6 +1800,95 @@ function executeCardAction(body) {
     };
   }
 
+  if (customCardEffect === 'arcane_pause_button') {
+    if (!trackerState.encounter.started) {
+      return { error: 'Pause Button requires an active encounter.' };
+    }
+    if (!currentTurnParticipant || currentTurnParticipant.id !== participant.id) {
+      return { error: 'Pause Button can only be used on your own turn.' };
+    }
+    if (getEncounterPauseState()) {
+      return { error: 'Pause Button cannot be used while time is already paused.' };
+    }
+    const effectState = card.effectState && typeof card.effectState === 'object' ? card.effectState : {};
+    if (effectState.pauseButtonUsedLongRest) {
+      return { error: 'Pause Button is available once per long rest.' };
+    }
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      1,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, masteryLevel >= 2 ? 2 : 1))
+    );
+    const pauseAp = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'pauseApByLevel', masteryLevel, masteryLevel >= 2 ? 4 : 2))
+    );
+    card.effectState = {
+      ...effectState,
+      pauseButtonUsedLongRest: true
+    };
+    participant.pauseButtonSkipTurns = Math.max(0, Number(participant.pauseButtonSkipTurns || 0)) + 1;
+    setEncounterPauseState({
+      casterId: participant.id,
+      sourceCardId: card.id,
+      extraTurnsRemaining: durationTurns,
+      apPerTurn: pauseAp,
+      activeTurn: false
+    });
+    notes.push(
+      `After this turn, time pauses for ${durationTurns} extra turn${durationTurns === 1 ? '' : 's'} and ${participant.name} may act with ${pauseAp} AP each paused turn.`
+    );
+    notes.push(`${participant.name} will forfeit their next normal turn.`);
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: participant.id,
+      targetIds: [participant.id],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'self',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      pauseButton: {
+        extraTurnsRemaining: durationTurns,
+        apPerTurn: pauseAp
+      }
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: participant,
+      targets: [participant],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   let damageResult = null;
@@ -2295,7 +2403,7 @@ function executeCardAction(body) {
       });
       if (appliedStatus) {
         notes.push(
-          `Applies ${appliedStatus.name} to ${contestedResolution.target.name}${
+          `Applies ${appliedStatus.name}${appliedStatus.stacks > 1 ? ` ${appliedStatus.stacks}` : ''} to ${contestedResolution.target.name}${
             appliedStatus.remainingTurns > 0
               ? ` for ${appliedStatus.remainingTurns} turn${appliedStatus.remainingTurns === 1 ? '' : 's'}`
               : ''
@@ -2655,6 +2763,11 @@ function executeSetCardMasteryChoiceAction(body = {}) {
 }
 
 function executeRemoveConstructAction(body) {
+  const participant = resolveActor(body?.participantId);
+  const pauseError = getPauseActionError(participant, { label: 'Construct removal' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   return executeRemoveConstructActionForEncounter(body, {
     resolveActor,
     pushLog,
@@ -2664,6 +2777,11 @@ function executeRemoveConstructAction(body) {
 }
 
 function executeRetargetConstructAction(body) {
+  const participant = resolveActor(body?.participantId);
+  const pauseError = getPauseActionError(participant, { label: 'Construct retargeting' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   return executeRetargetConstructActionForEncounter(body, {
     resolveActor,
     findTargetableEntity,
@@ -2674,6 +2792,11 @@ function executeRetargetConstructAction(body) {
 }
 
 function executeMoveConstructAction(body) {
+  const participant = resolveActor(body?.participantId);
+  const pauseError = getPauseActionError(participant, { label: 'Construct movement' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   return executeMoveConstructActionForEncounter(body, {
     resolveActor,
     normalizeConstructs,
@@ -2703,6 +2826,11 @@ function findZoneWithOwner(zoneId) {
 }
 
 function executeAddZoneTargetAction(body) {
+  const participant = resolveActor(body?.participantId);
+  const pauseError = getPauseActionError(participant, { label: 'Zone targeting' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   const result = executeAddZoneTargetActionForEncounter(body, {
     resolveActor,
     findParticipant,
@@ -2729,6 +2857,11 @@ function executeAddZoneTargetAction(body) {
 }
 
 function executeRemoveZoneTargetAction(body) {
+  const participant = resolveActor(body?.participantId);
+  const pauseError = getPauseActionError(participant, { label: 'Zone targeting' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   return executeRemoveZoneTargetActionForEncounter(body, {
     resolveActor,
     findParticipant,
@@ -2743,6 +2876,10 @@ function executeAddSetAllyAction(body) {
   const participant = resolveActor(body.participantId);
   if (!participant) {
     return { error: 'Participant required' };
+  }
+  const pauseError = getPauseActionError(participant, { label: 'Set ally assignment' });
+  if (pauseError) {
+    return { error: pauseError };
   }
   const targetId = String(body.targetId || '').trim();
   if (!targetId) {
@@ -2774,6 +2911,10 @@ function executeRemoveSetAllyAction(body) {
   if (!participant) {
     return { error: 'Participant required' };
   }
+  const pauseError = getPauseActionError(participant, { label: 'Set ally removal' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   const targetId = String(body.targetId || '').trim();
   if (!targetId) {
     return { error: 'targetId is required' };
@@ -2799,6 +2940,10 @@ function activateSetBonusAction(body) {
   const participant = resolveActor(body.participantId);
   if (!participant) {
     return { error: 'Participant required' };
+  }
+  const pauseError = getPauseActionError(participant, { label: 'Set bonus activation' });
+  if (pauseError) {
+    return { error: pauseError };
   }
   const abilityId = String(body.abilityId || '').trim().toLowerCase();
   if (!abilityId) {
@@ -2945,6 +3090,11 @@ function activateSetBonusAction(body) {
 }
 
 function executeCustomAction(body) {
+  const participant = resolveActor(body?.actorId);
+  const pauseError = getPauseActionError(participant, { label: 'Custom action' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
   return executeCustomActionForEncounter(body, {
     resolveActor,
     markTurnActionTaken,
@@ -2983,7 +3133,8 @@ function sanitizeParticipantUpdate(body, current) {
     'mastery',
     'nextAttackDamageBonus',
     'pendingApNextTurn',
-    'pendingApDebt'
+    'pendingApDebt',
+    'pauseButtonSkipTurns'
   ];
   for (const field of numericFields) {
     if (typeof body[field] === 'number') {
@@ -3150,6 +3301,9 @@ function createParticipant(body = {}) {
     pendingApDebt: Number.isFinite(Number(body.pendingApDebt))
       ? Math.max(0, Math.round(Number(body.pendingApDebt)))
       : 0,
+    pauseButtonSkipTurns: Number.isFinite(Number(body.pauseButtonSkipTurns))
+      ? Math.max(0, Math.round(Number(body.pauseButtonSkipTurns)))
+      : 0,
     rangedUntargetableTurns: Number.isFinite(Number(body.rangedUntargetableTurns))
       ? Math.max(0, Math.round(Number(body.rangedUntargetableTurns)))
       : 0,
@@ -3216,6 +3370,15 @@ function resolveCurrentTurnIndexForAdvance(entries, direction = 1) {
   return resolveCurrentTurnIndexForAdvanceForEncounter(trackerState.encounter, entries, direction);
 }
 
+function beginPausedTurn(participant, pauseState) {
+  participant.apCurrent = Math.max(0, Number(pauseState?.apPerTurn || 0));
+  participant.guardUsedThisTurn = false;
+  participant.turnActionCount = 0;
+  participant.lastActedRound = trackerState.encounter.round;
+  resetSetTurnState(participant);
+  return [`acts while Pause Button holds the world still (${participant.apCurrent} AP).`];
+}
+
 function advanceTurn(direction = 1) {
   const entries = buildTurnEntries();
   if (!entries.length) {
@@ -3225,13 +3388,43 @@ function advanceTurn(direction = 1) {
   }
   const previousIndex = resolveCurrentTurnIndexForAdvance(entries, direction);
   const previousEntry = previousIndex >= 0 ? entries[previousIndex] : null;
+  const pauseStateAtAdvance = direction > 0 ? getEncounterPauseState() : null;
+  const previousWasPausedTurn = Boolean(
+    direction > 0 &&
+      pauseStateAtAdvance?.activeTurn &&
+      previousEntry?.kind === 'participant' &&
+      previousEntry.participantId === pauseStateAtAdvance.casterId
+  );
   if (direction > 0 && previousEntry?.kind === 'participant') {
     const previousActor = findParticipant(previousEntry.participantId);
     if (previousActor) {
-      const timedStatusEvents = decrementTimedStatusesAtEndOfTurn(previousActor);
-      timedStatusEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
-      const endEvents = applyEndOfTurnSetEffects(previousActor);
-      endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+      if (!previousWasPausedTurn) {
+        const timedStatusEvents = decrementTimedStatusesAtEndOfTurn(previousActor);
+        timedStatusEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+        const endEvents = applyEndOfTurnSetEffects(previousActor);
+        endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+      }
+      const pauseState = pauseStateAtAdvance;
+      if (pauseState && pauseState.casterId === previousActor.id) {
+        if (pauseState.activeTurn) {
+          pauseState.activeTurn = false;
+        }
+        if (pauseState.extraTurnsRemaining > 0) {
+          pauseState.extraTurnsRemaining -= 1;
+          pauseState.activeTurn = true;
+          setEncounterPauseState(pauseState);
+          setCurrentTurnByIndex(entries, previousIndex);
+          const pauseEvents = beginPausedTurn(previousActor, pauseState);
+          pauseEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id, { pauseTurn: true }));
+          pushLog(`Time remains paused. ${previousActor.name} takes a paused turn (AP ${previousActor.apCurrent}).`, previousActor.id, {
+            pauseTurn: true
+          });
+          touchState();
+          broadcastState('turn_advanced');
+          return;
+        }
+        clearEncounterPauseState();
+      }
     }
   }
 
@@ -3320,13 +3513,19 @@ function resetTurn(participant, options = {}) {
     participant.pendingApDebt = Math.max(0, debt - participant.apMax);
     events.push(`loses ${debt} AP to reaction debt.`);
   }
+  let resolvedEvents = events;
   if (options.applyStatusTick) {
     const statusEvents = applyStartOfTurnStatusEffects(participant);
     const constructEvents = applyConstructStartOfTurnEffects(participant);
     const incomingConstructEvents = applyIncomingConstructTurnEffects(participant);
-    return [...events, ...statusEvents, ...constructEvents, ...incomingConstructEvents];
+    resolvedEvents = [...events, ...statusEvents, ...constructEvents, ...incomingConstructEvents];
   }
-  return events;
+  if (Number(participant.pauseButtonSkipTurns || 0) > 0) {
+    participant.apCurrent = 0;
+    participant.pauseButtonSkipTurns = Math.max(0, Number(participant.pauseButtonSkipTurns || 0) - 1);
+    resolvedEvents = [...resolvedEvents, 'forfeits this turn from Pause Button.'];
+  }
+  return resolvedEvents;
 }
 
 function clampParticipant(participant) {
@@ -3415,6 +3614,7 @@ function createEncounterCardActionSnapshot() {
     started: trackerState.encounter.started,
     currentIndex: trackerState.encounter.currentIndex,
     currentTurnKey: trackerState.encounter.currentTurnKey,
+    pauseState: trackerState.encounter.pauseState,
     participants: trackerState.encounter.participants || [],
     log: trackerState.encounter.log || []
   });
@@ -3449,6 +3649,10 @@ function restoreEncounterFromCardSnapshot(snapshot = null) {
   trackerState.encounter.currentIndex =
     typeof snapshot.currentIndex === 'number' ? snapshot.currentIndex : -1;
   trackerState.encounter.currentTurnKey = String(snapshot.currentTurnKey || '');
+  trackerState.encounter.pauseState =
+    snapshot.pauseState && typeof snapshot.pauseState === 'object'
+      ? structuredClone(snapshot.pauseState)
+      : null;
   trackerState.encounter.participants = Array.isArray(snapshot.participants)
     ? snapshot.participants.map((entry) => createParticipant(entry))
     : [];
@@ -3471,7 +3675,88 @@ function applyLongRest(participant) {
   const runtime = ensureSetRuntime(participant);
   runtime.divine.sacredOverchargeUsed = false;
   runtime.divine.overchargeMultiplier = 1;
+  participant.pauseButtonSkipTurns = 0;
+  resetEncounterCardState(participant);
+  resetLongRestCardState(participant);
   return result;
+}
+
+function normalizeEncounterPauseState(state = null) {
+  if (!state || typeof state !== 'object') return null;
+  const casterId = String(state.casterId || '').trim();
+  if (!casterId) return null;
+  return {
+    casterId,
+    sourceCardId: String(state.sourceCardId || '').trim(),
+    extraTurnsRemaining: Math.max(0, Math.round(Number(state.extraTurnsRemaining || 0))),
+    apPerTurn: Math.max(0, Math.round(Number(state.apPerTurn || 0))),
+    activeTurn: state.activeTurn === true
+  };
+}
+
+function getEncounterPauseState() {
+  const normalized = normalizeEncounterPauseState(trackerState.encounter.pauseState);
+  trackerState.encounter.pauseState = normalized;
+  return normalized;
+}
+
+function setEncounterPauseState(state = null) {
+  trackerState.encounter.pauseState = normalizeEncounterPauseState(state);
+  return trackerState.encounter.pauseState;
+}
+
+function clearEncounterPauseState() {
+  trackerState.encounter.pauseState = null;
+}
+
+function getPauseActionError(participant, options = {}) {
+  const pauseState = getEncounterPauseState();
+  if (!pauseState || !participant) return '';
+  if (pauseState.casterId === participant.id) return '';
+  const label = String(options.label || 'That action').trim() || 'That action';
+  const caster = findParticipant(pauseState.casterId);
+  return `${label} cannot be used while Pause Button is active${caster ? ` (${caster.name} controls the paused turn).` : '.'}`;
+}
+
+function participantHasSuppressedCardLock(participant) {
+  if (!participant) return false;
+  participant.statuses = normalizeStatuses(participant.statuses);
+  return (participant.statuses || []).some((status) => {
+    if (detectStatusType(status) !== 'suppressed') return false;
+    return Math.max(0, Number(status.stacks || 0)) > 0;
+  });
+}
+
+function resetEncounterCardState(participant) {
+  if (!participant) return;
+  participant.cards = normalizeCards(
+    (participant.cards || []).map((card) => {
+      if (!card || typeof card !== 'object') return card;
+      const effectState = card.effectState && typeof card.effectState === 'object' ? { ...card.effectState } : {};
+      delete effectState.hasteMatrixTargetCounts;
+      return {
+        ...card,
+        effectState
+      };
+    })
+  );
+}
+
+function resetLongRestCardState(participant) {
+  if (!participant) return;
+  participant.cards = normalizeCards(
+    (participant.cards || []).map((card) => {
+      if (!card || typeof card !== 'object') return card;
+      const effectState = card.effectState && typeof card.effectState === 'object' ? { ...card.effectState } : {};
+      if (effectState.pauseButtonUsedLongRest) {
+        effectState.pauseButtonUsedLongRest = false;
+      }
+      return {
+        ...card,
+        effectState
+      };
+    })
+  );
 }
 
 function normalizeStatusToken(value) {
@@ -6235,7 +6520,16 @@ function getCardContestedEffectConfig(card = {}, masteryLevel = 1) {
             statusId: String(entry.statusId || entry.id || '').trim(),
             statusName: String(entry.statusName || entry.name || label || '').trim(),
             statusNotes: String(entry.statusNotes || entry.notes || '').trim(),
-            statusStacks: Math.max(1, Math.round(Number(entry.statusStacks || 1))),
+            statusStacks: Math.max(
+              1,
+              Math.round(
+                getCardScaledValue(
+                  entry.statusStacksByLevel,
+                  masteryLevel,
+                  Number(entry.statusStacks || 1)
+                )
+              )
+            ),
             durationTurns,
             clearStatuses: Array.isArray(entry.clearStatuses)
               ? entry.clearStatuses
@@ -6641,12 +6935,14 @@ function resetSetCombatState(participant) {
   runtime.arcane.copyUsedEncounter = false;
   runtime.arcane.modifiedCard = null;
   runtime.divine.reverseDamageUsedEncounter = false;
+  participant.pauseButtonSkipTurns = 0;
   participant.constructs = [];
   participant.zones = [];
   participant.lastActedRound = 0;
   participant.rangedUntargetableTurns = 0;
   participant.guardActionBonus = 0;
   participant.guardActionBonusTurns = 0;
+  resetEncounterCardState(participant);
   participant.cards = normalizeCards((participant.cards || []).filter((card) => card?.temporarySource !== 'arcane_7_temp_copy'));
 }
 
@@ -6879,6 +7175,7 @@ function importEncounter(encounter = {}) {
     participants: [],
     currentIndex: -1,
     currentTurnKey: String(encounter.currentTurnKey || ''),
+    pauseState: normalizeEncounterPauseState(encounter.pauseState),
     log: Array.isArray(encounter.log) ? encounter.log.slice(-200) : []
   };
   cardActionHistory.length = 0;
