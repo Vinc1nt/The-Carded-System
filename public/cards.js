@@ -4,7 +4,8 @@ import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/c
 const state = {
   participants: [],
   selectedCardId: CARD_PRESETS[0]?.id || null,
-  selectedParticipantId: ''
+  selectedParticipantId: '',
+  searchQuery: ''
 };
 
 const els = {
@@ -12,7 +13,9 @@ const els = {
   title: document.getElementById('libraryCardTitle'),
   detail: document.getElementById('libraryCardDetail'),
   participantSelect: document.getElementById('libraryParticipantSelect'),
-  refresh: document.getElementById('refreshLibrary')
+  refresh: document.getElementById('refreshLibrary'),
+  searchInput: document.getElementById('librarySearchInput'),
+  searchMeta: document.getElementById('librarySearchMeta')
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -24,9 +27,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function wireEvents() {
+  els.searchInput?.addEventListener('input', () => {
+    state.searchQuery = String(els.searchInput.value || '').trim();
+    render();
+  });
   els.participantSelect?.addEventListener('change', () => {
     state.selectedParticipantId = els.participantSelect.value || '';
-    renderDetail();
+    render();
   });
   els.refresh?.addEventListener('click', () => {
     loadParticipants();
@@ -38,15 +45,17 @@ async function loadParticipants() {
     const response = await api('/api/state');
     state.participants = response?.state?.encounter?.participants || [];
     renderParticipantOptions();
-    renderDetail();
+    render();
   } catch (err) {
     notify(`Unable to load combatants: ${err.message}`);
   }
 }
 
 function render() {
-  renderList();
-  renderDetail();
+  const visiblePresets = getVisiblePresets();
+  syncSelectedCard(visiblePresets);
+  renderList(visiblePresets);
+  renderDetail(visiblePresets);
 }
 
 function renderParticipantOptions() {
@@ -60,11 +69,15 @@ function renderParticipantOptions() {
   els.participantSelect.innerHTML = options.join('');
 }
 
-function renderList() {
-  const grouped = groupPresetsBySetAndRarity(CARD_PRESETS);
+function renderList(visiblePresets = CARD_PRESETS) {
+  const grouped = groupPresetsBySetAndRarity(visiblePresets);
   const sets = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+  renderSearchMeta(visiblePresets.length);
   if (!sets.length) {
-    els.list.innerHTML = '<p class="empty-state">No preset cards configured.</p>';
+    const message = CARD_PRESETS.length
+      ? `No cards match "${escapeHtml(state.searchQuery)}".`
+      : 'No preset cards configured.';
+    els.list.innerHTML = `<p class="empty-state">${message}</p>`;
     return;
   }
 
@@ -88,7 +101,7 @@ function renderList() {
             )
             .join('');
           return `
-            <details class="library-rarity-group">
+            <details class="library-rarity-group" ${state.searchQuery ? 'open' : ''}>
               <summary>${escapeHtml(rarity)} (${cards.length})</summary>
               <div class="library-card-links">${items}</div>
             </details>
@@ -96,7 +109,7 @@ function renderList() {
         })
         .join('');
       return `
-        <details class="library-set-group">
+        <details class="library-set-group" ${state.searchQuery ? 'open' : ''}>
           <summary>${escapeHtml(setName)}</summary>
           <div class="library-set-body">${rarityBlocks}</div>
         </details>
@@ -119,9 +132,17 @@ function syncLibrarySelectionState() {
   });
 }
 
-function renderDetail() {
-  const selected = CARD_PRESETS.find((entry) => entry.id === state.selectedCardId) || CARD_PRESETS[0];
+function renderDetail(visiblePresets = CARD_PRESETS) {
+  const selected =
+    visiblePresets.find((entry) => entry.id === state.selectedCardId) ||
+    visiblePresets[0] ||
+    null;
   if (!selected) {
+    if (CARD_PRESETS.length) {
+      els.title.textContent = 'No Matching Cards';
+      els.detail.innerHTML = 'Adjust the search to view a matching preset card.';
+      return;
+    }
     els.title.textContent = 'No Preset Cards';
     els.detail.innerHTML = 'The preset card library is empty. Add new card definitions to start building the library again.';
     return;
@@ -198,6 +219,48 @@ function groupPresetsBySetAndRarity(list = []) {
     grouped[setName][rarity].push(preset);
   }
   return grouped;
+}
+
+function getVisiblePresets() {
+  const query = normalizeSearchText(state.searchQuery);
+  if (!query) return CARD_PRESETS;
+  const terms = query.split(/\s+/).filter(Boolean);
+  return CARD_PRESETS.filter((preset) => matchesPresetSearch(preset, terms));
+}
+
+function syncSelectedCard(visiblePresets = CARD_PRESETS) {
+  const visibleIds = new Set(visiblePresets.map((entry) => entry.id));
+  if (state.selectedCardId && visibleIds.has(state.selectedCardId)) return;
+  state.selectedCardId = visiblePresets[0]?.id || null;
+}
+
+function matchesPresetSearch(preset, terms = []) {
+  if (!terms.length) return true;
+  const card = preset?.card || {};
+  const haystack = normalizeSearchText([
+    preset?.name,
+    preset?.id,
+    card.name,
+    card.set,
+    card.type,
+    card.tier,
+    card.effect,
+    card.damageType,
+    formatCardRange(card),
+    Array.isArray(card.tags) ? card.tags.join(' ') : card.tags,
+    Array.isArray(card.mastery) ? card.mastery.join(' ') : card.mastery
+  ].join(' '));
+  return terms.every((term) => haystack.includes(term));
+}
+
+function renderSearchMeta(matchCount) {
+  if (!els.searchMeta) return;
+  const total = CARD_PRESETS.length;
+  if (!state.searchQuery) {
+    els.searchMeta.textContent = `${total} preset card${total === 1 ? '' : 's'}`;
+    return;
+  }
+  els.searchMeta.textContent = `${matchCount} of ${total} card${matchCount === 1 ? '' : 's'} shown`;
 }
 
 function compareRarity(a, b) {
@@ -311,4 +374,11 @@ function slugify(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }

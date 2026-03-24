@@ -4679,7 +4679,15 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   const targetMode = getCardTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
+  const customEffectId = String(card.customCardEffect || '').trim().toLowerCase();
   const parts = [];
+  if (customEffectId === 'arcane_two_step') {
+    const duration = level >= 2 ? 3 : 2;
+    parts.push(`Gain Two Step for ${duration} turn${duration === 1 ? '' : 's'}. End of each turn, resolve a 10 ft forward horizontal teleport if space permits.`);
+  } else if (customEffectId === 'arcane_haste_matrix') {
+    const duration = level >= 2 ? 3 : 2;
+    parts.push(`Target ally gains +2 AP at the start of each turn for ${duration} turn${duration === 1 ? '' : 's'}. When it ends, Haste Crash applies (-4 AP on the next turn). Each creature can only be targeted twice per encounter.`);
+  }
   const damage = getCardDisplayDamage(card);
   const secondaryDamage = getCardSecondaryDamage(card);
   const secondaryType = card.secondaryDamageType || card.damageType || '';

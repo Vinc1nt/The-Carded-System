@@ -25,12 +25,21 @@
             <button type="button" id="refreshLibrary">Refresh</button>
           </div>
           <div class="stacked-form">
+            <label>Search Cards
+              <input
+                type="search"
+                id="librarySearchInput"
+                placeholder="Search by name, set, type, tier, tag, or text"
+                autocomplete="off"
+              />
+            </label>
             <label>Target Combatant (optional)
               <select id="libraryParticipantSelect">
                 <option value="">None selected</option>
               </select>
             </label>
           </div>
+          <div id="librarySearchMeta" class="library-search-meta" aria-live="polite"></div>
           <div id="libraryList" class="library-list empty-state">No preset cards configured.</div>
         </section>
         <section class="panel card-library-detail-panel">

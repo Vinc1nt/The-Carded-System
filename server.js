@@ -253,6 +253,37 @@ const STATUS_LIBRARY = [
     defaultStacks: 1,
     description: 'Debuff. Your attacks deal -2 damage while active.',
     tags: ['Debuff']
+  },
+  {
+    id: 'two_step',
+    name: 'Two Step',
+    defaultStacks: 1,
+    description:
+      'Buff. At the end of each turn, resolve a 10 ft horizontal teleport if space is available. This tracker shows duration but does not enforce board occupancy.',
+    tags: ['Buff', 'Custom']
+  },
+  {
+    id: 'haste_matrix',
+    name: 'Haste Matrix',
+    defaultStacks: 1,
+    description:
+      'Buff. Gain +2 AP at the start of each turn while active. When it expires, Haste Crash applies on the next turn.',
+    tags: ['Buff', 'Custom']
+  },
+  {
+    id: 'haste_crash',
+    name: 'Haste Crash',
+    defaultStacks: 1,
+    description: 'Debuff. Lose 4 AP at the start of your turn, then expire at the end of that turn.',
+    tags: ['Debuff', 'Custom']
+  },
+  {
+    id: 'polymorphed',
+    name: 'Polymorphed',
+    defaultStacks: 1,
+    description:
+      'Custom. The creature is transformed into a chosen form. The tracker records the duration and chosen form; the GM resolves the transformed statistics and capabilities.',
+    tags: ['Control', 'Custom']
   }
 ];
 
@@ -1448,6 +1479,15 @@ function executeCardAction(body) {
       }
     }
   }
+  if (customCardEffect === 'arcane_polymorph_matrix') {
+    for (const entry of effectivePrimaryTargets) {
+      const detail = targetDetailsById[entry.id];
+      const formName = String(detail?.formName || detail?.form || '').trim();
+      if (!formName) {
+        return { error: `Enter a chosen form for ${entry.name}.` };
+      }
+    }
+  }
   if (zoneCard) {
     participant.zones = normalizeZones(participant.zones, participant.id);
     if (participant.zones.length >= MAX_ACTIVE_ZONES) {
@@ -1589,6 +1629,153 @@ function executeCardAction(body) {
       baseCost,
       target: null,
       targets: [],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
+  if (customCardEffect === 'arcane_two_step') {
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, masteryLevel >= 2 ? 3 : 2))
+    );
+    upsertTimedStatus(participant, {
+      presetId: 'two_step',
+      name: 'Two Step',
+      stacks: 1,
+      notes: 'End of turn: resolve a 10 ft forward horizontal teleport if space is open.',
+      remainingTurns: durationTurns
+    });
+    notes.push(`Two Step is active for ${durationTurns} turn${durationTurns === 1 ? '' : 's'}.`);
+    notes.push('End-of-turn teleport resolution remains GM-adjudicated until map occupancy is tracked.');
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: participant.id,
+      targetIds: [participant.id],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'self',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      customStatus: 'two_step'
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: participant,
+      targets: [participant],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
+  if (customCardEffect === 'arcane_haste_matrix') {
+    if (!primaryTarget || isConstructEntity(primaryTarget)) {
+      return { error: 'Choose an allied creature to hasten.' };
+    }
+    if (!isParticipantAlly(participant, primaryTarget)) {
+      return { error: 'Haste Matrix can only target allies.' };
+    }
+    const effectState = card.effectState && typeof card.effectState === 'object' ? card.effectState : {};
+    const targetCounts =
+      effectState.hasteMatrixTargetCounts && typeof effectState.hasteMatrixTargetCounts === 'object'
+        ? effectState.hasteMatrixTargetCounts
+        : {};
+    const priorCount = Math.max(0, Math.round(Number(targetCounts[primaryTarget.id] || 0)));
+    if (priorCount >= 2) {
+      return { error: `${primaryTarget.name} has already been targeted by Haste Matrix twice this encounter.` };
+    }
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, masteryLevel >= 2 ? 3 : 2))
+    );
+    upsertTimedStatus(primaryTarget, {
+      presetId: 'haste_matrix',
+      name: 'Haste Matrix',
+      stacks: 1,
+      notes: 'Start of turn: gain +2 AP. On expiry: gain Haste Crash (-4 AP next turn).',
+      remainingTurns: durationTurns
+    });
+    card.effectState = {
+      ...effectState,
+      hasteMatrixTargetCounts: {
+        ...targetCounts,
+        [primaryTarget.id]: priorCount + 1
+      }
+    };
+    notes.push(
+      `${primaryTarget.name} gains Haste Matrix for ${durationTurns} turn${durationTurns === 1 ? '' : 's'} (${priorCount + 1}/2 encounter uses on this target).`
+    );
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: primaryTarget.id,
+      targetIds: [primaryTarget.id],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'single',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      customStatus: 'haste_matrix'
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: primaryTarget,
+      targets: [primaryTarget],
       secondaryTarget: null,
       masteryChoicePrompt
     };
@@ -2115,6 +2302,29 @@ function executeCardAction(body) {
           }.`
         );
       }
+    }
+  }
+
+  if (!isConstruct && customCardEffect === 'arcane_polymorph_matrix') {
+    const polymorphSummaries = [];
+    for (const contestedResolution of contestedResolutions) {
+      if (!contestedResolution || contestedResolution.outcome !== 'success') continue;
+      const detail = targetDetailsById[contestedResolution.target.id] || {};
+      const formName = String(detail.formName || detail.form || '').trim();
+      if (!formName) continue;
+      const appliedStatus = upsertTimedStatus(contestedResolution.target, {
+        presetId: 'polymorphed',
+        name: 'Polymorphed',
+        stacks: 1,
+        notes: `Form: ${formName}. GM resolves transformed statistics and capabilities.`,
+        remainingTurns: Math.max(0, Number(contestedResolution.choice?.durationTurns || 0))
+      });
+      if (appliedStatus) {
+        polymorphSummaries.push(`${contestedResolution.target.name} -> ${formName}`);
+      }
+    }
+    if (polymorphSummaries.length) {
+      notes.push(`Chosen forms: ${polymorphSummaries.join('; ')}.`);
     }
   }
 
@@ -3270,6 +3480,22 @@ function normalizeStatusToken(value) {
     .replace(/[^a-z]/g, '');
 }
 
+function detectCustomStatusEffect(status) {
+  const token = normalizeStatusToken(status?.presetId || status?.name || status?.id || '');
+  if (token === 'twostep') return 'two_step';
+  if (token === 'hastematrix') return 'haste_matrix';
+  if (token === 'hastecrash') return 'haste_crash';
+  if (token === 'polymorphed' || token === 'polymorph') return 'polymorphed';
+  return null;
+}
+
+function findCustomStatus(participant, effectId = '') {
+  const target = String(effectId || '').trim();
+  if (!participant || !target) return null;
+  participant.statuses = normalizeStatuses(participant.statuses);
+  return (participant.statuses || []).find((status) => detectCustomStatusEffect(status) === target) || null;
+}
+
 function detectStatusType(status) {
   const candidates = [status?.presetId, status?.name, status?.id];
   for (const candidate of candidates) {
@@ -3582,6 +3808,19 @@ function applyStartOfTurnStatusEffects(participant) {
   if (startingStacks.stunned > 0) {
     participant.apCurrent = 0;
     events.push('is Stunned and loses this turn.');
+  }
+
+  if (startingStacks.stunned <= 0) {
+    const hasteMatrixStatus = findCustomStatus(participant, 'haste_matrix');
+    if (hasteMatrixStatus) {
+      participant.apCurrent += 2;
+      events.push('gains +2 AP from Haste Matrix.');
+    }
+  }
+  const hasteCrashStatus = findCustomStatus(participant, 'haste_crash');
+  if (hasteCrashStatus) {
+    participant.apCurrent -= 4;
+    events.push('loses 4 AP from Haste Crash.');
   }
 
   const escalatedThisTurn = new Set();
@@ -4225,7 +4464,7 @@ function normalizeCurrentAp(value, apMax) {
   if (!Number.isFinite(parsed)) {
     return Math.max(0, Number(apMax || 0));
   }
-  return Math.min(Math.round(parsed), Math.max(0, Number(apMax || 0)));
+  return Math.round(parsed);
 }
 
 function createZeroModifier() {
@@ -4993,6 +5232,10 @@ function normalizeCards(list = []) {
         constructMoveFt: Number.isFinite(constructMoveFtRaw) ? Math.max(5, Math.round(constructMoveFtRaw)) : 10,
         constructCards,
         constructLinkedCard: constructCards[0] || '',
+        effectState:
+          migratedCard.effectState && typeof migratedCard.effectState === 'object'
+            ? structuredClone(migratedCard.effectState)
+            : {},
         chargesMax: cardChargesMax,
         chargesCurrent: cardChargesCurrent,
         masteryLevel,
@@ -5822,10 +6065,25 @@ function decrementTimedStatusesAtEndOfTurn(participant) {
       nextStatuses.push(status);
       continue;
     }
+    const customEffect = detectCustomStatusEffect(status);
+    if (customEffect === 'two_step') {
+      events.push('Two Step is active: resolve a 10 ft forward horizontal teleport if space permits.');
+    }
     const nextRemaining = Math.max(0, remainingTurns - 1);
     if (nextRemaining > 0) {
       nextStatuses.push({ ...status, remainingTurns: nextRemaining });
     } else {
+      if (customEffect === 'haste_matrix') {
+        nextStatuses.push({
+          id: randomUUID(),
+          presetId: 'haste_crash',
+          name: 'Haste Crash',
+          stacks: 1,
+          notes: 'Lose 4 AP at the start of your next turn.',
+          remainingTurns: 1
+        });
+        events.push('Haste Matrix ends and leaves Haste Crash for the next turn.');
+      }
       events.push(`${status.name} expires.`);
     }
   }

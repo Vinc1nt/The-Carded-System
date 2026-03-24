@@ -1514,6 +1514,12 @@ textarea {
   gap: 0.65rem;
 }
 
+.library-search-meta {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 .library-set-group,
 .library-rarity-group {
   border: 1px solid rgba(148, 163, 184, 0.25);

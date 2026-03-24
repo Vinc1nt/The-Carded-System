@@ -983,6 +983,125 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'arcane_two_step',
+    card: {
+      id: 'arcane_two_step',
+      name: 'Two Step',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect:
+        'Gain Two Step for 2 turns. At the end of each turn, teleport 10 ft forward horizontally. If the space is occupied, you do not teleport.',
+      targetMode: 'none',
+      customCardEffect: 'arcane_two_step',
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 3 turns.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_haste_matrix',
+    card: {
+      id: 'arcane_haste_matrix',
+      name: 'Haste Matrix',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Very Rare',
+      apCost: 3,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Utility'],
+      effect:
+        'Target ally gains +2 AP each turn for 2 turns. When the duration ends, the target suffers Haste Crash (-4 AP on its next turn). Each creature can only be targeted by this card twice per encounter.',
+      targetMode: 'single',
+      targetEntityKinds: ['participant'],
+      allowSelfTarget: false,
+      targetAlliesOnly: true,
+      customCardEffect: 'arcane_haste_matrix',
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 3 turns.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_polymorph_matrix',
+    card: {
+      id: 'arcane_polymorph_matrix',
+      name: 'Polymorph Matrix',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Utility'],
+      effect:
+        'Transform a creature into another creature the caster has seen before for 3 turns. Unwilling creatures may attempt to resist with a contested Int/Wis check.',
+      targetMode: 'single',
+      targetEntityKinds: ['participant'],
+      customCardEffect: 'arcane_polymorph_matrix',
+      perTargetInputs: [
+        {
+          id: 'formName',
+          label: 'Chosen Form',
+          type: 'text'
+        }
+      ],
+      contestedEffect: {
+        hostileOnly: true,
+        options: [
+          {
+            id: 'polymorph',
+            label: 'Polymorph',
+            statusName: 'Polymorphed',
+            statusNotes: 'GM resolves transformed statistics and capabilities.',
+            durationTurnsByLevel: {
+              1: 3,
+              2: 4,
+              3: 4,
+              4: 4
+            }
+          }
+        ]
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 4 turns.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'divine_cleansing_light',
     card: {
       id: 'divine_cleansing_light',
