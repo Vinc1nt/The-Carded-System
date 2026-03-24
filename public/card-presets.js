@@ -693,6 +693,74 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'arcane_size_shift',
+    card: {
+      id: 'arcane_size_shift',
+      name: 'Size Shift',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect:
+        'Choose a creature to Enlarge or Reduce. Enlarge: +2 damage on melee attacks. Reduce: -2 damage on attacks. If targeting a hostile creature, resolve a contested Wisdom check; if resisted, the caster takes 2 Psychic damage. Duration 2 turns.',
+      targetMode: 'single',
+      targetEntityKinds: ['participant'],
+      contestedEffect: {
+        choiceLabel: 'Size Shift',
+        hostileOnly: true,
+        resistedCasterDamageByLevel: {
+          1: 2
+        },
+        resistedDamageType: 'Psychic',
+        options: [
+          {
+            id: 'enlarge',
+            label: 'Enlarge',
+            statusId: 'enlarge',
+            statusName: 'Enlarge',
+            statusNotes: '+2 damage on melee attacks.',
+            durationTurnsByLevel: {
+              1: 2,
+              2: 3,
+              3: 3,
+              4: 3
+            },
+            clearStatuses: ['reduce']
+          },
+          {
+            id: 'reduce',
+            label: 'Reduce',
+            statusId: 'reduce',
+            statusName: 'Reduce',
+            statusNotes: '-2 damage on attacks.',
+            durationTurnsByLevel: {
+              1: 2,
+              2: 3,
+              3: 3,
+              4: 3
+            },
+            clearStatuses: ['enlarge']
+          }
+        ]
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 3 turns.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'divine_cleansing_light',
     card: {
       id: 'divine_cleansing_light',

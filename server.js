@@ -239,6 +239,20 @@ const STATUS_LIBRARY = [
     description:
       'Buff. Immune to Charmed and Frightened while active. Loses 1 stack at the start of your turn.',
     tags: ['Buff']
+  },
+  {
+    id: 'enlarge',
+    name: 'Enlarge',
+    defaultStacks: 1,
+    description: 'Buff. Gain +2 damage on melee attacks while active.',
+    tags: ['Buff']
+  },
+  {
+    id: 'reduce',
+    name: 'Reduce',
+    defaultStacks: 1,
+    description: 'Debuff. Your attacks deal -2 damage while active.',
+    tags: ['Debuff']
   }
 ];
 
@@ -920,6 +934,9 @@ function executeCardAction(body) {
   const nextAttackBonus = !isConstruct && baseDamage > 0
     ? Math.max(0, Number(participant.nextAttackDamageBonus || 0))
     : 0;
+  const attackStatusDamageModifier = !isConstruct && !zoneCard
+    ? getParticipantAttackStatusDamageModifier(participant, card, masteryLevel)
+    : 0;
   const zoneTickDamage = zoneCard
     ? (() => {
         // Zone damage bonuses should only scale existing damage zones.
@@ -942,10 +959,18 @@ function executeCardAction(body) {
     : baseDamage > 0
       ? Math.max(
           0,
-          baseDamage + (participant.damageBonus || 0) + nextAttackBonus + (arcaneModifiedCard?.mode === 'damage' ? 2 : 0)
+          baseDamage +
+            (participant.damageBonus || 0) +
+            nextAttackBonus +
+            (arcaneModifiedCard?.mode === 'damage' ? 2 : 0) +
+            attackStatusDamageModifier
         )
       : 0;
-  const secondaryRawDamage = isConstruct ? 0 : Math.max(0, secondaryBaseDamage);
+  const secondaryRawDamage = isConstruct
+    ? 0
+    : secondaryBaseDamage > 0
+      ? Math.max(0, secondaryBaseDamage + attackStatusDamageModifier)
+      : 0;
   const shieldRestoreBase = getCardScaledEffectValue(card, 'shieldRestoreByLevel', masteryLevel, 0);
   const shieldRestoreBonus = getGlobalShieldRestoreBonus(participant);
   const shieldRestoreTotal = Math.max(0, shieldRestoreBase + (shieldRestoreBase > 0 ? shieldRestoreBonus : 0));
@@ -1133,8 +1158,9 @@ function executeCardAction(body) {
       )
     )
   );
+  const hasAttackDamage = baseDamage > 0 || secondaryBaseDamage > 0;
   const scaledRange = getCardScaledEffectValue(card, 'rangeByLevel', masteryLevel, Number(card.range || 0));
-  const isRangedAttackCard = !isConstruct && !zoneCard && rawDamage > 0 && Number(scaledRange || 0) > 5;
+  const isRangedAttackCard = !isConstruct && !zoneCard && hasAttackDamage && Number(scaledRange || 0) > 5;
 
   const targetId = String(body.targetId || '').trim();
   const target = targetId ? findTargetableEntity(targetId) : null;
@@ -1217,6 +1243,10 @@ function executeCardAction(body) {
     return { error: 'Arcane split requires a single-target non-self card with a valid second target.' };
   }
   const effectivePrimaryTargets = canArcaneSplit ? [primaryTarget, arcaneSplitTarget] : primaryTargets;
+  const contestedEffect = getCardContestedEffectConfig(card, masteryLevel);
+  if (contestedEffect && arcaneSplitTargetId) {
+    return { error: 'Contested cards cannot use Arcane split.' };
+  }
 
   const secondaryTargetId = String(body.secondaryTargetId || '').trim();
   const secondaryTarget = secondaryTargetId ? findTargetableEntity(secondaryTargetId) : null;
@@ -1227,7 +1257,7 @@ function executeCardAction(body) {
     ((isConstruct && (constructMode === 'damage' || constructMode === 'status') && card.constructAllowUntargetedDeploy !== true) ||
       (isConstruct && constructTargetRequired) ||
       (!isConstruct &&
-        (rawDamage > 0 ||
+        (hasAttackDamage ||
           shieldRestoreTotal > 0 ||
           healTotal > 0 ||
           Boolean(statusApply) ||
@@ -1262,6 +1292,10 @@ function executeCardAction(body) {
       return { error: `${card.name} can only target enemies.` };
     }
   }
+  const invalidEntityTarget = primaryTargets.find((entry) => !isEntityKindAllowedForCard(card, entry));
+  if (invalidEntityTarget) {
+    return { error: `${card.name} cannot target ${isConstructEntity(invalidEntityTarget) ? 'constructs' : 'participants'}.` };
+  }
   if (secondaryTargetId && !secondaryTarget) {
     return { error: 'Secondary target not found' };
   }
@@ -1279,6 +1313,28 @@ function executeCardAction(body) {
     if (secondaryTarget && Number(secondaryTarget.rangedUntargetableTurns || 0) > 0) {
       return { error: `${secondaryTarget.name} cannot be targeted by ranged attacks right now.` };
     }
+  }
+  let contestedResolution = null;
+  if (contestedEffect) {
+    if (targetMode !== 'single' || !primaryTarget || effectivePrimaryTargets.length !== 1) {
+      return { error: `${card.name} requires a single target for its contested effect.` };
+    }
+    const choiceId = String(body.contestedChoiceId || body.contestedEffectId || '').trim();
+    const choice = contestedEffect.options.find((entry) => entry.id === choiceId);
+    if (!choice) {
+      return { error: `Choose a ${card.name} effect option.` };
+    }
+    const hostileTarget = contestedEffect.hostileOnly && isParticipantEnemy(participant, primaryTarget);
+    const outcome = hostileTarget ? normalizeContestedOutcome(body.contestedOutcome) : 'success';
+    if (hostileTarget && !outcome) {
+      return { error: `Resolve whether ${primaryTarget.name} resists ${card.name}.` };
+    }
+    contestedResolution = {
+      target: primaryTarget,
+      choice,
+      hostileTarget,
+      outcome: outcome || 'success'
+    };
   }
   if (zoneCard) {
     participant.zones = normalizeZones(participant.zones, participant.id);
@@ -1300,8 +1356,7 @@ function executeCardAction(body) {
   const hasStructuredCardEffect =
     isConstruct ||
     zoneCard ||
-    rawDamage > 0 ||
-    secondaryRawDamage > 0 ||
+    hasAttackDamage ||
     shieldRestoreTotal > 0 ||
     healTotal > 0 ||
     moveDistance > 0 ||
@@ -1315,7 +1370,8 @@ function executeCardAction(body) {
     removeStatusCount > 0 ||
     uniqueRemoveStatusIds.length > 0 ||
     rangedUntargetableTurnsGrant > 0 ||
-    (guardActionBonusGrant > 0 && guardActionBonusTurnsGrant > 0);
+    (guardActionBonusGrant > 0 && guardActionBonusTurnsGrant > 0) ||
+    Boolean(contestedEffect);
   const demonicStatusProc = Boolean(statusApply) && ['bleeding', 'poisoned', 'burning'].includes(statusApply?.id);
   const addDamageResult = (damageTarget, amount, type, source = 'primary', options = {}) => {
     if (!damageTarget || amount <= 0) return;
@@ -1757,6 +1813,52 @@ function executeCardAction(body) {
       notes.push(`Removes specific statuses: ${specificCleanseSummaries.join('; ')}.`);
     } else {
       notes.push('No matching statuses were found for specific cleanse.');
+    }
+  }
+
+  if (contestedResolution) {
+    if (contestedResolution.outcome === 'resisted') {
+      const backlashAmount = Math.max(0, Number(contestedEffect?.resistedCasterDamage || 0));
+      if (backlashAmount > 0) {
+        const backlash = applyCardDamageWithType(
+          participant,
+          backlashAmount,
+          contestedEffect?.resistedDamageType || 'Psychic'
+        );
+        const destroyedCasterConstruct = removeDefeatedConstructByEntity(participant);
+        if (destroyedCasterConstruct) {
+          backlash.destroyedConstruct = destroyedCasterConstruct.construct;
+        }
+        notes.push(
+          `${contestedResolution.target.name} resists. ${participant.name} takes ${backlash.finalDamage} ${
+            contestedEffect?.resistedDamageType || 'Psychic'
+          } damage (${backlash.shieldDamage} Shield, ${backlash.hpDamage} HP).${
+            backlash.preventedByDivine ? ' [Reversed by Divine]' : ''
+          }`
+        );
+      } else {
+        notes.push(`${contestedResolution.target.name} resists ${card.name}.`);
+      }
+    } else {
+      contestedResolution.choice.clearStatuses.forEach((entry) => {
+        removeStatusEntry(contestedResolution.target, { id: entry, name: entry });
+      });
+      const appliedStatus = upsertTimedStatus(contestedResolution.target, {
+        presetId: contestedResolution.choice.statusId,
+        name: contestedResolution.choice.statusName,
+        notes: contestedResolution.choice.statusNotes,
+        stacks: contestedResolution.choice.statusStacks,
+        remainingTurns: contestedResolution.choice.durationTurns
+      });
+      if (appliedStatus) {
+        notes.push(
+          `Applies ${appliedStatus.name} to ${contestedResolution.target.name}${
+            appliedStatus.remainingTurns > 0
+              ? ` for ${appliedStatus.remainingTurns} turn${appliedStatus.remainingTurns === 1 ? '' : 's'}`
+              : ''
+          }.`
+        );
+      }
     }
   }
 
@@ -2650,6 +2752,8 @@ function advanceTurn(direction = 1) {
   if (direction > 0 && previousEntry?.kind === 'participant') {
     const previousActor = findParticipant(previousEntry.participantId);
     if (previousActor) {
+      const timedStatusEvents = decrementTimedStatusesAtEndOfTurn(previousActor);
+      timedStatusEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
       const endEvents = applyEndOfTurnSetEffects(previousActor);
       endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
     }
@@ -2864,6 +2968,8 @@ function detectStatusType(status) {
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
     if (token.includes('halfcover')) return 'half_cover';
     if (token.includes('mindshield')) return 'mind_shield';
+    if (token.includes('enlarge')) return 'enlarge';
+    if (token.includes('reduce') || token.includes('reduced')) return 'reduce';
   }
   return null;
 }
@@ -2935,7 +3041,9 @@ function statusDisplayName(type) {
     frightened: 'Frightened',
     suppressed: 'Suppressed',
     half_cover: 'Half Cover',
-    mind_shield: 'Mind Shield'
+    mind_shield: 'Mind Shield',
+    enlarge: 'Enlarge',
+    reduce: 'Reduce'
   };
   return labels[type] || type;
 }
@@ -2978,6 +3086,8 @@ function normalizeStatuses(statuses = []) {
     const type = detectStatusType(rawStatus);
     const parsedStacks = Number(rawStatus.stacks);
     const stacks = Number.isFinite(parsedStacks) ? Math.max(1, Math.round(parsedStacks)) : 1;
+    const parsedRemainingTurns = Number(rawStatus.remainingTurns);
+    const remainingTurns = Number.isFinite(parsedRemainingTurns) ? Math.max(0, Math.round(parsedRemainingTurns)) : 0;
     const existing = merged.get(key);
     if (!existing) {
       merged.set(key, {
@@ -2985,7 +3095,8 @@ function normalizeStatuses(statuses = []) {
         presetId: type || rawStatus.presetId || '',
         name: type ? statusDisplayName(type) : rawStatus.name || rawStatus.presetId || 'Status',
         stacks,
-        notes: rawStatus.notes || ''
+        notes: rawStatus.notes || '',
+        remainingTurns
       });
       return;
     }
@@ -2997,6 +3108,7 @@ function normalizeStatuses(statuses = []) {
     if (!existing.notes && rawStatus.notes) {
       existing.notes = rawStatus.notes;
     }
+    existing.remainingTurns = Math.max(existing.remainingTurns || 0, remainingTurns);
   });
   return Array.from(merged.values());
 }
@@ -5306,7 +5418,8 @@ function addCustomStatus(participant, status = {}) {
       existingIndex >= 0 ? Number(current[existingIndex].stacks || 1) : 1,
       Number(status.stacks || 1)
     ),
-    notes: String(status.notes || current[existingIndex]?.notes || '').trim()
+    notes: String(status.notes || current[existingIndex]?.notes || '').trim(),
+    remainingTurns: Math.max(0, Number(status.remainingTurns || current[existingIndex]?.remainingTurns || 0))
   };
   if (existingIndex >= 0) {
     current[existingIndex] = nextStatus;
@@ -5314,6 +5427,78 @@ function addCustomStatus(participant, status = {}) {
     current.push(nextStatus);
   }
   participant.statuses = normalizeStatuses(current);
+}
+
+function removeStatusEntry(participant, status = {}) {
+  if (!participant) return false;
+  participant.statuses = normalizeStatuses(participant.statuses);
+  if (!participant.statuses.length) return false;
+  const type = detectStatusType(status);
+  const token = normalizeStatusToken(status.name || status.id || status.presetId || '');
+  const before = participant.statuses.length;
+  participant.statuses = participant.statuses.filter((entry) => {
+    const entryType = detectStatusType(entry);
+    if (type) return entryType !== type;
+    if (token) {
+      return normalizeStatusToken(entry?.name || entry?.presetId || entry?.id || '') !== token;
+    }
+    return true;
+  });
+  return participant.statuses.length !== before;
+}
+
+function upsertTimedStatus(participant, status = {}) {
+  if (!participant || !status || typeof status !== 'object') return null;
+  const type = detectStatusType(status);
+  const name = String(status.name || (type ? statusDisplayName(type) : '')).trim();
+  if (!type && !name) return null;
+  participant.statuses = normalizeStatuses(participant.statuses);
+  const token = normalizeStatusToken(name || type);
+  const current = Array.isArray(participant.statuses) ? [...participant.statuses] : [];
+  const existingIndex = current.findIndex((entry) => {
+    const entryType = detectStatusType(entry);
+    if (type) return entryType === type;
+    return normalizeStatusToken(entry?.name || entry?.presetId || entry?.id || '') === token;
+  });
+  const existing = existingIndex >= 0 ? current[existingIndex] : null;
+  const nextStatus = {
+    id: existing?.id || randomUUID(),
+    presetId: type || String(status.presetId || '').trim(),
+    name: type ? statusDisplayName(type) : name,
+    stacks: Math.max(1, Number(status.stacks || existing?.stacks || 1)),
+    notes: String(status.notes || existing?.notes || '').trim(),
+    remainingTurns: Math.max(0, Math.round(Number(status.remainingTurns || existing?.remainingTurns || 0)))
+  };
+  if (existingIndex >= 0) {
+    current[existingIndex] = nextStatus;
+  } else {
+    current.push(nextStatus);
+  }
+  participant.statuses = normalizeStatuses(current);
+  return nextStatus;
+}
+
+function decrementTimedStatusesAtEndOfTurn(participant) {
+  if (!participant) return [];
+  participant.statuses = normalizeStatuses(participant.statuses);
+  if (!participant.statuses.length) return [];
+  const events = [];
+  const nextStatuses = [];
+  for (const status of participant.statuses) {
+    const remainingTurns = Math.max(0, Number(status?.remainingTurns || 0));
+    if (remainingTurns <= 0) {
+      nextStatuses.push(status);
+      continue;
+    }
+    const nextRemaining = Math.max(0, remainingTurns - 1);
+    if (nextRemaining > 0) {
+      nextStatuses.push({ ...status, remainingTurns: nextRemaining });
+    } else {
+      events.push(`${status.name} expires.`);
+    }
+  }
+  participant.statuses = normalizeStatuses(nextStatuses);
+  return events;
 }
 
 function resolveStatusStacksForCard(statusApply, deps = {}) {
@@ -5332,6 +5517,127 @@ function resolveStatusStacksForCard(statusApply, deps = {}) {
     deps.elementalRuntime.extraStatusUsedTurn = true;
   }
   return stacks;
+}
+
+function isAttackCard(card = {}) {
+  const type = String(card?.type || '').toLowerCase();
+  if (type.includes('attack')) return true;
+  const tags = Array.isArray(card?.tags) ? card.tags.map((entry) => String(entry || '').toLowerCase()) : [];
+  return tags.includes('attack') || tags.includes('melee') || tags.includes('ranged');
+}
+
+function isMeleeAttackCard(card = {}, level = 1) {
+  if (!isAttackCard(card)) return false;
+  const tags = Array.isArray(card?.tags) ? card.tags.map((entry) => String(entry || '').toLowerCase()) : [];
+  if (tags.includes('melee')) return true;
+  if (tags.includes('ranged')) return false;
+  const rangeText = String(card.rangeText || '').trim().toLowerCase();
+  if (rangeText === 'touch') return true;
+  const scaledRange = getCardScaledEffectValue(card, 'rangeByLevel', level, Number(card.range || 0));
+  return Number(scaledRange || 0) <= 5;
+}
+
+function getParticipantAttackStatusDamageModifier(participant, card = {}, masteryLevel = 1) {
+  if (!participant || !isAttackCard(card)) return 0;
+  let modifier = 0;
+  if (getStatusStacks(participant, 'reduce') > 0) {
+    modifier -= 2;
+  }
+  if (getStatusStacks(participant, 'enlarge') > 0 && isMeleeAttackCard(card, masteryLevel)) {
+    modifier += 2;
+  }
+  return modifier;
+}
+
+function getCardAllowedEntityKinds(card = {}) {
+  const source = Array.isArray(card?.targetEntityKinds)
+    ? card.targetEntityKinds
+    : String(card?.targetEntityKinds || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+  const allowed = Array.from(
+    new Set(
+      source
+        .map((entry) => String(entry || '').trim().toLowerCase())
+        .filter((entry) => entry === 'participant' || entry === 'construct')
+    )
+  );
+  return allowed.length ? allowed : null;
+}
+
+function isEntityKindAllowedForCard(card = {}, target = null) {
+  if (!target) return true;
+  const allowed = getCardAllowedEntityKinds(card);
+  if (!allowed?.length) return true;
+  return allowed.includes(isConstructEntity(target) ? 'construct' : 'participant');
+}
+
+function normalizeContestedOutcome(value) {
+  const token = String(value || '').trim().toLowerCase();
+  if (!token) return '';
+  if (['success', 'successful', 'succeeded', 'passed'].includes(token)) {
+    return 'success';
+  }
+  if (['resisted', 'resist', 'unsuccessful', 'unsuccess', 'failed', 'failure', 'failed_to_cast'].includes(token)) {
+    return 'resisted';
+  }
+  return '';
+}
+
+function getCardContestedEffectConfig(card = {}, masteryLevel = 1) {
+  const source = card?.contestedEffect;
+  if (!source || typeof source !== 'object') return null;
+  const options = (Array.isArray(source.options) ? source.options : [])
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const id = String(entry.id || '').trim();
+      const label = String(entry.label || entry.name || entry.statusName || id).trim();
+      const durationTurns = Math.max(
+        0,
+        Math.round(
+          getCardScaledValue(
+            entry.durationTurnsByLevel,
+            masteryLevel,
+            Number(entry.durationTurns ?? source.durationTurns ?? 0)
+          )
+        )
+      );
+      return id
+        ? {
+            id,
+            label: label || id,
+            statusId: String(entry.statusId || entry.id || '').trim(),
+            statusName: String(entry.statusName || entry.name || label || '').trim(),
+            statusNotes: String(entry.statusNotes || entry.notes || '').trim(),
+            statusStacks: Math.max(1, Math.round(Number(entry.statusStacks || 1))),
+            durationTurns,
+            clearStatuses: Array.isArray(entry.clearStatuses)
+              ? entry.clearStatuses
+              : String(entry.clearStatuses || '')
+                  .split(',')
+                  .map((value) => value.trim())
+                  .filter(Boolean)
+          }
+        : null;
+    })
+    .filter(Boolean);
+  if (!options.length) return null;
+  return {
+    hostileOnly: source.hostileOnly !== false,
+    resistedCasterDamage: Math.max(
+      0,
+      Math.round(
+        getCardScaledValue(
+          source.resistedCasterDamageByLevel,
+          masteryLevel,
+          Number(source.resistedCasterDamage || 0)
+        )
+      )
+    ),
+    resistedDamageType: String(source.resistedDamageType || 'Psychic').trim(),
+    options
+  };
 }
 
 function applyShadowMovementProgress(participant, distanceFt, notes = null) {

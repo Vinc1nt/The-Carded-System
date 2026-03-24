@@ -2201,6 +2201,47 @@ async function resolvePlayerCardStatusSelectionPrompt(participant, card, targetI
     .filter(Boolean);
 }
 
+async function resolvePlayerCardContestedOutcomePrompt(participant, card, targetId, contestedChoiceId) {
+  const options = getPlayerCardContestedOptions(card);
+  if (!options.length) {
+    return { contestedChoiceId: '', contestedOutcome: '' };
+  }
+  if (!contestedChoiceId) {
+    notify(`Choose a ${card.name} effect first.`);
+    return null;
+  }
+  const target = getPlayerEncounterTargetableById(targetId);
+  if (!target) {
+    return { contestedChoiceId, contestedOutcome: '' };
+  }
+  const hostileOnly = card?.contestedEffect?.hostileOnly !== false;
+  if (!hostileOnly || !isPlayerEnemyForUi(participant, target)) {
+    return { contestedChoiceId, contestedOutcome: 'success' };
+  }
+  const selectedOption = options.find((entry) => entry.id === contestedChoiceId);
+  const message = [
+    `Resolve contested cast for ${card.name}.`,
+    `Target: ${formatPlayerTargetableLabel(target)}`,
+    `Effect: ${selectedOption?.label || contestedChoiceId}`,
+    '',
+    '1. Successful',
+    '2. Unsuccessful / target resisted',
+    '',
+    'Enter outcome number:'
+  ].join('\n');
+  const raw = window.prompt(message, '1');
+  if (raw == null) return null;
+  const choice = Number(String(raw).trim());
+  if (choice === 1) {
+    return { contestedChoiceId, contestedOutcome: 'success' };
+  }
+  if (choice === 2) {
+    return { contestedChoiceId, contestedOutcome: 'resisted' };
+  }
+  notify('Invalid contested outcome. Card use cancelled.');
+  return null;
+}
+
 function getPendingPlayerMasteryChoicePrompt(card = {}, level = Number(card?.masteryLevel || 1)) {
   const options = Array.isArray(card?.masteryChoiceOptions) ? card.masteryChoiceOptions : [];
   if (Math.max(1, Math.min(4, Number(level || 1))) < 2) return null;
@@ -2370,19 +2411,64 @@ function renderPlayerCardsList(participant, entries = [], options = {}) {
     .join('');
 }
 
+function getPlayerCardTargetEntityKinds(card = {}) {
+  const source = Array.isArray(card?.targetEntityKinds)
+    ? card.targetEntityKinds
+    : String(card?.targetEntityKinds || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+  const allowed = Array.from(
+    new Set(
+      source
+        .map((entry) => String(entry || '').trim().toLowerCase())
+        .filter((entry) => entry === 'participant' || entry === 'construct')
+    )
+  );
+  return allowed.length ? allowed : null;
+}
+
+function getPlayerCardContestedOptions(card = {}) {
+  const source = card?.contestedEffect;
+  if (!source || typeof source !== 'object' || !Array.isArray(source.options)) return [];
+  return source.options
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const id = String(entry.id || '').trim();
+      const label = String(entry.label || entry.name || entry.statusName || id).trim();
+      return id ? { id, label: label || id } : null;
+    })
+    .filter(Boolean);
+}
+
+function renderPlayerCardContestedControl(card = {}) {
+  const options = getPlayerCardContestedOptions(card);
+  if (!options.length) return '';
+  const label = String(card?.contestedEffect?.choiceLabel || 'Effect').trim() || 'Effect';
+  return `<label>${escapeHtml(label)}
+    <select data-player-card-contested-choice="${card.id || ''}">
+      <option value="">Select effect…</option>
+      ${options.map((entry) => `<option value="${entry.id}">${escapeHtml(entry.label)}</option>`).join('')}
+    </select>
+  </label>`;
+}
+
 function renderPlayerCardTargetControl(card = {}, participant = {}) {
   const selfOnly = isSelfTargetCard(card);
   const targetMode = getCardTargetMode(card);
   const allowSelfTarget = card.allowSelfTarget !== false;
+  const targetEntityKinds = getPlayerCardTargetEntityKinds(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
   const secondaryDamage = getCardSecondaryDamage(card);
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
   const showSecondaryTarget = secondaryDamage > 0 && secondaryTargetMode === 'adjacent';
+  const hasContestedOptions = getPlayerCardContestedOptions(card).length > 0;
   const arcaneSplitEnabled =
-    playerHasSetBonus(participant, 'Arcane', 5) && !selfOnly && targetMode === 'single';
+    playerHasSetBonus(participant, 'Arcane', 5) && !selfOnly && targetMode === 'single' && !hasContestedOptions;
   const arcaneShiftEnabled =
     playerHasSetBonus(participant, 'Arcane', 3) &&
     (getCardDisplayDamage(card) > 0 || secondaryDamage > 0);
+  const contestedControl = renderPlayerCardContestedControl(card);
   const arcaneControls = renderPlayerArcaneCardControls(card, participant, {
     splitEnabled: arcaneSplitEnabled,
     shiftEnabled: arcaneShiftEnabled
@@ -2406,14 +2492,16 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
     </label>`
         : ''
     }
+    ${contestedControl}
     ${arcaneControls}`;
   }
   if (targetMode === 'multi_select') {
     return `<label>Targets (up to ${multiTargetCap})
     <select data-player-card-targets="${card.id}" multiple size="${Math.max(3, Math.min(6, multiTargetCap + 1))}">
-      ${renderPlayerTargetOptions(participant.id, allowSelfTarget)}
+      ${renderPlayerTargetOptions(participant.id, allowSelfTarget, 'all', participant, targetEntityKinds)}
     </select>
   </label>
+  ${contestedControl}
   ${arcaneControls}`;
   }
   return `<label>Target
@@ -2423,7 +2511,8 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
         participant.id,
         allowSelfTarget,
         card.targetAlliesOnly === true ? 'allies' : card.targetEnemiesOnly === true ? 'enemies' : 'all',
-        participant
+        participant,
+        targetEntityKinds
       )}
     </select>
   </label>
@@ -2434,9 +2523,10 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
       <option value="">Select target…</option>
       ${renderPlayerTargetOptions(participant.id, false)}
     </select>
-  </label>`
+      </label>`
       : ''
   }
+  ${contestedControl}
   ${arcaneControls}`;
 }
 
@@ -2465,13 +2555,15 @@ function renderPlayerArcaneCardControls(card = {}, participant = {}, options = {
   return `<div class="form-row">${controls.join('')}</div>`;
 }
 
-function renderPlayerTargetOptions(actorId, includeSelf = false, filterMode = 'all', participant = null) {
+function renderPlayerTargetOptions(actorId, includeSelf = false, filterMode = 'all', participant = null, allowedEntityKinds = null) {
   const options = [];
   if (includeSelf && actorId) {
     options.push(`<option value="${actorId}">Self</option>`);
   }
   for (const entry of getPlayerEncounterTargetables()) {
     if (entry.id === actorId) continue;
+    const kind = String(entry?.entityKind || 'participant').toLowerCase();
+    if (Array.isArray(allowedEntityKinds) && allowedEntityKinds.length && !allowedEntityKinds.includes(kind)) continue;
     if (filterMode === 'allies' && participant && !isPlayerTargetableAlly(participant, entry)) continue;
     if (filterMode === 'enemies' && participant && !isPlayerEnemyForUi(participant, entry)) continue;
     options.push(`<option value="${entry.id}">${escapeHtml(formatPlayerTargetableLabel(entry))}</option>`);
@@ -2592,6 +2684,55 @@ function getStatusApplyAtMastery(card = {}, level = 1) {
   return { id, name, stacks };
 }
 
+function getPlayerCardContestedEffectSummary(card = {}, level = 1) {
+  const source = card?.contestedEffect;
+  if (!source || typeof source !== 'object' || !Array.isArray(source.options)) return '';
+  const options = source.options
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const label = String(entry.label || entry.name || entry.statusName || entry.id || '').trim();
+      if (!label) return null;
+      const durationTurns = Math.max(
+        0,
+        Math.round(
+          getCardScaledValue(
+            entry.durationTurnsByLevel,
+            level,
+            Number(entry.durationTurns ?? source.durationTurns ?? 0)
+          )
+        )
+      );
+      return {
+        label,
+        notes: String(entry.statusNotes || entry.notes || '').trim(),
+        durationTurns
+      };
+    })
+    .filter(Boolean);
+  if (!options.length) return '';
+  const parts = [
+    `Choose ${options
+      .map((entry) => `${entry.label}${entry.durationTurns > 0 ? ` (${entry.durationTurns} turn${entry.durationTurns === 1 ? '' : 's'})` : ''}`)
+      .join(' or ')}.`
+  ];
+  options.forEach((entry) => {
+    if (entry.notes) {
+      parts.push(`${entry.label}: ${entry.notes}`);
+    }
+  });
+  if (source.hostileOnly !== false) {
+    const resistedDamage = Math.max(
+      0,
+      Math.round(getCardScaledValue(source.resistedCasterDamageByLevel, level, Number(source.resistedCasterDamage || 0)))
+    );
+    const resistedType = String(source.resistedDamageType || 'Psychic').trim();
+    if (resistedDamage > 0) {
+      parts.push(`If hostile target resists, caster takes ${resistedDamage}${resistedType ? ` ${resistedType}` : ''} damage.`);
+    }
+  }
+  return parts.join(' ');
+}
+
 function formatCardEffectAtMastery(card = {}, participant = {}) {
   const fallback = String(card.effect || '').trim();
   if (isConstructCard(card)) {
@@ -2679,6 +2820,10 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     } else {
       parts.push(`Apply ${statusApply.name} ${statusApply.stacks}.`);
     }
+  }
+  const contestedSummary = getPlayerCardContestedEffectSummary(card, level);
+  if (contestedSummary) {
+    parts.push(contestedSummary);
   }
   const shieldBonus = Math.max(
     0,
@@ -3196,10 +3341,13 @@ function wirePlayerCardUses(participant) {
       const secondaryTargetId = article?.querySelector(`[data-player-card-secondary-target="${cardId}"]`)?.value || '';
       const arcaneSplitTargetId = article?.querySelector(`[data-player-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-player-card-override-damage-type="${cardId}"]`)?.value || '';
+      const contestedChoiceId = article?.querySelector(`[data-player-card-contested-choice="${cardId}"]`)?.value || '';
       const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
       try {
         const selectedRemoveStatusIds = await resolvePlayerCardStatusSelectionPrompt(participant, card, targetId, targetIds);
         if (selectedRemoveStatusIds == null) return;
+        const contestedResolution = await resolvePlayerCardContestedOutcomePrompt(participant, card, targetId, contestedChoiceId);
+        if (contestedResolution == null) return;
         const result = await api('/api/actions/card', 'POST', {
           participantId: participant.id,
           cardId,
@@ -3208,7 +3356,9 @@ function wirePlayerCardUses(participant) {
           secondaryTargetId,
           arcaneSplitTargetId,
           overrideDamageType,
-          selectedRemoveStatusIds
+          selectedRemoveStatusIds,
+          contestedChoiceId: contestedResolution.contestedChoiceId,
+          contestedOutcome: contestedResolution.contestedOutcome
         });
         await resolvePlayerMasteryChoicePrompt(participant.id, result?.masteryChoicePrompt);
         fetchState();
@@ -3760,10 +3910,18 @@ function renderStatuses(participant) {
     .map(
       (status, index) => {
         const key = status.id || `index-${index}`;
+        const remainingTurns = Math.max(0, Number(status?.remainingTurns || 0));
+        const meta = [
+          remainingTurns > 0 ? `${remainingTurns} turn${remainingTurns === 1 ? '' : 's'} left` : '',
+          status.notes || ''
+        ]
+          .filter(Boolean)
+          .join(' • ');
+        const showStacks = Number(status?.stacks || 0) > 1 || remainingTurns <= 0;
         return `
         <span class="status-pill">
-          ${status.name}${status.stacks ? ` ×${status.stacks}` : ''}
-          ${status.notes ? `<small>${status.notes}</small>` : ''}
+          ${status.name}${showStacks && status.stacks ? ` ×${status.stacks}` : ''}
+          ${meta ? `<small>${escapeHtml(meta)}</small>` : ''}
           <button type="button" data-player-status-stack="${key}" data-player-status-index="${index}" data-player-status-delta="-1">-</button>
           <button type="button" data-player-status-stack="${key}" data-player-status-index="${index}" data-player-status-delta="1">+</button>
           <button type="button" data-player-remove-status="${key}" data-player-status-index="${index}">✕</button>
