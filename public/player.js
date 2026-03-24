@@ -567,7 +567,7 @@ function renderPlayerStandardActionsSection() {
 
 function renderPlayerStandardActionButtons() {
   const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
-  const order = ['move', 'disengage', 'slip', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
+  const order = ['move', 'disengage', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
   const actions = order.map((id) => actionsById.get(id)).filter(Boolean);
   if (!actions.length) {
     return '<p class="empty-state">Standard actions will appear once the server boots.</p>';
@@ -1505,7 +1505,7 @@ function detectPlayerCleanseType(status) {
 }
 
 function getPlayerCleanseApCost(type) {
-  return type === 'stunned' || type === 'paralysed' ? 5 : 4;
+  return 4;
 }
 
 function listPlayerCleanseableStatuses(participant) {
@@ -1801,9 +1801,57 @@ function getPlayerAllies(participant) {
   });
 }
 
+function getPlayerEncounterTargetables() {
+  const entries = [];
+  for (const participant of state.encounter.participants || []) {
+    if (!participant?.id) continue;
+    entries.push({ ...participant, entityKind: 'participant' });
+    for (const construct of participant.constructs || []) {
+      if (!construct?.id) continue;
+      entries.push({
+        ...construct,
+        entityKind: 'construct',
+        ownerId: participant.id,
+        ownerName: participant.name || 'Owner',
+        team: participant.team || ''
+      });
+    }
+  }
+  return entries;
+}
+
+function getPlayerEncounterTargetableById(id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) return null;
+  return getPlayerEncounterTargetables().find((entry) => entry.id === targetId) || null;
+}
+
+function formatPlayerTargetableLabel(entry) {
+  if (!entry) return '';
+  if (String(entry.entityKind || '').toLowerCase() === 'construct') {
+    return `${entry.name || 'Construct'} (${entry.ownerName || 'Owner'} construct)`;
+  }
+  return entry.name || '';
+}
+
+function isPlayerTargetableAlly(participant, target) {
+  if (!participant?.id || !target?.id) return false;
+  if (String(target.entityKind || '').toLowerCase() === 'construct') {
+    if (target.ownerId === participant.id) return true;
+    return getPlayerAllies(participant).some((ally) => ally.id === target.ownerId);
+  }
+  if (participant.id === target.id) return false;
+  return getPlayerAllies(participant).some((ally) => ally.id === target.id);
+}
+
 function isPlayerEnemyForUi(participant, target) {
-  if (!participant?.id || !target?.id || participant.id === target.id) return false;
-  return !getPlayerAllies(participant).some((entry) => entry.id === target.id);
+  if (!participant?.id || !target?.id) return false;
+  if (String(target.entityKind || '').toLowerCase() === 'construct') {
+    if (target.ownerId === participant.id) return false;
+    return !isPlayerTargetableAlly(participant, target);
+  }
+  if (participant.id === target.id) return false;
+  return !isPlayerTargetableAlly(participant, target);
 }
 
 function mergePlayerUniqueText(existing = [], value = '') {
@@ -2111,10 +2159,10 @@ async function resolvePlayerCardStatusSelectionPrompt(participant, card, targetI
   if (selfOnly) {
     recipients = [participant];
   } else if (targetMode === 'single') {
-    const resolved = (state.encounter.participants || []).find((entry) => entry.id === targetId);
+    const resolved = getPlayerEncounterTargetableById(targetId);
     if (resolved) recipients = [resolved];
   } else if (targetMode === 'multi_select') {
-    recipients = (state.encounter.participants || []).filter((entry) => targetIds.includes(entry.id));
+    recipients = targetIds.map((id) => getPlayerEncounterTargetableById(id)).filter(Boolean);
   }
   if (recipients.length !== 1) return [];
   const target = recipients[0];
@@ -2422,11 +2470,11 @@ function renderPlayerTargetOptions(actorId, includeSelf = false, filterMode = 'a
   if (includeSelf && actorId) {
     options.push(`<option value="${actorId}">Self</option>`);
   }
-  for (const entry of state.encounter.participants || []) {
+  for (const entry of getPlayerEncounterTargetables()) {
     if (entry.id === actorId) continue;
-    if (filterMode === 'allies' && participant && !getPlayerAllies(participant).some((ally) => ally.id === entry.id)) continue;
+    if (filterMode === 'allies' && participant && !isPlayerTargetableAlly(participant, entry)) continue;
     if (filterMode === 'enemies' && participant && !isPlayerEnemyForUi(participant, entry)) continue;
-    options.push(`<option value="${entry.id}">${entry.name}</option>`);
+    options.push(`<option value="${entry.id}">${escapeHtml(formatPlayerTargetableLabel(entry))}</option>`);
   }
   return options.join('');
 }
@@ -3279,7 +3327,7 @@ function renderPlayerConstructs(participant) {
         .map((construct) => {
           const assignedTargets = Array.isArray(construct.targetIds)
             ? construct.targetIds
-                .map((targetId) => (state.encounter.participants || []).find((entry) => entry.id === targetId)?.name || '')
+                .map((targetId) => formatPlayerTargetableLabel(getPlayerEncounterTargetableById(targetId)))
                 .filter(Boolean)
             : [];
           const targetMarkup = assignedTargets.length
@@ -3288,11 +3336,11 @@ function renderPlayerConstructs(participant) {
               <label>Target
                 <select data-player-construct-target="${construct.id || ''}">
                   <option value="">Select target…</option>
-                  ${(state.encounter.participants || [])
-                    .filter((entry) => entry.id !== participant.id)
+                  ${getPlayerEncounterTargetables()
+                    .filter((entry) => entry.id !== participant.id && entry.id !== construct.id)
                     .map(
                       (entry) =>
-                        `<option value="${entry.id}" ${entry.id === construct.targetId ? 'selected' : ''}>${entry.name}</option>`
+                        `<option value="${entry.id}" ${entry.id === construct.targetId ? 'selected' : ''}>${escapeHtml(formatPlayerTargetableLabel(entry))}</option>`
                     )
                     .join('')}
                 </select>

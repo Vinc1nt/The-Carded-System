@@ -953,6 +953,52 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'elemental_healing_spring',
+    card: {
+      id: 'elemental_healing_spring',
+      name: 'Healing Spring',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      charges: 3,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Water'],
+      effect: 'Create Healing Zone (Radius 10 ft). Allies restore 4 HP each turn for 2 turns.',
+      utilityNote: 'Assign allies inside the zone to receive healing each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetAlliesOnly: true,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      zoneHealByLevel: {
+        1: 4,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      zoneHealAlliesOnly: true,
+      abilityBonusesByLevel: {
+        3: {
+          wisdom: 2
+        },
+        4: {
+          wisdom: 2
+        }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Healing increases to 6 HP.',
+        'Level 3: WIS +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'elemental_stone_strike',
     card: {
       id: 'elemental_stone_strike',
@@ -1352,6 +1398,124 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'beast_savage_strike',
+    card: {
+      id: 'beast_savage_strike',
+      name: 'Savage Strike',
+      set: 'Beast',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 3,
+      range: 5,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Slashing'],
+      damage: 10,
+      effect: 'Deal 10 damage. If the target has Shield remaining, deal +4 damage.',
+      bonusDamageIfTargetHasShieldByLevel: {
+        1: 4
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'bonus_damage_to_6',
+          label: 'Bonus damage increases to +6',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            bonusDamageIfTargetHasShieldByLevel: {
+              2: 6,
+              3: 6,
+              4: 6
+            }
+          }
+        },
+        {
+          id: 'strength_plus_2',
+          label: 'STR +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { strength: 2 },
+              3: { strength: 2 },
+              4: { strength: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Bonus damage increases to +6 or STR +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_earthquake',
+    card: {
+      id: 'elemental_earthquake',
+      name: 'Earthquake',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Earth'],
+      damage: 10,
+      effect: 'Deal 10 damage to enemies within Radius 10 ft. Apply Prone.',
+      utilityNote: 'Manually select enemies within the 10 ft radius. Prone is tracked as a removable status note.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      statusApply: {
+        name: 'Prone',
+        notes: 'Removable note from Earthquake.',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'damage_to_11',
+          label: 'Damage increases to 11',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            damageByLevel: {
+              2: 11,
+              3: 11,
+              4: 11
+            }
+          }
+        },
+        {
+          id: 'constitution_plus_2',
+          label: 'CON +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { constitution: 2 },
+              3: { constitution: 2 },
+              4: { constitution: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Damage increases to 11 or CON +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'shadow_dagger_flurry',
     card: {
       id: 'shadow_dagger_flurry',
@@ -1697,6 +1861,117 @@ export const CARD_PRESETS = [
       mastery: [
         'Level 1: Base.',
         'Level 2: Choose Poisoned increases to 3 or CON +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_storm_charge',
+    card: {
+      id: 'elemental_storm_charge',
+      name: 'Storm Charge',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Lightning'],
+      effect: 'Gain +2 AP on your next turn.',
+      selfApNextTurnByLevel: {
+        1: 2
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'gain_1_ap_now',
+          label: 'Gain +1 AP this turn as well',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            apGainByLevel: {
+              2: 1,
+              3: 1,
+              4: 1
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_2',
+          label: 'DEX +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 2 },
+              3: { dexterity: 2 },
+              4: { dexterity: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Gain +1 AP this turn as well or DEX +2.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'shadow_assassinate',
+    card: {
+      id: 'shadow_assassinate',
+      name: 'Assassinate',
+      set: 'Shadow',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Piercing'],
+      damage: 14,
+      damageType: 'Piercing',
+      effect: 'Deal 14 Piercing damage. If the target is below half HP, deal +6 damage.',
+      bonusDamageIfTargetBelowHalfHpByLevel: {
+        1: 6
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'bonus_damage_to_8',
+          label: 'Bonus damage increases to +8',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            bonusDamageIfTargetBelowHalfHpByLevel: {
+              2: 8,
+              3: 8,
+              4: 8
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_2',
+          label: 'DEX +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 2 },
+              3: { dexterity: 2 },
+              4: { dexterity: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Bonus damage increases to +8 or DEX +2.',
         'Level 3: Gain the option not chosen at Level 2.',
         'Level 4: Unlocks fusion eligibility.'
       ],
@@ -2150,6 +2425,69 @@ export const CARD_PRESETS = [
       mastery: [
         'Level 1: Base.',
         'Level 2: Choose Zone damage increases to 5 or INT +1.',
+        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_blizzard',
+    card: {
+      id: 'elemental_blizzard',
+      name: 'Blizzard',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 30,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Cold'],
+      damage: 8,
+      damageType: 'Cold',
+      effect: 'Deal 8 Cold damage to enemies within Radius 15 ft. Apply Rooted 1.',
+      utilityNote: 'Manually select enemies within the 15 ft radius.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      statusApply: {
+        id: 'rooted',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryChoiceOptions: [
+        {
+          id: 'rooted_to_2',
+          label: 'Rooted increases to 2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            statusApplyStacksByLevel: {
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        },
+        {
+          id: 'dexterity_plus_2',
+          label: 'DEX +2',
+          unlockLevel: 2,
+          deferredUnlockLevel: 3,
+          effects: {
+            abilityBonusesByLevel: {
+              2: { dexterity: 2 },
+              3: { dexterity: 2 },
+              4: { dexterity: 2 }
+            }
+          }
+        }
+      ],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Choose Rooted increases to 2 or DEX +2.',
         'Level 3: Gain the option not chosen at Level 2.',
         'Level 4: Unlocks fusion eligibility.'
       ],

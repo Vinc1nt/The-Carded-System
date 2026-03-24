@@ -71,13 +71,6 @@ const STANDARD_ACTIONS = {
     apCost: 2,
     logText: 'disengages to avoid opportunity attacks.'
   },
-  slip: {
-    id: 'slip',
-    label: 'Slip',
-    summary: '1 AP: Move 5 ft without provoking OAs.',
-    apCost: 1,
-    logText: 'slips 5 ft without provoking.'
-  },
   half_cover: {
     id: 'half_cover',
     label: 'Duck',
@@ -109,16 +102,9 @@ const STANDARD_ACTIONS = {
   cleanse: {
     id: 'cleanse',
     label: 'Cleanse',
-    summary: '4 AP: Remove 1 control/debuff status (5 AP for Paralysed or Stunned).',
+    summary: '4 AP: Remove 1 control/debuff status.',
     apCost: 4,
     logText: 'uses a cleansing action.'
-  },
-  manual_swap: {
-    id: 'manual_swap',
-    label: 'Manual Swap',
-    summary: '2 AP: Swap cards, new card readies next turn.',
-    apCost: 2,
-    logText: 'performs a manual card swap.'
   }
 };
 
@@ -203,7 +189,7 @@ const STATUS_LIBRARY = [
     name: 'Paralysed',
     defaultStacks: 1,
     description:
-      'Control. Severe immobilization effect. Cleansing this status with a standard action costs 5 AP.',
+      'Control. Severe immobilization effect.',
     tags: ['Control']
   },
   {
@@ -763,7 +749,7 @@ function executeStandardAction(body) {
   let changed = false;
   if (actionId === 'move') {
     changed = applyShadowMovementProgress(participant, 10) > 0 || changed;
-  } else if (actionId === 'move_difficult' || actionId === 'slip') {
+  } else if (actionId === 'move_difficult') {
     changed = applyShadowMovementProgress(participant, 5) > 0 || changed;
   }
   if (actionId === 'recover') {
@@ -1151,7 +1137,7 @@ function executeCardAction(body) {
   const isRangedAttackCard = !isConstruct && !zoneCard && rawDamage > 0 && Number(scaledRange || 0) > 5;
 
   const targetId = String(body.targetId || '').trim();
-  const target = targetId ? findParticipant(targetId) : null;
+  const target = targetId ? findTargetableEntity(targetId) : null;
   const targetIdsRaw = Array.isArray(body.targetIds)
     ? body.targetIds
     : String(body.targetIds || '')
@@ -1165,7 +1151,7 @@ function executeCardAction(body) {
     targetIds.push(id);
   }
   const selectedTargets = targetIds
-    .map((id) => findParticipant(id))
+    .map((id) => findTargetableEntity(id))
     .filter(Boolean);
   if (targetMode === 'multi_select' && !selectedTargets.length && target) {
     selectedTargets.push(target);
@@ -1198,7 +1184,7 @@ function executeCardAction(body) {
         ? [primaryTarget]
         : [];
   const arcaneSplitTargetId = String(body.arcaneSplitTargetId || '').trim();
-  const arcaneSplitTarget = arcaneSplitTargetId ? findParticipant(arcaneSplitTargetId) : null;
+  const arcaneSplitTarget = arcaneSplitTargetId ? findTargetableEntity(arcaneSplitTargetId) : null;
   const canArcaneSplit =
     hasArcane5 &&
     !arcane.splitUsedTurn &&
@@ -1233,7 +1219,7 @@ function executeCardAction(body) {
   const effectivePrimaryTargets = canArcaneSplit ? [primaryTarget, arcaneSplitTarget] : primaryTargets;
 
   const secondaryTargetId = String(body.secondaryTargetId || '').trim();
-  const secondaryTarget = secondaryTargetId ? findParticipant(secondaryTargetId) : null;
+  const secondaryTarget = secondaryTargetId ? findTargetableEntity(secondaryTargetId) : null;
   const requiresTarget =
     targetMode !== 'all_others' &&
     !selfTarget &&
@@ -1399,6 +1385,11 @@ function executeCardAction(body) {
     }
     if (!damageResult) {
       damageResult = result;
+    }
+    const destroyedConstruct = removeDefeatedConstructByEntity(damageTarget);
+    if (destroyedConstruct) {
+      result.destroyedConstruct = destroyedConstruct.construct;
+      result.destroyedConstructOwner = destroyedConstruct.owner;
     }
     damageResults.push({
       target: damageTarget,
@@ -2019,7 +2010,8 @@ function executeCardAction(body) {
               : '';
           const setBonus = entry.result.setBonusDamage > 0 ? ` [+${entry.result.setBonusDamage} set bonus]` : '';
           const divineReverse = entry.result.preventedByDivine ? ' [Reversed by Divine]' : '';
-          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${notActedConditional}${belowHalfConditional}${fullyBlocked}${setBonus}${divineReverse}`;
+          const destroyedConstruct = entry.result.destroyedConstruct ? ' [Construct destroyed]' : '';
+          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${notActedConditional}${belowHalfConditional}${fullyBlocked}${setBonus}${divineReverse}${destroyedConstruct}`;
         })
         .join(' ')}`
     : '';
@@ -2113,7 +2105,7 @@ function executeRemoveConstructAction(body) {
 function executeRetargetConstructAction(body) {
   return executeRetargetConstructActionForEncounter(body, {
     resolveActor,
-    findParticipant,
+    findTargetableEntity,
     pushLog,
     touchState,
     broadcastState
@@ -2769,6 +2761,44 @@ function findParticipant(id) {
   return findParticipantInEncounter(trackerState.encounter, id);
 }
 
+function isConstructEntity(target) {
+  return String(target?.entityKind || '').trim().toLowerCase() === 'construct';
+}
+
+function findConstructWithOwner(id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) return null;
+  for (const owner of trackerState.encounter.participants || []) {
+    if (!owner) continue;
+    owner.constructs = normalizeConstructs(owner.constructs, owner.id);
+    const construct = (owner.constructs || []).find((entry) => String(entry.id || '').trim() === targetId);
+    if (construct) {
+      return { owner, construct };
+    }
+  }
+  return null;
+}
+
+function findTargetableEntity(id) {
+  return findParticipant(id) || findConstructWithOwner(id)?.construct || null;
+}
+
+function findTargetableOwner(target) {
+  if (!target) return null;
+  if (isConstructEntity(target)) {
+    return findParticipant(target.ownerId);
+  }
+  return findParticipant(target.id) || target;
+}
+
+function removeDefeatedConstructByEntity(target) {
+  if (!isConstructEntity(target) || Number(target?.hp || 0) > 0) return null;
+  const found = findConstructWithOwner(target.id);
+  if (!found) return null;
+  found.owner.constructs = (found.owner.constructs || []).filter((entry) => String(entry.id || '') !== String(target.id || ''));
+  return found;
+}
+
 function resolveActor(id) {
   if (id) {
     return findParticipant(id);
@@ -2860,7 +2890,7 @@ function getRecoverableStatuses(statuses = []) {
 }
 
 function getCleanseStatusApCost(type) {
-  return type === 'stunned' || type === 'paralysed' ? 5 : 4;
+  return 4;
 }
 
 function getCleanseableStatuses(statuses = []) {
@@ -3170,7 +3200,7 @@ function applyConstructStartOfTurnEffects(participant) {
       apCurrent: Math.max(0, Number(construct.apMax || 0))
     };
     const mode = normalizeConstructMode(refreshed.mode || refreshed.constructMode) || 'damage';
-    const target = refreshed.targetId ? findParticipant(refreshed.targetId) : null;
+    const target = refreshed.targetId ? findTargetableEntity(refreshed.targetId) : null;
     const triggerOnTargetTurn = refreshed.triggerOnTargetTurn === true;
     if (triggerOnTargetTurn && target && target.id !== participant.id) {
       nextConstructs.push(refreshed);
@@ -4266,6 +4296,7 @@ function normalizeConstructs(list = [], ownerId = '') {
         : [];
       return {
         id: entry.id || randomUUID(),
+        entityKind: 'construct',
         ownerId: String(entry.ownerId || ownerId || '').trim(),
         sourceCardId: entry.sourceCardId || '',
         name,
@@ -4309,10 +4340,17 @@ function normalizeConstructs(list = [], ownerId = '') {
         utilityNote: String(entry.utilityNote ?? entry.constructUtilityNote ?? '').trim(),
         maxHp,
         hp,
+        maxShield: 0,
+        shield: 0,
         apMax,
         apCurrent,
         moveFt,
         cards,
+        statuses: normalizeStatuses(entry.statuses),
+        resistances: normalizeDamageTypes(entry.resistances),
+        vulnerabilities: normalizeDamageTypes(entry.vulnerabilities),
+        immunities: normalizeImmunities(entry.immunities),
+        rangedUntargetableTurns: Math.max(0, Math.round(Number(entry.rangedUntargetableTurns || 0))),
         tags: Array.isArray(entry.tags)
           ? entry.tags.map((tag) => String(tag).trim()).filter(Boolean)
           : [],
@@ -5179,18 +5217,22 @@ function getTeamAllyTargets(participant) {
 
 function isParticipantAlly(source, target) {
   if (!source || !target) return false;
-  const targetId = typeof target === 'string' ? target : target.id;
-  if (!targetId || targetId === source.id) return false;
-  if (!findParticipant(targetId)) return false;
+  const targetEntity = typeof target === 'string' ? findTargetableEntity(target) : target;
+  const owner = findTargetableOwner(targetEntity);
+  if (!owner?.id) return false;
+  if (owner.id === source.id) {
+    return isConstructEntity(targetEntity);
+  }
   const allyIds = getSetAllyTargets(source);
-  return allyIds.includes(targetId);
+  return allyIds.includes(owner.id);
 }
 
 function isParticipantEnemy(source, target) {
   if (!source || !target) return false;
-  const targetId = typeof target === 'string' ? target : target.id;
-  if (!targetId || targetId === source.id) return false;
-  return !isParticipantAlly(source, targetId);
+  const targetEntity = typeof target === 'string' ? findTargetableEntity(target) : target;
+  const owner = findTargetableOwner(targetEntity);
+  if (!owner?.id || owner.id === source.id) return false;
+  return !isParticipantAlly(source, targetEntity);
 }
 
 function hasParticipantActedThisRound(participant) {
@@ -5456,6 +5498,7 @@ function deployConstructFromCard(participant, card, options = {}) {
   }
   const construct = {
     id: randomUUID(),
+    entityKind: 'construct',
     ownerId: participant.id,
     sourceCardId: card.id || '',
     name: `${card.name}`,
@@ -5483,10 +5526,17 @@ function deployConstructFromCard(participant, card, options = {}) {
     utilityNote,
     maxHp,
     hp: maxHp,
+    maxShield: 0,
+    shield: 0,
     apMax,
     apCurrent: apMax,
     moveFt,
     cards,
+    statuses: [],
+    resistances: [],
+    vulnerabilities: [],
+    immunities: [],
+    rangedUntargetableTurns: 0,
     tags: Array.isArray(card.tags) ? card.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
     createdAt: new Date().toISOString(),
     createdOrder: Date.now()

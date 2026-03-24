@@ -20,6 +20,7 @@ const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
 const HELP_TOPIC_TITLES = Object.freeze({
   statuses: 'Statuses',
   combat: 'Combat Rules',
+  standard_actions: 'Standard Actions',
   out_of_combat: 'Out of Combat',
   cards: 'Cards'
 });
@@ -256,6 +257,9 @@ function getHelpTopicContent(topic) {
   if (topic === 'statuses') {
     return renderStatusHelpContent();
   }
+  if (topic === 'standard_actions') {
+    return renderStandardActionHelpContent();
+  }
   if (topic === 'combat') {
     return `
       <section class="help-section">
@@ -370,6 +374,66 @@ function getHelpTopicContent(topic) {
       <ul class="help-list">
         <li>Attacks auto-hit unless prevented by positioning or cover.</li>
         <li>Cards use flat damage modifiers and clear range values.</li>
+      </ul>
+    </section>
+  `;
+}
+
+function renderStandardActionHelpContent() {
+  const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
+  const orderedIds = ['move', 'move_difficult', 'disengage', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
+  const actions = [];
+
+  orderedIds.forEach((id) => {
+    const action = actionsById.get(id);
+    if (action) actions.push(action);
+  });
+
+  for (const action of state.reference?.standardActions || []) {
+    if (!orderedIds.includes(action.id)) {
+      actions.push(action);
+    }
+  }
+
+  if (!actions.length) {
+    return `
+      <section class="help-section">
+        <h3>Standard Actions</h3>
+        <p>Standard action rules will appear once the server boots.</p>
+      </section>
+    `;
+  }
+
+  const rows = actions
+    .map((action) => {
+      const ruleText = action.detail || action.summary || '';
+      return `
+        <tr>
+          <td>${escapeHtml(action.label || action.id || 'Action')}</td>
+          <td>${Number(action.apCost || 0)}</td>
+          <td>${escapeHtml(ruleText)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  return `
+    <section class="help-section">
+      <h3>Standard Actions</h3>
+      <table class="help-table">
+        <thead>
+          <tr><th>Action</th><th>AP</th><th>Rule</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+    <section class="help-section">
+      <h3>Notes</h3>
+      <ul class="help-list">
+        <li>Move and Move (Difficult Terrain) use the same base action with different terrain assumptions.</li>
+        <li>Guard restores Shield but cannot exceed Max Shield.</li>
+        <li>Recover reduces one stack of Bleeding, Poisoned, or Burning.</li>
+        <li>Cleanse removes one eligible control or debuff status for 4 AP.</li>
       </ul>
     </section>
   `;
@@ -1436,7 +1500,7 @@ function renderConstructCards(participant) {
     .map((construct) => {
       const assignedTargets = Array.isArray(construct.targetIds)
         ? construct.targetIds
-            .map((targetId) => (state.encounter.participants || []).find((entry) => entry.id === targetId)?.name || '')
+            .map((targetId) => formatTargetableEntityLabel(getEncounterTargetableById(targetId)))
             .filter(Boolean)
         : [];
       const targetMarkup = assignedTargets.length
@@ -1445,11 +1509,11 @@ function renderConstructCards(participant) {
           <label>Target
             <select data-construct-target="${construct.id || ''}">
               <option value="">Select target…</option>
-              ${(state.encounter.participants || [])
-                .filter((entry) => entry.id !== participant.id)
+              ${getEncounterTargetablesForUi()
+                .filter((entry) => entry.id !== participant.id && entry.id !== construct.id)
                 .map(
                   (entry) =>
-                    `<option value="${entry.id}" ${entry.id === construct.targetId ? 'selected' : ''}>${entry.name}</option>`
+                    `<option value="${entry.id}" ${entry.id === construct.targetId ? 'selected' : ''}>${escapeHtml(formatTargetableEntityLabel(entry))}</option>`
                 )
                 .join('')}
             </select>
@@ -2460,10 +2524,10 @@ async function resolveCardStatusSelectionPrompt(participant, card, targetId, tar
   if (selfOnly) {
     recipients = [participant];
   } else if (targetMode === 'single') {
-    const resolved = (state.encounter.participants || []).find((entry) => entry.id === targetId);
+    const resolved = getEncounterTargetableById(targetId);
     if (resolved) recipients = [resolved];
   } else if (targetMode === 'multi_select') {
-    recipients = (state.encounter.participants || []).filter((entry) => targetIds.includes(entry.id));
+    recipients = targetIds.map((id) => getEncounterTargetableById(id)).filter(Boolean);
   }
   if (recipients.length !== 1) return [];
   const target = recipients[0];
@@ -2567,9 +2631,57 @@ function getParticipantAllies(participant) {
   });
 }
 
+function getEncounterTargetablesForUi() {
+  const entries = [];
+  for (const participant of state.encounter.participants || []) {
+    if (!participant?.id) continue;
+    entries.push({ ...participant, entityKind: 'participant' });
+    for (const construct of participant.constructs || []) {
+      if (!construct?.id) continue;
+      entries.push({
+        ...construct,
+        entityKind: 'construct',
+        ownerId: participant.id,
+        ownerName: participant.name || 'Owner',
+        team: participant.team || ''
+      });
+    }
+  }
+  return entries;
+}
+
+function getEncounterTargetableById(id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) return null;
+  return getEncounterTargetablesForUi().find((entry) => entry.id === targetId) || null;
+}
+
+function formatTargetableEntityLabel(entry) {
+  if (!entry) return '';
+  if (String(entry.entityKind || '').toLowerCase() === 'construct') {
+    return `${entry.name || 'Construct'} (${entry.ownerName || 'Owner'} construct)`;
+  }
+  return entry.name || '';
+}
+
+function isTargetableAllyForUi(participant, target) {
+  if (!participant?.id || !target?.id) return false;
+  if (String(target.entityKind || '').toLowerCase() === 'construct') {
+    if (target.ownerId === participant.id) return true;
+    return getParticipantAllies(participant).some((ally) => ally.id === target.ownerId);
+  }
+  if (participant.id === target.id) return false;
+  return getParticipantAllies(participant).some((ally) => ally.id === target.id);
+}
+
 function isParticipantEnemyForUi(participant, target) {
-  if (!participant?.id || !target?.id || participant.id === target.id) return false;
-  return !getParticipantAllies(participant).some((entry) => entry.id === target.id);
+  if (!participant?.id || !target?.id) return false;
+  if (String(target.entityKind || '').toLowerCase() === 'construct') {
+    if (target.ownerId === participant.id) return false;
+    return !isTargetableAllyForUi(participant, target);
+  }
+  if (participant.id === target.id) return false;
+  return !isTargetableAllyForUi(participant, target);
 }
 
 function mergeUniqueText(existing = [], value = '') {
@@ -3838,11 +3950,11 @@ function renderParticipantTargetOptions(actorId, includeSelf = false, filterMode
   if (includeSelf && actorId) {
     options.push(`<option value="${actorId}">Self</option>`);
   }
-  for (const entry of state.encounter.participants || []) {
+  for (const entry of getEncounterTargetablesForUi()) {
     if (entry.id === actorId) continue;
-    if (filterMode === 'allies' && participant && !getParticipantAllies(participant).some((ally) => ally.id === entry.id)) continue;
+    if (filterMode === 'allies' && participant && !isTargetableAllyForUi(participant, entry)) continue;
     if (filterMode === 'enemies' && participant && !isParticipantEnemyForUi(participant, entry)) continue;
-    options.push(`<option value="${entry.id}">${entry.name}</option>`);
+    options.push(`<option value="${entry.id}">${escapeHtml(formatTargetableEntityLabel(entry))}</option>`);
   }
   return options.join('');
 }
@@ -4743,7 +4855,7 @@ function detectCleanseType(status) {
 }
 
 function getCleanseStatusApCost(type) {
-  return type === 'stunned' || type === 'paralysed' ? 5 : 4;
+  return 4;
 }
 
 function listCleanseableStatuses(participant) {
