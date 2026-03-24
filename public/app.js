@@ -1582,7 +1582,9 @@ function renderConstructCardSummary(construct = {}) {
         ? `Factory utility (${String(construct.utilityNote)})`
         : 'Factory utility';
     }
-    return 'Utility construct';
+    return construct.utilityNote
+      ? `Utility construct (${String(construct.utilityNote)})`
+      : 'Utility construct';
   }
   return `Damage: ${Number(construct.damage || 0)} ${construct.damageType || ''}`.trim();
 }
@@ -2566,28 +2568,66 @@ async function resolveCardStatusSelectionPrompt(participant, card, targetId, tar
     .filter(Boolean);
 }
 
-async function resolveCardContestedOutcomePrompt(participant, card, targetId, contestedChoiceId) {
+async function resolveCardContestedOutcomePrompt(participant, card, targetId, contestedChoiceId, targetIds = []) {
   const options = getCardContestedOptions(card);
   if (!options.length) {
-    return { contestedChoiceId: '', contestedOutcome: '' };
+    return { contestedChoiceId: '', contestedOutcome: '', contestedTargetOutcomes: {} };
   }
-  if (!contestedChoiceId) {
+  const resolvedChoiceId = contestedChoiceId || getCardDefaultContestedChoiceId(card);
+  if (!resolvedChoiceId) {
     notify(`Choose a ${card.name} effect first.`);
     return null;
   }
+  const targetMode = getCardTargetMode(card);
+  if (targetMode === 'multi_select' && card?.contestedEffect?.promptMode === 'per_target_checkbox') {
+    const selectedTargets = Array.from(
+      new Map(
+        (Array.isArray(targetIds) ? targetIds : [])
+          .map((id) => getEncounterTargetableById(id))
+          .filter(Boolean)
+          .map((entry) => [entry.id, entry])
+      ).values()
+    );
+    if (!selectedTargets.length) {
+      return { contestedChoiceId: resolvedChoiceId, contestedOutcome: '', contestedTargetOutcomes: {} };
+    }
+    const hostileOnly = card?.contestedEffect?.hostileOnly !== false;
+    const promptedTargets = hostileOnly
+      ? selectedTargets.filter((entry) => isParticipantEnemyForUi(participant, entry))
+      : selectedTargets;
+    if (!promptedTargets.length) {
+      return { contestedChoiceId: resolvedChoiceId, contestedOutcome: '', contestedTargetOutcomes: {} };
+    }
+    const selectedOption = options.find((entry) => entry.id === resolvedChoiceId);
+    const outcomeMap = await showCardContestedTargetOutcomeDialog({
+      title: `Resolve ${card.name}`,
+      effectLabel: selectedOption?.label || resolvedChoiceId,
+      checkboxLabel: String(card?.contestedEffect?.promptCheckboxLabel || 'Successful').trim() || 'Successful',
+      targets: promptedTargets.map((entry) => ({
+        id: entry.id,
+        label: formatTargetableEntityLabel(entry)
+      }))
+    });
+    if (outcomeMap == null) return null;
+    return {
+      contestedChoiceId: resolvedChoiceId,
+      contestedOutcome: '',
+      contestedTargetOutcomes: outcomeMap
+    };
+  }
   const target = getEncounterTargetableById(targetId);
   if (!target) {
-    return { contestedChoiceId, contestedOutcome: '' };
+    return { contestedChoiceId: resolvedChoiceId, contestedOutcome: '', contestedTargetOutcomes: {} };
   }
   const hostileOnly = card?.contestedEffect?.hostileOnly !== false;
   if (!hostileOnly || !isParticipantEnemyForUi(participant, target)) {
-    return { contestedChoiceId, contestedOutcome: 'success' };
+    return { contestedChoiceId: resolvedChoiceId, contestedOutcome: 'success', contestedTargetOutcomes: {} };
   }
-  const selectedOption = options.find((entry) => entry.id === contestedChoiceId);
+  const selectedOption = options.find((entry) => entry.id === resolvedChoiceId);
   const message = [
     `Resolve contested cast for ${card.name}.`,
     `Target: ${formatTargetableEntityLabel(target)}`,
-    `Effect: ${selectedOption?.label || contestedChoiceId}`,
+    `Effect: ${selectedOption?.label || resolvedChoiceId}`,
     '',
     '1. Successful',
     '2. Unsuccessful / target resisted',
@@ -2598,13 +2638,69 @@ async function resolveCardContestedOutcomePrompt(participant, card, targetId, co
   if (raw == null) return null;
   const choice = Number(String(raw).trim());
   if (choice === 1) {
-    return { contestedChoiceId, contestedOutcome: 'success' };
+    return { contestedChoiceId: resolvedChoiceId, contestedOutcome: 'success', contestedTargetOutcomes: {} };
   }
   if (choice === 2) {
-    return { contestedChoiceId, contestedOutcome: 'resisted' };
+    return { contestedChoiceId: resolvedChoiceId, contestedOutcome: 'resisted', contestedTargetOutcomes: {} };
   }
   notify('Invalid contested outcome. Card use cancelled.');
   return null;
+}
+
+function showCardContestedTargetOutcomeDialog({ title = 'Resolve contested cast', effectLabel = '', checkboxLabel = 'Successful', targets = [] } = {}) {
+  const rows = Array.isArray(targets) ? targets.filter((entry) => entry?.id && entry?.label) : [];
+  if (!rows.length) return Promise.resolve({});
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'help-modal card-outcome-modal';
+    overlay.innerHTML = `
+      <div class="help-modal-card card-outcome-card">
+        <div class="help-modal-header">
+          <h2>${escapeHtml(title)}</h2>
+          <button type="button" data-card-outcome-cancel>Cancel</button>
+        </div>
+        <div class="help-modal-body">
+          ${effectLabel ? `<p class="muted">Effect: ${escapeHtml(effectLabel)}</p>` : ''}
+          <div class="card-outcome-list">
+            ${rows
+              .map(
+                (entry) => `
+                  <label class="card-outcome-row">
+                    <span>${escapeHtml(entry.label)}</span>
+                    <span class="card-outcome-checkbox">
+                      <input type="checkbox" data-card-outcome-target="${entry.id}" checked />
+                      <span>${escapeHtml(checkboxLabel)}</span>
+                    </span>
+                  </label>`
+              )
+              .join('')}
+          </div>
+        </div>
+        <div class="form-row card-outcome-actions">
+          <button type="button" data-card-outcome-confirm>Confirm</button>
+        </div>
+      </div>`;
+    const close = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        close(null);
+      }
+    });
+    overlay.querySelector('[data-card-outcome-cancel]')?.addEventListener('click', () => close(null));
+    overlay.querySelector('[data-card-outcome-confirm]')?.addEventListener('click', () => {
+      const outcomeMap = {};
+      overlay.querySelectorAll('[data-card-outcome-target]').forEach((input) => {
+        const targetKey = input.dataset.cardOutcomeTarget || '';
+        if (!targetKey) return;
+        outcomeMap[targetKey] = input.checked ? 'success' : 'resisted';
+      });
+      close(outcomeMap);
+    });
+    document.body.appendChild(overlay);
+  });
 }
 
 function getPendingMasteryChoicePrompt(card = {}, level = Number(card?.masteryLevel || 1)) {
@@ -2697,10 +2793,21 @@ function getEncounterTargetableById(id) {
   return getEncounterTargetablesForUi().find((entry) => entry.id === targetId) || null;
 }
 
+function getConstructOwnerOrdinal(entry) {
+  if (!entry || String(entry.entityKind || '').toLowerCase() !== 'construct') return 0;
+  const ownerId = String(entry.ownerId || '').trim();
+  const owner = (state.encounter.participants || []).find((participant) => participant?.id === ownerId);
+  if (!owner) return 0;
+  const constructs = Array.isArray(owner.constructs) ? owner.constructs : [];
+  const index = constructs.findIndex((construct) => construct?.id === entry.id);
+  return index >= 0 ? index + 1 : 0;
+}
+
 function formatTargetableEntityLabel(entry) {
   if (!entry) return '';
   if (String(entry.entityKind || '').toLowerCase() === 'construct') {
-    return `${entry.name || 'Construct'} (${entry.ownerName || 'Owner'} construct)`;
+    const ordinal = getConstructOwnerOrdinal(entry);
+    return `${entry.name || 'Construct'} (${entry.ownerName || 'Owner'} #${ordinal || 1})`;
   }
   return entry.name || '';
 }
@@ -3252,6 +3359,15 @@ function wireDetailEvents(participant) {
       notify(err.message);
     }
   });
+  panel.querySelectorAll('[data-card-target], [data-card-targets]').forEach((control) => {
+    const cardId = control.dataset.cardTarget || control.dataset.cardTargets;
+    if (!cardId) return;
+    const card = (participant.cards || []).find((entry) => entry.id === cardId);
+    if (!card) return;
+    const article = control.closest('[data-card]');
+    syncCardPerTargetInputs(article, card);
+    control.addEventListener('change', () => syncCardPerTargetInputs(article, card));
+  });
   panel.querySelectorAll('[data-use-card]').forEach((button) => {
     button.addEventListener('click', async (event) => {
       if (button.closest('summary')) {
@@ -3268,12 +3384,20 @@ function wireDetailEvents(participant) {
       const secondaryTargetId = article?.querySelector(`[data-card-secondary-target="${cardId}"]`)?.value || '';
       const arcaneSplitTargetId = article?.querySelector(`[data-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-card-override-damage-type="${cardId}"]`)?.value || '';
-      const contestedChoiceId = article?.querySelector(`[data-card-contested-choice="${cardId}"]`)?.value || '';
       const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
+      const contestedChoiceId =
+        article?.querySelector(`[data-card-contested-choice="${cardId}"]`)?.value || getCardDefaultContestedChoiceId(card);
+      const targetDetails = collectCardPerTargetDetails(article, card);
       try {
         const selectedRemoveStatusIds = await resolveCardStatusSelectionPrompt(participant, card, targetId, targetIds);
         if (selectedRemoveStatusIds == null) return;
-        const contestedResolution = await resolveCardContestedOutcomePrompt(participant, card, targetId, contestedChoiceId);
+        const contestedResolution = await resolveCardContestedOutcomePrompt(
+          participant,
+          card,
+          targetId,
+          contestedChoiceId,
+          targetIds
+        );
         if (contestedResolution == null) return;
         const result = await api('/api/actions/card', 'POST', {
           participantId: participant.id,
@@ -3284,8 +3408,10 @@ function wireDetailEvents(participant) {
           arcaneSplitTargetId,
           overrideDamageType,
           selectedRemoveStatusIds,
+          targetDetails,
           contestedChoiceId: contestedResolution.contestedChoiceId,
-          contestedOutcome: contestedResolution.contestedOutcome
+          contestedOutcome: contestedResolution.contestedOutcome,
+          contestedTargetOutcomes: contestedResolution.contestedTargetOutcomes
         });
         await resolveMasteryChoicePrompt(participant.id, result?.masteryChoicePrompt);
         fetchState();
@@ -3936,9 +4062,15 @@ function getCardContestedOptions(card = {}) {
     .filter(Boolean);
 }
 
+function getCardDefaultContestedChoiceId(card = {}) {
+  const options = getCardContestedOptions(card);
+  return options.length === 1 ? options[0].id : '';
+}
+
 function renderCardContestedControl(card = {}) {
   const options = getCardContestedOptions(card);
   if (!options.length) return '';
+  if (options.length === 1) return '';
   const label = String(card?.contestedEffect?.choiceLabel || 'Effect').trim() || 'Effect';
   return `<label>${escapeHtml(label)}
     <select data-card-contested-choice="${card.id || ''}">
@@ -3946,6 +4078,138 @@ function renderCardContestedControl(card = {}) {
       ${options.map((entry) => `<option value="${entry.id}">${escapeHtml(entry.label)}</option>`).join('')}
     </select>
   </label>`;
+}
+
+function getCardPerTargetInputs(card = {}) {
+  if (!Array.isArray(card?.perTargetInputs)) return [];
+  return card.perTargetInputs
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const id = String(entry.id || '').trim();
+      const label = String(entry.label || id).trim();
+      const type = String(entry.type || 'text').trim().toLowerCase();
+      if (!id || !label || !['number', 'checkbox', 'text'].includes(type)) return null;
+      return {
+        id,
+        label,
+        type,
+        min: Number.isFinite(Number(entry.min)) ? Number(entry.min) : null,
+        max: Number.isFinite(Number(entry.max)) ? Number(entry.max) : null,
+        step: Number.isFinite(Number(entry.step)) ? Number(entry.step) : null,
+        defaultValue: entry.defaultValue,
+        defaultChecked: entry.defaultChecked === true
+      };
+    })
+    .filter(Boolean);
+}
+
+function getSelectedCardTargetIds(article, card = {}) {
+  if (!article || !card?.id) return [];
+  const targetMode = getCardTargetMode(card);
+  if (targetMode === 'multi_select') {
+    return Array.from(article.querySelector(`[data-card-targets="${card.id}"]`)?.selectedOptions || [])
+      .map((option) => option.value)
+      .filter(Boolean);
+  }
+  const targetId = article.querySelector(`[data-card-target="${card.id}"]`)?.value || '';
+  return targetId ? [targetId] : [];
+}
+
+function renderCardPerTargetInputControl(cardId, targetId, field, value) {
+  if (field.type === 'checkbox') {
+    return `<label class="compact-label">
+      <span>${escapeHtml(field.label)}</span>
+      <input
+        type="checkbox"
+        data-card-target-detail="${cardId}"
+        data-card-target-id="${targetId}"
+        data-card-target-field="${field.id}"
+        ${value ? 'checked' : ''}
+      />
+    </label>`;
+  }
+  return `<label class="compact-label">
+    <span>${escapeHtml(field.label)}</span>
+    <input
+      type="${field.type}"
+      data-card-target-detail="${cardId}"
+      data-card-target-id="${targetId}"
+      data-card-target-field="${field.id}"
+      value="${escapeHtml(String(value ?? ''))}"
+      ${field.min != null ? `min="${field.min}"` : ''}
+      ${field.max != null ? `max="${field.max}"` : ''}
+      ${field.step != null ? `step="${field.step}"` : ''}
+    />
+  </label>`;
+}
+
+function renderCardPerTargetDetailSection(card = {}, targetIds = [], existingValues = {}) {
+  const fields = getCardPerTargetInputs(card);
+  if (!fields.length) return '';
+  if (!targetIds.length) {
+    return '<p class="muted small-note">Select target(s) to configure additional card details.</p>';
+  }
+  return `
+    <div class="card-target-detail-list">
+      ${targetIds
+        .map((targetId) => {
+          const target = getEncounterTargetableById(targetId);
+          if (!target) return '';
+          return `
+            <div class="card-target-detail-card">
+              <strong>${escapeHtml(formatTargetableEntityLabel(target))}</strong>
+              <div class="form-row">
+                ${fields
+                  .map((field) => {
+                    const stored = existingValues?.[targetId]?.[field.id];
+                    const fallback = field.type === 'checkbox' ? field.defaultChecked : field.defaultValue ?? '';
+                    return renderCardPerTargetInputControl(card.id || '', targetId, field, stored ?? fallback);
+                  })
+                  .join('')}
+              </div>
+            </div>`;
+        })
+        .join('')}
+    </div>`;
+}
+
+function syncCardPerTargetInputs(article, card = {}) {
+  if (!article || !card?.id) return;
+  const container = article.querySelector(`[data-card-target-detail-container="${card.id}"]`);
+  if (!container) return;
+  const existingValues = {};
+  container.querySelectorAll(`[data-card-target-detail="${card.id}"]`).forEach((input) => {
+    const targetId = input.dataset.cardTargetId || '';
+    const fieldId = input.dataset.cardTargetField || '';
+    if (!targetId || !fieldId) return;
+    if (!existingValues[targetId]) existingValues[targetId] = {};
+    existingValues[targetId][fieldId] = input.type === 'checkbox' ? input.checked : input.value;
+  });
+  container.innerHTML = renderCardPerTargetDetailSection(card, getSelectedCardTargetIds(article, card), existingValues);
+}
+
+function collectCardPerTargetDetails(article, card = {}) {
+  const fields = getCardPerTargetInputs(card);
+  if (!article || !card?.id || !fields.length) return [];
+  const detailsByTarget = new Map();
+  article.querySelectorAll(`[data-card-target-detail="${card.id}"]`).forEach((input) => {
+    const targetId = String(input.dataset.cardTargetId || '').trim();
+    const fieldId = String(input.dataset.cardTargetField || '').trim();
+    if (!targetId || !fieldId) return;
+    if (!detailsByTarget.has(targetId)) {
+      detailsByTarget.set(targetId, { targetId });
+    }
+    detailsByTarget.get(targetId)[fieldId] = input.type === 'checkbox' ? input.checked : input.value;
+  });
+  return Array.from(detailsByTarget.values());
+}
+
+function formatCardTargetSelectionLabel(card = {}, multiTargetCap = 0) {
+  const minimum = Number.isFinite(Number(card.multiTargetMin)) ? Math.max(1, Math.round(Number(card.multiTargetMin))) : 0;
+  if (minimum > 0 && minimum === multiTargetCap) {
+    return `Targets (pick ${multiTargetCap})`;
+  }
+  return `Targets (up to ${multiTargetCap})`;
 }
 
 function renderCardTargetControl(card = {}, participant = {}) {
@@ -3968,6 +4232,9 @@ function renderCardTargetControl(card = {}, participant = {}) {
     splitEnabled: arcaneSplitEnabled,
     shiftEnabled: arcaneShiftEnabled
   });
+  const perTargetDetailContainer = getCardPerTargetInputs(card).length
+    ? `<div data-card-target-detail-container="${card.id || ''}">${renderCardPerTargetDetailSection(card)}</div>`
+    : '';
   const selfId = participant.id || '';
   if (selfOnly || targetMode === 'all_others') {
     const label = targetMode === 'all_others' ? 'All other combatants' : 'Self';
@@ -3988,15 +4255,17 @@ function renderCardTargetControl(card = {}, participant = {}) {
         : ''
     }
     ${contestedControl}
+    ${perTargetDetailContainer}
     ${arcaneControls}`;
   }
   if (targetMode === 'multi_select') {
-    return `<label>Targets (up to ${multiTargetCap})
+    return `<label>${escapeHtml(formatCardTargetSelectionLabel(card, multiTargetCap))}
       <select data-card-targets="${card.id || ''}" multiple size="${Math.max(3, Math.min(6, multiTargetCap + 1))}">
         ${renderParticipantTargetOptions(participant.id, allowSelfTarget, 'all', participant, targetEntityKinds)}
       </select>
     </label>
     ${contestedControl}
+    ${perTargetDetailContainer}
     ${arcaneControls}`;
   }
   return `<label>Target
@@ -4022,6 +4291,7 @@ function renderCardTargetControl(card = {}, participant = {}) {
       : ''
   }
   ${contestedControl}
+  ${perTargetDetailContainer}
   ${arcaneControls}`;
 }
 
@@ -4303,9 +4573,13 @@ function getCardContestedEffectSummary(card = {}, level = 1) {
     .filter(Boolean);
   if (!options.length) return '';
   const parts = [
-    `Choose ${options
-      .map((entry) => `${entry.label}${entry.durationTurns > 0 ? ` (${entry.durationTurns} turn${entry.durationTurns === 1 ? '' : 's'})` : ''}`)
-      .join(' or ')}.`
+    options.length === 1
+      ? `On success, apply ${options[0].label}${
+          options[0].durationTurns > 0 ? ` for ${options[0].durationTurns} turn${options[0].durationTurns === 1 ? '' : 's'}` : ''
+        }.`
+      : `Choose ${options
+          .map((entry) => `${entry.label}${entry.durationTurns > 0 ? ` (${entry.durationTurns} turn${entry.durationTurns === 1 ? '' : 's'})` : ''}`)
+          .join(' or ')}.`
   ];
   options.forEach((entry) => {
     if (entry.notes) {
@@ -4587,7 +4861,18 @@ function renderCardDamageLine(card = {}, participant = {}) {
 function renderConstructMetaLine(card = {}, participant = {}) {
   if (!isConstructCard(card)) return '';
   const mode = detectConstructMode(card);
-  const baseDuration = Math.max(0, Math.round(Number(card.constructDurationTurns ?? 1) || 0));
+  const baseDuration = Math.max(
+    0,
+    Math.round(
+      Number(
+        getCardScaledValue(
+          card.constructDurationTurnsByLevel,
+          Number(card.masteryLevel || 1),
+          Number(card.constructDurationTurns ?? 1)
+        )
+      ) || 0
+    )
+  );
   const durationBonus = getConstructSetBonus(participant).durationBonusTurns;
   const effective = baseDuration > 0 ? Math.max(1, baseDuration + durationBonus) : 0;
   const detail = durationBonus ? `${baseDuration} (+${durationBonus})` : `${baseDuration}`;

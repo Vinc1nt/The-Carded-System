@@ -761,6 +761,199 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'arcane_arcane_rift',
+    card: {
+      id: 'arcane_arcane_rift',
+      name: 'Arcane Rift',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 30,
+      rangeByLevel: {
+        1: 30,
+        2: 50,
+        3: 50,
+        4: 50
+      },
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Utility'],
+      effect:
+        'Teleport two creatures within 10 ft of each other up to card range. For each unwilling creature, the caster takes 1.5x the teleported distance as damage.',
+      targetMode: 'multi_select',
+      multiTargetMin: 2,
+      multiTargetMax: 2,
+      targetEntityKinds: ['participant'],
+      customCardEffect: 'arcane_rift',
+      perTargetInputs: [
+        {
+          id: 'distanceFt',
+          label: 'Teleport distance (ft)',
+          type: 'number',
+          min: 0,
+          step: 5,
+          defaultValue: 10
+        },
+        {
+          id: 'willing',
+          label: 'Willing',
+          type: 'checkbox',
+          defaultChecked: true
+        }
+      ],
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 50 ft.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_confusing_sight',
+    card: {
+      id: 'arcane_confusing_sight',
+      name: 'Confusing Sight',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Utility'],
+      effect:
+        'Enemies within Radius 10 ft become Frightened 1. Each targeted hostile creature may resist with a contested WIS vs WIS check.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      targetEntityKinds: ['participant'],
+      contestedEffect: {
+        choiceLabel: 'Effect',
+        hostileOnly: true,
+        promptMode: 'per_target_checkbox',
+        promptCheckboxLabel: 'Successful',
+        options: [
+          {
+            id: 'frightened',
+            label: 'Frightened',
+            statusId: 'frightened',
+            statusName: 'Frightened',
+            statusStacks: 1
+          }
+        ]
+      },
+      abilityBonusesByLevel: {
+        3: { wisdom: 2 },
+        4: { wisdom: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Radius increases to 15 ft.',
+        'Level 3: WIS +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_force_wall',
+    card: {
+      id: 'arcane_force_wall',
+      name: 'Force Wall',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 15,
+      healthBonus: 2,
+      shieldBonus: 3,
+      tags: ['Construct'],
+      effect: 'Create Force Wall, 10 ft wide (HP 20) blocking movement and attacks through it. Duration 2 turns.',
+      isConstruct: true,
+      constructMode: 'utility',
+      constructAllowUntargetedDeploy: true,
+      constructAp: 0,
+      constructMaxHp: 20,
+      constructMaxHpByLevel: {
+        1: 20,
+        2: 30,
+        3: 30,
+        4: 30
+      },
+      constructDurationTurns: 2,
+      constructDurationTurnsByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
+      constructUtilityNote: 'Blocks movement and attacks through it.',
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: HP increases to 30 and duration increases to 3 turns.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'arcane_arcane_cage',
+    card: {
+      id: 'arcane_arcane_cage',
+      name: 'Arcane Cage',
+      set: 'Arcane',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Construct'],
+      effect:
+        'Trap a target in an Arcane Barrier (HP 20) for 2 turns unless cast again. No card effects may leave the barrier, and no effects may enter it. Unwilling creatures may attempt to break out via contested checks.',
+      targetMode: 'single',
+      targetEntityKinds: ['participant'],
+      allowSelfTarget: false,
+      isConstruct: true,
+      constructMode: 'utility',
+      constructTargetRequired: true,
+      constructAp: 0,
+      constructMaxHp: 20,
+      constructDurationTurns: 2,
+      constructDurationTurnsByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
+      constructUtilityNote:
+        'Arcane Barrier around assigned target. Initial and later breakout contests are GM-resolved.',
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 3 turns.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'divine_cleansing_light',
     card: {
       id: 'divine_cleansing_light',

@@ -871,6 +871,7 @@ function executeCardAction(body) {
   const targetMode = normalizeCardTargetMode(card);
   const secondaryTargetMode = normalizeSecondaryTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card, masteryLevel) : 0;
+  const customCardEffect = String(card.customCardEffect || '').trim().toLowerCase();
   const allowSelfTarget = card.allowSelfTarget !== false;
   const constructDamageBonus = getMachineConstructDamageBonus(participant);
   const constructDurationBonus = getMachineConstructDurationBonus(participant);
@@ -1243,6 +1244,7 @@ function executeCardAction(body) {
     return { error: 'Arcane split requires a single-target non-self card with a valid second target.' };
   }
   const effectivePrimaryTargets = canArcaneSplit ? [primaryTarget, arcaneSplitTarget] : primaryTargets;
+  const targetDetailsById = normalizeCardTargetDetails(body.targetDetails);
   const contestedEffect = getCardContestedEffectConfig(card, masteryLevel);
   if (contestedEffect && arcaneSplitTargetId) {
     return { error: 'Contested cards cannot use Arcane split.' };
@@ -1260,6 +1262,7 @@ function executeCardAction(body) {
         (hasAttackDamage ||
           shieldRestoreTotal > 0 ||
           healTotal > 0 ||
+          Boolean(customCardEffect) ||
           Boolean(statusApply) ||
           pushDistance > 0 ||
           pullDistance > 0 ||
@@ -1314,27 +1317,56 @@ function executeCardAction(body) {
       return { error: `${secondaryTarget.name} cannot be targeted by ranged attacks right now.` };
     }
   }
-  let contestedResolution = null;
+  let contestedResolutions = [];
   if (contestedEffect) {
-    if (targetMode !== 'single' || !primaryTarget || effectivePrimaryTargets.length !== 1) {
-      return { error: `${card.name} requires a single target for its contested effect.` };
+    if (!effectivePrimaryTargets.length) {
+      return { error: `${card.name} requires a target for its contested effect.` };
     }
-    const choiceId = String(body.contestedChoiceId || body.contestedEffectId || '').trim();
+    if (!['single', 'multi_select'].includes(targetMode)) {
+      return { error: `${card.name} has an unsupported contested target mode.` };
+    }
+    const defaultChoiceId = contestedEffect.options.length === 1 ? contestedEffect.options[0].id : '';
+    const choiceId = String(body.contestedChoiceId || body.contestedEffectId || defaultChoiceId).trim();
     const choice = contestedEffect.options.find((entry) => entry.id === choiceId);
     if (!choice) {
       return { error: `Choose a ${card.name} effect option.` };
     }
-    const hostileTarget = contestedEffect.hostileOnly && isParticipantEnemy(participant, primaryTarget);
-    const outcome = hostileTarget ? normalizeContestedOutcome(body.contestedOutcome) : 'success';
-    if (hostileTarget && !outcome) {
-      return { error: `Resolve whether ${primaryTarget.name} resists ${card.name}.` };
+    const contestedTargetOutcomes = normalizeContestedTargetOutcomes(body.contestedTargetOutcomes);
+    contestedResolutions = effectivePrimaryTargets.map((entry) => {
+      const hostileTarget = contestedEffect.hostileOnly && isParticipantEnemy(participant, entry);
+      const outcome =
+        targetMode === 'multi_select'
+          ? hostileTarget
+            ? contestedTargetOutcomes[entry.id] || ''
+            : 'success'
+          : hostileTarget
+            ? normalizeContestedOutcome(body.contestedOutcome)
+            : 'success';
+      return {
+        target: entry,
+        choice,
+        hostileTarget,
+        outcome: hostileTarget ? outcome : 'success'
+      };
+    });
+    const unresolvedTarget = contestedResolutions.find((entry) => entry.hostileTarget && !entry.outcome);
+    if (unresolvedTarget) {
+      return { error: `Resolve whether ${unresolvedTarget.target.name} resists ${card.name}.` };
     }
-    contestedResolution = {
-      target: primaryTarget,
-      choice,
-      hostileTarget,
-      outcome: outcome || 'success'
-    };
+  }
+  if (customCardEffect === 'arcane_rift') {
+    if (effectivePrimaryTargets.length !== 2) {
+      return { error: 'Arcane Rift requires exactly 2 targets.' };
+    }
+    for (const entry of effectivePrimaryTargets) {
+      const detail = targetDetailsById[entry.id];
+      if (!detail) {
+        return { error: `Enter Arcane Rift details for ${entry.name}.` };
+      }
+      if (!Number.isFinite(Number(detail.distanceFt)) || Number(detail.distanceFt) < 0) {
+        return { error: `Enter a valid teleport distance for ${entry.name}.` };
+      }
+    }
   }
   if (zoneCard) {
     participant.zones = normalizeZones(participant.zones, participant.id);
@@ -1359,6 +1391,7 @@ function executeCardAction(body) {
     hasAttackDamage ||
     shieldRestoreTotal > 0 ||
     healTotal > 0 ||
+    Boolean(customCardEffect) ||
     moveDistance > 0 ||
     pushDistance > 0 ||
     pullDistance > 0 ||
@@ -1465,6 +1498,7 @@ function executeCardAction(body) {
   }
   if (isConstruct) {
     constructDeployResult = deployConstructFromCard(participant, card, {
+      masteryLevel,
       targetId: primaryTarget?.id || null,
       targetIds: effectivePrimaryTargets.map((entry) => entry.id),
       baseDamage,
@@ -1816,7 +1850,8 @@ function executeCardAction(body) {
     }
   }
 
-  if (contestedResolution) {
+  for (const contestedResolution of contestedResolutions) {
+    if (!contestedResolution) continue;
     if (contestedResolution.outcome === 'resisted') {
       const backlashAmount = Math.max(0, Number(contestedEffect?.resistedCasterDamage || 0));
       if (backlashAmount > 0) {
@@ -1839,7 +1874,9 @@ function executeCardAction(body) {
       } else {
         notes.push(`${contestedResolution.target.name} resists ${card.name}.`);
       }
-    } else {
+      continue;
+    }
+    if (contestedResolution.outcome === 'success') {
       contestedResolution.choice.clearStatuses.forEach((entry) => {
         removeStatusEntry(contestedResolution.target, { id: entry, name: entry });
       });
@@ -1945,6 +1982,27 @@ function executeCardAction(body) {
       notes.push(`Pulls ${pullTargets[0].name} ${pullDistance} ft.`);
     } else if (pullTargets.length > 1) {
       notes.push(`Pulls ${pullTargets.length} targets ${pullDistance} ft.`);
+    }
+  }
+  if (!isConstruct && customCardEffect === 'arcane_rift') {
+    const teleportedTargets = [];
+    for (const entry of effectivePrimaryTargets) {
+      const detail = targetDetailsById[entry.id] || {};
+      const distanceFt = Math.max(0, Math.round(Number(detail.distanceFt || 0)));
+      const willing = detail.willing === true;
+      teleportedTargets.push(`${entry.name} (${distanceFt} ft${willing ? ', willing' : ', unwilling'})`);
+      if (!willing && distanceFt > 0) {
+        const backlashAmount = Math.max(0, Math.ceil(distanceFt * 1.5));
+        const backlash = applyCardDamageWithType(participant, backlashAmount, '');
+        notes.push(
+          `Arcane Rift backlash from ${entry.name}: ${participant.name} takes ${backlash.finalDamage} damage (${backlash.shieldDamage} Shield, ${backlash.hpDamage} HP).${
+            backlash.preventedByDivine ? ' [Reversed by Divine]' : ''
+          }`
+        );
+      }
+    }
+    if (teleportedTargets.length) {
+      notes.push(`Arcane Rift teleports ${teleportedTargets.join('; ')}.`);
     }
   }
   if (cardUtilityNote) {
@@ -5585,6 +5643,41 @@ function normalizeContestedOutcome(value) {
   return '';
 }
 
+function normalizeContestedTargetOutcomes(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const normalized = {};
+  Object.entries(value).forEach(([targetId, outcome]) => {
+    const id = String(targetId || '').trim();
+    if (!id) return;
+    const resolved = normalizeContestedOutcome(outcome);
+    if (resolved) {
+      normalized[id] = resolved;
+    }
+  });
+  return normalized;
+}
+
+function normalizeCardTargetDetails(value) {
+  if (!Array.isArray(value)) return {};
+  const normalized = {};
+  value.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') return;
+    const targetId = String(entry.targetId || '').trim();
+    if (!targetId) return;
+    normalized[targetId] = {
+      ...entry,
+      targetId,
+      willing:
+        entry.willing === true ||
+        String(entry.willing || '')
+          .trim()
+          .toLowerCase() === 'true',
+      distanceFt: Number(entry.distanceFt ?? entry.distance ?? 0)
+    };
+  });
+  return normalized;
+}
+
 function getCardContestedEffectConfig(card = {}, masteryLevel = 1) {
   const source = card?.contestedEffect;
   if (!source || typeof source !== 'object') return null;
@@ -5625,6 +5718,7 @@ function getCardContestedEffectConfig(card = {}, masteryLevel = 1) {
   if (!options.length) return null;
   return {
     hostileOnly: source.hostileOnly !== false,
+    promptMode: String(source.promptMode || '').trim().toLowerCase(),
     resistedCasterDamage: Math.max(
       0,
       Math.round(
@@ -5739,12 +5833,13 @@ function describeConstructSummary(construct = {}) {
     if (utilityKind === 'factory') {
       return `factory construct${utilityNote ? ` (${utilityNote})` : ''}${resources.length ? ` (${resources.join(', ')})` : ''}`;
     }
-    return `utility construct${resources.length ? ` (${resources.join(', ')})` : ''}`;
+    return `utility construct${utilityNote ? ` (${utilityNote})` : ''}${resources.length ? ` (${resources.join(', ')})` : ''}`;
   }
   return `${construct.damage || 0} ${construct.damageType || 'damage'}${resources.length ? ` (${resources.join(', ')})` : ''}`;
 }
 
 function deployConstructFromCard(participant, card, options = {}) {
+  const masteryLevel = Math.max(1, Math.min(4, Number(options.masteryLevel || card?.masteryLevel || 1)));
   const baseDamage = Math.max(0, Number(options.baseDamage || 0));
   const bonusDamage = Math.max(0, Number(options.bonusDamage || 0));
   const damageType = String(options.damageType || '').trim();
@@ -5753,7 +5848,12 @@ function deployConstructFromCard(participant, card, options = {}) {
   const normalizedStatusType = detectStatusType({ presetId: statusId, name: options.statusName });
   const statusName = String(options.statusName || (normalizedStatusType ? statusDisplayName(normalizedStatusType) : '')).trim();
   const statusStacks = Math.max(1, Number(options.statusStacks || 1));
-  const durationBase = Number(card?.constructDurationTurns ?? card?.constructDuration ?? card?.durationTurns ?? 1);
+  const durationBase = getCardScaledEffectValue(
+    card,
+    'constructDurationTurnsByLevel',
+    masteryLevel,
+    Number(card?.constructDurationTurns ?? card?.constructDuration ?? card?.durationTurns ?? 1)
+  );
   const durationBonusTurns = Math.max(0, Number(options.durationBonusTurns || 0));
   const durationTurns = Math.max(
     0,
