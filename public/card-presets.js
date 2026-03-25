@@ -1165,7 +1165,7 @@ export const CARD_PRESETS = [
       shieldBonus: 1,
       tags: ['Utility'],
       effect:
-        'Prevent any and all actions for 1 turn at the cost of forfeiting your next turn. Caster may use 2 AP while the world is paused. Can only be used once per long rest.',
+        'After this turn, time pauses for 1 extra turn. You may act with 2 AP while the world is paused. Zone timing, construct timing, incoming delayed effects, and round-based triggers are suspended during the pause. Afterward, forfeit your next normal turn. Once per long rest.',
       targetMode: 'none',
       customCardEffect: 'arcane_pause_button',
       durationTurnsByLevel: {
@@ -1182,7 +1182,7 @@ export const CARD_PRESETS = [
       },
       mastery: [
         'Level 1: Base.',
-        'Level 2: Duration increases to 2 turns. Caster may use 4 AP while the world is paused.',
+        'Level 2: Duration increases to 2 turns. You may use 4 AP while the world is paused.',
         'Level 3: -',
         'Level 4: Unlocks fusion eligibility.'
       ],

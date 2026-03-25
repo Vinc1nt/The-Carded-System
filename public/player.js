@@ -3088,7 +3088,9 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   } else if (customEffectId === 'arcane_pause_button') {
     const duration = level >= 2 ? 2 : 1;
     const pauseAp = level >= 2 ? 4 : 2;
-    parts.push(`After this turn, time pauses for ${duration} extra turn${duration === 1 ? '' : 's'}. You may act with ${pauseAp} AP each paused turn, then forfeit your next normal turn. Once per long rest.`);
+    parts.push(
+      `After this turn, time pauses for ${duration} extra turn${duration === 1 ? '' : 's'}. You may act with ${pauseAp} AP each paused turn. Zone timing, construct timing, incoming delayed effects, and round-based triggers are suspended during the pause. Then forfeit your next normal turn. Once per long rest.`
+    );
   }
   const damage = getCardDisplayDamage(card);
   const secondaryDamage = getCardSecondaryDamage(card);

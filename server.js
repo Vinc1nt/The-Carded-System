@@ -1841,6 +1841,7 @@ function executeCardAction(body) {
     notes.push(
       `After this turn, time pauses for ${durationTurns} extra turn${durationTurns === 1 ? '' : 's'} and ${participant.name} may act with ${pauseAp} AP each paused turn.`
     );
+    notes.push('While time is paused, zone timing, construct timing, incoming delayed effects, and round-based triggers are suspended.');
     notes.push(`${participant.name} will forfeit their next normal turn.`);
     const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
       chargesMax,
@@ -3709,6 +3710,11 @@ function clearEncounterPauseState() {
   trackerState.encounter.pauseState = null;
 }
 
+function isPauseButtonTimingSuspended() {
+  const pauseState = getEncounterPauseState();
+  return pauseState?.activeTurn === true;
+}
+
 function getPauseActionError(participant, options = {}) {
   const pauseState = getEncounterPauseState();
   if (!pauseState || !participant) return '';
@@ -4055,6 +4061,7 @@ function triggerBeastBleedingRestore(victim) {
 }
 
 function applyStartOfTurnStatusEffects(participant) {
+  if (isPauseButtonTimingSuspended()) return [];
   participant.statuses = normalizeStatuses(participant.statuses);
   const events = [];
   const startingStacks = {};
@@ -4148,6 +4155,7 @@ function applyStartOfTurnStatusEffects(participant) {
 }
 
 function applyConstructStartOfTurnEffects(participant) {
+  if (isPauseButtonTimingSuspended()) return [];
   participant.constructs = normalizeConstructs(participant.constructs, participant.id);
   if (!participant.constructs.length) return [];
   const events = [];
@@ -4306,6 +4314,7 @@ function applyConstructStartOfTurnEffects(participant) {
 }
 
 function applyIncomingConstructTurnEffects(participant) {
+  if (isPauseButtonTimingSuspended()) return [];
   if (!participant) return [];
   const events = [];
   for (const owner of trackerState.encounter.participants || []) {
@@ -4429,6 +4438,7 @@ function applyIncomingConstructTurnEffects(participant) {
 }
 
 function applyZoneTurnEffects(participant, zone) {
+  if (isPauseButtonTimingSuspended()) return [];
   if (!participant || !zone) return [];
   participant.zones = normalizeZones(participant.zones, participant.id);
   const entry = participant.zones.find((item) => String(item.id) === String(zone.id));
@@ -6339,6 +6349,7 @@ function upsertTimedStatus(participant, status = {}) {
 }
 
 function decrementTimedStatusesAtEndOfTurn(participant) {
+  if (isPauseButtonTimingSuspended()) return [];
   if (!participant) return [];
   participant.statuses = normalizeStatuses(participant.statuses);
   if (!participant.statuses.length) return [];
