@@ -2123,6 +2123,215 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'demonic_fear_me',
+    card: {
+      id: 'demonic_fear_me',
+      name: 'Fear Me',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Psychic'],
+      effect:
+        'Target becomes Frightened 1 for 2 turns. Creatures may attempt to resist with contested WIS vs WIS.',
+      targetMode: 'single',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      targetEntityKinds: ['participant'],
+      contestedEffect: {
+        hostileOnly: true,
+        options: [
+          {
+            id: 'frightened',
+            label: 'Frightened',
+            statusId: 'frightened',
+            statusName: 'Frightened',
+            statusStacksByLevel: {
+              1: 1,
+              2: 2,
+              3: 2,
+              4: 2
+            },
+            durationTurnsByLevel: {
+              1: 2,
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        ]
+      },
+      abilityBonusesByLevel: {
+        3: { charisma: 1 },
+        4: { charisma: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Frightened 2.',
+        'Level 3: CHA +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_fire_of_retribution',
+    card: {
+      id: 'demonic_fire_of_retribution',
+      name: 'Fire of Retribution',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 4,
+      damageType: 'Fire',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 4 Fire damage. If the target damaged you last turn, deal +3 damage.',
+      bonusDamageIfTargetDamagedCasterLastTurnByLevel: {
+        1: 3,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Bonus damage increases to +4.',
+        'Level 3: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 3.'
+    }
+  },
+  {
+    id: 'demonic_infernal_brand',
+    card: {
+      id: 'demonic_infernal_brand',
+      name: 'Infernal Brand',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Curse'],
+      effect: 'Mark target with Infernal Brand. Your attacks deal +2 damage to that target. Duration 2 turns.',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      customCardEffect: 'demonic_infernal_brand',
+      infernalBrandBonusDamageByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
+      durationTurnsByLevel: {
+        1: 2,
+        2: 2,
+        3: 2,
+        4: 2
+      },
+      abilityBonusesByLevel: {
+        3: { charisma: 1 },
+        4: { charisma: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Bonus damage increases to +3.',
+        'Level 3: CHA +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_spitfire',
+    card: {
+      id: 'demonic_spitfire',
+      name: 'Spitfire',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 4,
+      damageType: 'Fire',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 4 Fire damage.',
+      masteryDamageByLevel: {
+        1: 4,
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 5.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_the_common_cold',
+    card: {
+      id: 'demonic_the_common_cold',
+      name: 'The Common Cold',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 25,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Poison'],
+      damage: 4,
+      damageType: 'Poison',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 4 Poison damage and apply Poisoned 1.',
+      masteryDamageByLevel: {
+        1: 4,
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 5.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'nature_poison_dart',
     card: {
       id: 'nature_poison_dart',

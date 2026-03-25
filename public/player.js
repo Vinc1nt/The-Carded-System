@@ -1497,6 +1497,7 @@ function detectPlayerCleanseType(status) {
     if (token.includes('silenced') || token.includes('silence')) return 'silenced';
     if (token.includes('charmed') || token.includes('charm')) return 'charmed';
     if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
+    if (token.includes('infernalbrand')) return 'infernal_brand';
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
     if (token.includes('stunned') || token.includes('stun')) return 'stunned';
     if (token.includes('paralysed') || token.includes('paralyzed') || token.includes('paralyse') || token.includes('paralyze')) return 'paralysed';

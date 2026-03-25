@@ -225,6 +225,14 @@ const STATUS_LIBRARY = [
     tags: ['Debuff']
   },
   {
+    id: 'infernal_brand',
+    name: 'Infernal Brand',
+    defaultStacks: 1,
+    description:
+      'Debuff. Marked by a specific caster; that caster gains bonus damage on attacks against you while the brand lasts.',
+    tags: ['Debuff']
+  },
+  {
     id: 'half_cover',
     name: 'Half Cover',
     defaultStacks: 1,
@@ -1185,6 +1193,17 @@ function executeCardAction(body) {
       )
     )
   );
+  const conditionalDamagedCasterLastTurnBonus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'bonusDamageIfTargetDamagedCasterLastTurnByLevel',
+        masteryLevel,
+        Number(card.bonusDamageIfTargetDamagedCasterLastTurn || 0)
+      )
+    )
+  );
   const fullyBlockedHpDamage = Math.max(
     0,
     Math.round(getCardScaledEffectValue(card, 'directHpDamageOnFullyBlockedByLevel', masteryLevel, Number(card.directHpDamageOnFullyBlocked || 0)))
@@ -1890,6 +1909,90 @@ function executeCardAction(body) {
     };
   }
 
+  if (customCardEffect === 'demonic_infernal_brand') {
+    if (!primaryTarget) {
+      return { error: 'Infernal Brand requires a target.' };
+    }
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      1,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, 2))
+    );
+    const bonusDamage = Math.max(
+      0,
+      Math.round(
+        getCardScaledEffectValue(
+          card,
+          'infernalBrandBonusDamageByLevel',
+          masteryLevel,
+          Number(card.infernalBrandBonusDamage || 2)
+        )
+      )
+    );
+    upsertTimedStatus(primaryTarget, {
+      presetId: 'infernal_brand',
+      name: 'Infernal Brand',
+      stacks: 1,
+      notes: `${participant.name}'s attacks deal +${bonusDamage} damage while active.`,
+      remainingTurns: durationTurns,
+      sourceParticipantId: participant.id,
+      stackBySource: true,
+      damageBonus: bonusDamage
+    });
+    notes.push(
+      `${primaryTarget.name} is marked with Infernal Brand for ${durationTurns} turn${durationTurns === 1 ? '' : 's'} (+${bonusDamage} damage on ${participant.name}'s attacks).`
+    );
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: primaryTarget.id,
+      targetIds: [primaryTarget.id],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'single',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      customStatus: 'infernal_brand',
+      infernalBrand: {
+        durationTurns,
+        bonusDamage
+      }
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: primaryTarget,
+      targets: [primaryTarget],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   let damageResult = null;
@@ -1926,9 +2029,11 @@ function executeCardAction(body) {
     const shieldConditionalBonus = Math.max(0, Number(options.bonusIfTargetHasShield || 0));
     const notActedConditionalBonus = Math.max(0, Number(options.bonusIfTargetNotActed || 0));
     const belowHalfHpConditionalBonus = Math.max(0, Number(options.bonusIfTargetBelowHalfHp || 0));
+    const damagedCasterLastTurnBonus = Math.max(0, Number(options.bonusIfTargetDamagedCasterLastTurn || 0));
     const directHpOnFullyBlocked = Math.max(0, Number(options.directHpOnFullyBlocked || 0));
     const bleedingBefore = getStatusStacks(damageTarget, 'bleeding');
     const hadStatusesBefore = Array.isArray(damageTarget.statuses) && damageTarget.statuses.length > 0;
+    const infernalBrandBonus = getInfernalBrandDamageBonus(damageTarget, participant.id);
     let setDamageBonus = 0;
     if (hasBeast5 && bleedingBefore > 0 && isParticipantEnemy(participant, damageTarget)) {
       setDamageBonus += 2;
@@ -1950,6 +2055,8 @@ function executeCardAction(body) {
     let shieldBonusApplied = 0;
     let notActedBonusApplied = 0;
     let belowHalfHpBonusApplied = 0;
+    let damagedCasterLastTurnBonusApplied = 0;
+    let infernalBrandBonusApplied = 0;
     if (setDamageBonus > 0) {
       appliedAmount += setDamageBonus;
     }
@@ -1969,10 +2076,22 @@ function executeCardAction(body) {
       appliedAmount += belowHalfHpConditionalBonus;
       belowHalfHpBonusApplied = belowHalfHpConditionalBonus;
     }
-    const result = applyCardDamageWithType(damageTarget, appliedAmount, type);
+    if (damagedCasterLastTurnBonus > 0 && didEntityDamageParticipantLastTurn(participant, damageTarget)) {
+      appliedAmount += damagedCasterLastTurnBonus;
+      damagedCasterLastTurnBonusApplied = damagedCasterLastTurnBonus;
+    }
+    if (infernalBrandBonus > 0) {
+      appliedAmount += infernalBrandBonus;
+      infernalBrandBonusApplied = infernalBrandBonus;
+    }
+    const result = applyCardDamageWithType(damageTarget, appliedAmount, type, {
+      sourceEntityId: participant.id
+    });
     result.shieldBonusDamage = shieldBonusApplied;
     result.notActedBonusDamage = notActedBonusApplied;
     result.belowHalfHpBonusDamage = belowHalfHpBonusApplied;
+    result.damagedCasterLastTurnBonusDamage = damagedCasterLastTurnBonusApplied;
+    result.infernalBrandBonusDamage = infernalBrandBonusApplied;
     result.setBonusDamage = setDamageBonus;
     result.bleedingBefore = bleedingBefore;
     result.hadStatusesBefore = hadStatusesBefore;
@@ -2107,6 +2226,7 @@ function executeCardAction(body) {
           bonusIfTargetHasShield: conditionalShieldDamageBonus,
           bonusIfTargetNotActed: conditionalNotActedDamageBonus,
           bonusIfTargetBelowHalfHp: conditionalBelowHalfHpDamageBonus,
+          bonusIfTargetDamagedCasterLastTurn: conditionalDamagedCasterLastTurnBonus,
           directHpOnFullyBlocked: fullyBlockedHpDamage
         });
       }
@@ -2373,7 +2493,8 @@ function executeCardAction(body) {
         const backlash = applyCardDamageWithType(
           participant,
           backlashAmount,
-          contestedEffect?.resistedDamageType || 'Psychic'
+          contestedEffect?.resistedDamageType || 'Psychic',
+          { sourceEntityId: contestedResolution.target.id }
         );
         const destroyedCasterConstruct = removeDefeatedConstructByEntity(participant);
         if (destroyedCasterConstruct) {
@@ -2531,7 +2652,9 @@ function executeCardAction(body) {
       teleportedTargets.push(`${entry.name} (${distanceFt} ft${willing ? ', willing' : ', unwilling'})`);
       if (!willing && distanceFt > 0) {
         const backlashAmount = Math.max(0, Math.ceil(distanceFt * 1.5));
-        const backlash = applyCardDamageWithType(participant, backlashAmount, '');
+        const backlash = applyCardDamageWithType(participant, backlashAmount, '', {
+          sourceEntityId: entry.id
+        });
         notes.push(
           `Arcane Rift backlash from ${entry.name}: ${participant.name} takes ${backlash.finalDamage} damage (${backlash.shieldDamage} Shield, ${backlash.hpDamage} HP).${
             backlash.preventedByDivine ? ' [Reversed by Divine]' : ''
@@ -3474,6 +3597,8 @@ function resetTurn(participant, options = {}) {
   participant.lastActedRound = trackerState.encounter.round;
   resetSetTurnState(participant);
   const runtime = ensureSetRuntime(participant);
+  runtime.demonic.damagedByLastTurnIds = normalizeIdList(runtime.demonic.damagedByPendingIds || []);
+  runtime.demonic.damagedByPendingIds = [];
   const events = [];
   const rangedUntargetableTurns = Math.max(0, Number(participant.rangedUntargetableTurns || 0));
   if (rangedUntargetableTurns > 0) {
@@ -3804,6 +3929,7 @@ function detectStatusType(status) {
     if (token.includes('silenced') || token.includes('silence')) return 'silenced';
     if (token.includes('charmed') || token.includes('charm')) return 'charmed';
     if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
+    if (token.includes('infernalbrand')) return 'infernal_brand';
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
     if (token.includes('halfcover')) return 'half_cover';
     if (token.includes('mindshield')) return 'mind_shield';
@@ -3811,6 +3937,12 @@ function detectStatusType(status) {
     if (token.includes('reduce') || token.includes('reduced')) return 'reduce';
   }
   return null;
+}
+
+function isSourceScopedStatus(status = {}, type = detectStatusType(status)) {
+  const sourceParticipantId = String(status?.sourceParticipantId || '').trim();
+  if (status?.stackBySource === true) return true;
+  return type === 'infernal_brand' && Boolean(sourceParticipantId);
 }
 
 function getStatusesByType(statuses = [], type) {
@@ -3845,6 +3977,7 @@ function getCleanseableStatuses(statuses = []) {
     'silenced',
     'charmed',
     'frightened',
+    'infernal_brand',
     'suppressed',
     'paralysed',
     'stunned'
@@ -3878,6 +4011,7 @@ function statusDisplayName(type) {
     silenced: 'Silenced',
     charmed: 'Charmed',
     frightened: 'Frightened',
+    infernal_brand: 'Infernal Brand',
     suppressed: 'Suppressed',
     half_cover: 'Half Cover',
     mind_shield: 'Mind Shield',
@@ -3910,9 +4044,21 @@ const MIND_SHIELD_IMMUNITIES = ['Charmed', 'Frightened'];
 
 function buildStatusMergeKey(status, fallbackIndex = 0) {
   const type = detectStatusType(status);
-  if (type) return `type:${type}`;
+  const sourceScoped = isSourceScopedStatus(status, type);
+  const sourceParticipantId = String(status?.sourceParticipantId || '').trim();
+  if (type) {
+    if (sourceScoped && sourceParticipantId) {
+      return `type:${type}:source:${sourceParticipantId}`;
+    }
+    return `type:${type}`;
+  }
   const token = normalizeStatusToken(status?.name || status?.presetId || status?.id || '');
-  if (token) return `name:${token}`;
+  if (token) {
+    if (sourceScoped && sourceParticipantId) {
+      return `name:${token}:source:${sourceParticipantId}`;
+    }
+    return `name:${token}`;
+  }
   return `index:${fallbackIndex}`;
 }
 
@@ -3935,11 +4081,16 @@ function normalizeStatuses(statuses = []) {
         name: type ? statusDisplayName(type) : rawStatus.name || rawStatus.presetId || 'Status',
         stacks,
         notes: rawStatus.notes || '',
-        remainingTurns
+        remainingTurns,
+        sourceParticipantId: String(rawStatus.sourceParticipantId || '').trim(),
+        stackBySource: rawStatus.stackBySource === true,
+        damageBonus: Number.isFinite(Number(rawStatus.damageBonus))
+          ? Math.max(0, Math.round(Number(rawStatus.damageBonus)))
+          : 0
       });
       return;
     }
-    if (type) {
+    if (type && !isSourceScopedStatus(rawStatus, type)) {
       existing.stacks += stacks;
     } else {
       existing.stacks = Math.max(existing.stacks, stacks);
@@ -3947,6 +4098,14 @@ function normalizeStatuses(statuses = []) {
     if (!existing.notes && rawStatus.notes) {
       existing.notes = rawStatus.notes;
     }
+    if (!existing.sourceParticipantId && rawStatus.sourceParticipantId) {
+      existing.sourceParticipantId = String(rawStatus.sourceParticipantId || '').trim();
+    }
+    existing.stackBySource = existing.stackBySource || rawStatus.stackBySource === true;
+    existing.damageBonus = Math.max(
+      Number(existing.damageBonus || 0),
+      Number.isFinite(Number(rawStatus.damageBonus)) ? Math.max(0, Math.round(Number(rawStatus.damageBonus))) : 0
+    );
     existing.remainingTurns = Math.max(existing.remainingTurns || 0, remainingTurns);
   });
   return Array.from(merged.values());
@@ -4199,7 +4358,9 @@ function applyConstructStartOfTurnEffects(participant) {
       }
       const forceDamage = Math.max(0, Number(refreshed.damage || 0));
       if (forceDamage > 0) {
-        const result = applyCardDamageWithType(target, forceDamage, 'Force');
+        const result = applyCardDamageWithType(target, forceDamage, 'Force', {
+          sourceEntityId: refreshed.id
+        });
         const mitigation =
           result.resisted && !result.vulnerable
             ? ' [Resisted]'
@@ -4214,7 +4375,9 @@ function applyConstructStartOfTurnEffects(participant) {
       const damage = Math.max(0, Number(refreshed.damage || 0));
       const damageType = String(refreshed.damageType || '').trim();
       if (damage > 0) {
-        const result = applyCardDamageWithType(target, damage, damageType);
+        const result = applyCardDamageWithType(target, damage, damageType, {
+          sourceEntityId: refreshed.id
+        });
         const mitigation =
           result.resisted && !result.vulnerable
             ? ' [Resisted]'
@@ -4353,7 +4516,9 @@ function applyIncomingConstructTurnEffects(participant) {
         }
         const forceDamage = Math.max(0, Number(refreshed.damage || 0));
         if (forceDamage > 0) {
-          const result = applyCardDamageWithType(participant, forceDamage, 'Force');
+          const result = applyCardDamageWithType(participant, forceDamage, 'Force', {
+            sourceEntityId: refreshed.id
+          });
           const mitigation =
             result.resisted && !result.vulnerable
               ? ' [Resisted]'
@@ -4368,7 +4533,9 @@ function applyIncomingConstructTurnEffects(participant) {
         const damage = Math.max(0, Number(refreshed.damage || 0));
         const damageType = String(refreshed.damageType || '').trim();
         if (damage > 0) {
-          const result = applyCardDamageWithType(participant, damage, damageType);
+          const result = applyCardDamageWithType(participant, damage, damageType, {
+            sourceEntityId: refreshed.id
+          });
           const mitigation =
             result.resisted && !result.vulnerable
               ? ' [Resisted]'
@@ -4471,7 +4638,9 @@ function applyZoneTurnEffects(participant, zone) {
         events.push(`${participant.name}'s zone ${entry.name} affects ${target.name}.`);
       }
     } else {
-      const result = applyCardDamageWithType(target, amount, entry.damageType);
+      const result = applyCardDamageWithType(target, amount, entry.damageType, {
+        sourceEntityId: participant.id
+      });
       const mitigation =
         result.resisted && !result.vulnerable
           ? ' [Resisted]'
@@ -4547,7 +4716,9 @@ function applyZoneTargetAddTriggers(participant, zone, target) {
   const blockedByNature = allied && nature5;
   const enterDamage = Math.max(0, Number(entry.enterDamage || 0));
   if (enterDamage > 0 && !blockedByNature) {
-    const result = applyCardDamageWithType(target, enterDamage, entry.enterDamageType || entry.damageType);
+    const result = applyCardDamageWithType(target, enterDamage, entry.enterDamageType || entry.damageType, {
+      sourceEntityId: participant.id
+    });
     const mitigation =
       result.resisted && !result.vulnerable
         ? ' [Resisted]'
@@ -5771,7 +5942,7 @@ function isStatusImmune(participant = {}, type = '') {
   );
 }
 
-function applyCardDamageWithType(target, rawDamage, damageType = '') {
+function applyCardDamageWithType(target, rawDamage, damageType = '', options = {}) {
   const baseDamage = Math.max(0, Number(rawDamage || 0));
   const immune = hasParticipantImmunity(target, damageType);
   const resisted = hasDamageTypeEntry(target.resistances, damageType);
@@ -5802,6 +5973,9 @@ function applyCardDamageWithType(target, rawDamage, damageType = '') {
     runtime.demonic.damageTakenApQueuedTurn = true;
     runtime.demonic.pendingNextTurnAp += 1;
   }
+  if (totalDamageTaken > 0) {
+    recordIncomingDamageSource(target, options);
+  }
   return {
     baseDamage,
     finalDamage,
@@ -5817,6 +5991,40 @@ function applyCardDamageWithType(target, rawDamage, damageType = '') {
     shieldAfter: target.shield,
     hpAfter: target.hp
   };
+}
+
+function recordIncomingDamageSource(target, options = {}) {
+  if (!target || isConstructEntity(target)) return;
+  const sourceEntityId = String(options?.sourceEntityId || '').trim();
+  if (!sourceEntityId || sourceEntityId === String(target.id || '').trim()) return;
+  const runtime = ensureSetRuntime(target);
+  runtime.demonic.damagedByPendingIds = normalizeIdList([
+    ...(runtime.demonic.damagedByPendingIds || []),
+    sourceEntityId
+  ]);
+}
+
+function didEntityDamageParticipantLastTurn(participant, entity = null) {
+  if (!participant || !entity || isConstructEntity(participant)) return false;
+  const entityId = String(entity?.id || entity || '').trim();
+  if (!entityId) return false;
+  const runtime = ensureSetRuntime(participant);
+  return normalizeIdList(runtime.demonic.damagedByLastTurnIds || []).includes(entityId);
+}
+
+function getInfernalBrandDamageBonus(target, sourceParticipantId = '') {
+  if (!target) return 0;
+  const sourceId = String(sourceParticipantId || '').trim();
+  if (!sourceId) return 0;
+  const statuses = normalizeStatuses(target.statuses);
+  return statuses.reduce((maxBonus, status) => {
+    if (detectStatusType(status) !== 'infernal_brand') return maxBonus;
+    if (String(status.sourceParticipantId || '').trim() !== sourceId) return maxBonus;
+    const bonus = Number.isFinite(Number(status.damageBonus))
+      ? Math.max(0, Math.round(Number(status.damageBonus)))
+      : 0;
+    return Math.max(maxBonus, bonus);
+  }, 0);
 }
 
 function normalizeDamageTypes(list = []) {
@@ -6112,7 +6320,9 @@ function normalizeSetRuntime(runtime = {}) {
       statusHealUsedTurn: Boolean(demonic.statusHealUsedTurn),
       damageTakenApQueuedTurn: Boolean(demonic.damageTakenApQueuedTurn),
       nearbyKillApUsedTurn: Boolean(demonic.nearbyKillApUsedTurn),
-      pendingNextTurnAp: Math.max(0, Number(demonic.pendingNextTurnAp || 0))
+      pendingNextTurnAp: Math.max(0, Number(demonic.pendingNextTurnAp || 0)),
+      damagedByPendingIds: normalizeIdList(demonic.damagedByPendingIds || []),
+      damagedByLastTurnIds: normalizeIdList(demonic.damagedByLastTurnIds || [])
     },
     divine: {
       reverseDamageUsedEncounter: Boolean(divine.reverseDamageUsedEncounter),
@@ -6276,9 +6486,13 @@ function addCustomStatus(participant, status = {}) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const token = normalizeStatusToken(name);
   const current = Array.isArray(participant.statuses) ? [...participant.statuses] : [];
+  const sourceScoped = isSourceScopedStatus(status, null);
+  const sourceParticipantId = String(status.sourceParticipantId || '').trim();
   const existingIndex = current.findIndex((entry) => {
     if (detectStatusType(entry)) return false;
-    return normalizeStatusToken(entry?.name || entry?.presetId || entry?.id || '') === token;
+    if (normalizeStatusToken(entry?.name || entry?.presetId || entry?.id || '') !== token) return false;
+    if (!sourceScoped) return true;
+    return String(entry?.sourceParticipantId || '').trim() === sourceParticipantId;
   });
   const nextStatus = {
     id: existingIndex >= 0 ? current[existingIndex].id || randomUUID() : randomUUID(),
@@ -6289,7 +6503,12 @@ function addCustomStatus(participant, status = {}) {
       Number(status.stacks || 1)
     ),
     notes: String(status.notes || current[existingIndex]?.notes || '').trim(),
-    remainingTurns: Math.max(0, Number(status.remainingTurns || current[existingIndex]?.remainingTurns || 0))
+    remainingTurns: Math.max(0, Number(status.remainingTurns || current[existingIndex]?.remainingTurns || 0)),
+    sourceParticipantId,
+    stackBySource: sourceScoped,
+    damageBonus: Number.isFinite(Number(status.damageBonus ?? current[existingIndex]?.damageBonus))
+      ? Math.max(0, Math.round(Number(status.damageBonus ?? current[existingIndex]?.damageBonus)))
+      : 0
   };
   if (existingIndex >= 0) {
     current[existingIndex] = nextStatus;
@@ -6325,10 +6544,13 @@ function upsertTimedStatus(participant, status = {}) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const token = normalizeStatusToken(name || type);
   const current = Array.isArray(participant.statuses) ? [...participant.statuses] : [];
+  const sourceScoped = isSourceScopedStatus(status, type);
+  const sourceParticipantId = String(status.sourceParticipantId || '').trim();
   const existingIndex = current.findIndex((entry) => {
     const entryType = detectStatusType(entry);
-    if (type) return entryType === type;
-    return normalizeStatusToken(entry?.name || entry?.presetId || entry?.id || '') === token;
+    const sameSource = !sourceScoped || String(entry?.sourceParticipantId || '').trim() === sourceParticipantId;
+    if (type) return entryType === type && sameSource;
+    return normalizeStatusToken(entry?.name || entry?.presetId || entry?.id || '') === token && sameSource;
   });
   const existing = existingIndex >= 0 ? current[existingIndex] : null;
   const nextStatus = {
@@ -6337,7 +6559,12 @@ function upsertTimedStatus(participant, status = {}) {
     name: type ? statusDisplayName(type) : name,
     stacks: Math.max(1, Number(status.stacks || existing?.stacks || 1)),
     notes: String(status.notes || existing?.notes || '').trim(),
-    remainingTurns: Math.max(0, Math.round(Number(status.remainingTurns || existing?.remainingTurns || 0)))
+    remainingTurns: Math.max(0, Math.round(Number(status.remainingTurns || existing?.remainingTurns || 0))),
+    sourceParticipantId,
+    stackBySource: sourceScoped,
+    damageBonus: Number.isFinite(Number(status.damageBonus ?? existing?.damageBonus))
+      ? Math.max(0, Math.round(Number(status.damageBonus ?? existing?.damageBonus)))
+      : 0
   };
   if (existingIndex >= 0) {
     current[existingIndex] = nextStatus;
@@ -6945,6 +7172,8 @@ function resetSetCombatState(participant) {
   const runtime = ensureSetRuntime(participant);
   runtime.arcane.copyUsedEncounter = false;
   runtime.arcane.modifiedCard = null;
+  runtime.demonic.damagedByPendingIds = [];
+  runtime.demonic.damagedByLastTurnIds = [];
   runtime.divine.reverseDamageUsedEncounter = false;
   participant.pauseButtonSkipTurns = 0;
   participant.constructs = [];
