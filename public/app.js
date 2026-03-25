@@ -82,7 +82,7 @@ const JOURNAL_IMPORT_SAMPLE = Object.freeze({
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
-  reference: { standardActions: [], sets: [], statuses: [], teams: [] },
+  reference: { standardActions: [], sets: [], statuses: [], teams: [], characterPresets: [] },
   updatedAt: null
 };
 
@@ -155,6 +155,22 @@ function wireGlobalEvents() {
       await api('/api/participants', 'POST', payload);
       event.target.reset();
       els.addDrawer?.classList.remove('open');
+    } catch (err) {
+      notify(err.message);
+    }
+  });
+
+  els.addForm?.querySelector('[data-add-from-character-preset]')?.addEventListener('click', async () => {
+    const select = els.addForm?.querySelector('[data-character-preset-select]');
+    const presetId = String(select?.value || '').trim();
+    if (!presetId) {
+      notify('Select a character preset.');
+      return;
+    }
+    try {
+      await api(`/api/presets/characters/${presetId}/spawn`, 'POST');
+      els.addDrawer?.classList.remove('open');
+      notify('Combatant added from preset.');
     } catch (err) {
       notify(err.message);
     }
@@ -326,14 +342,6 @@ function getHelpTopicContent(topic) {
         </ul>
       </section>
       <section class="help-section">
-        <h3>Backgrounds and Story Perks</h3>
-        <ul class="help-list">
-          <li>Backgrounds define weapon/tool/language proficiencies.</li>
-          <li>Each character starts with 1 story perk.</li>
-          <li>Story perks should be flavorful and situational, not major combat power.</li>
-        </ul>
-      </section>
-      <section class="help-section">
         <h3>Resting Outside Combat</h3>
         <ul class="help-list">
           <li>Short Rest (about 10-15 min): heal 5 + CON mod (minimum 1), recover short-rest resources, restore half Max Shield (table rules).</li>
@@ -444,25 +452,80 @@ function renderStatusHelpContent() {
   if (!statuses.length) {
     return '<p class="muted">Status reference is not loaded yet.</p>';
   }
-  const entries = statuses
-    .map((status) => {
-      const tags = Array.isArray(status.tags) && status.tags.length ? status.tags.join(', ') : 'None';
-      const stacks = Number.isFinite(Number(status.defaultStacks)) ? Number(status.defaultStacks) : 1;
+  const uniqueStatusIds = new Set([
+    'infernal_brand',
+    'blood_curse',
+    'curse_of_weakness',
+    'mind_shield',
+    'enlarge',
+    'reduce',
+    'two_step',
+    'haste_matrix',
+    'haste_crash',
+    'polymorphed'
+  ]);
+  const normalizeTags = (status) =>
+    (Array.isArray(status?.tags) ? status.tags : []).map((tag) => String(tag || '').trim().toLowerCase());
+  const classifyStatusGroup = (status) => {
+    const tags = normalizeTags(status);
+    const statusId = String(status?.id || '').trim().toLowerCase();
+    if (uniqueStatusIds.has(statusId) || tags.includes('custom')) return 'unique';
+    if (tags.includes('damaging')) return 'damage';
+    if (tags.includes('control')) return 'control';
+    if (tags.includes('debuff')) return 'debuff';
+    if (tags.includes('buff')) return 'buff';
+    return 'other';
+  };
+  const renderStatusEntry = (status) => {
+    const tags = Array.isArray(status.tags) && status.tags.length ? status.tags.join(', ') : 'None';
+    const stacks = Number.isFinite(Number(status.defaultStacks)) ? Number(status.defaultStacks) : 1;
+    return `
+      <article class="help-status-item">
+        <h4>${escapeHtml(status.name || 'Status')}</h4>
+        <p><strong>Default Stacks:</strong> ${stacks}</p>
+        <p><strong>Tags:</strong> ${escapeHtml(tags)}</p>
+        <p>${escapeHtml(status.description || 'No description available.')}</p>
+      </article>
+    `;
+  };
+  const grouped = {
+    damage: [],
+    control: [],
+    debuff: [],
+    buff: [],
+    unique: [],
+    other: []
+  };
+  statuses.forEach((status) => {
+    grouped[classifyStatusGroup(status)].push(status);
+  });
+  const sectionConfigs = [
+    { id: 'damage', title: 'Damaging' },
+    { id: 'control', title: 'Control' },
+    { id: 'debuff', title: 'Debuff' },
+    { id: 'buff', title: 'Buff / Other Rules Effects' },
+    { id: 'unique', title: 'Unique To A Card' },
+    { id: 'other', title: 'Other' }
+  ];
+  const entries = sectionConfigs
+    .map(({ id, title }) => {
+      const items = grouped[id]
+        .slice()
+        .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
+      if (!items.length) return '';
       return `
-        <article class="help-status-item">
-          <h4>${escapeHtml(status.name || 'Status')}</h4>
-          <p><strong>Default Stacks:</strong> ${stacks}</p>
-          <p><strong>Tags:</strong> ${escapeHtml(tags)}</p>
-          <p>${escapeHtml(status.description || 'No description available.')}</p>
-        </article>
+        <section class="help-section">
+          <h4>${escapeHtml(title)}</h4>
+          <div class="help-status-grid">${items.map(renderStatusEntry).join('')}</div>
+        </section>
       `;
     })
     .join('');
   return `
     <section class="help-section">
       <h3>Status Reference</h3>
-      <p>These are the active status definitions used by the tracker.</p>
-      <div class="help-status-grid">${entries}</div>
+      <p>These are the active status definitions used by the tracker, grouped by status type.</p>
+      ${entries}
     </section>
   `;
 }
@@ -512,7 +575,41 @@ function updateState(nextState) {
   render();
 }
 
+function getCharacterPresets() {
+  return [...(state.reference?.characterPresets || [])].sort((a, b) =>
+    String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' })
+  );
+}
+
+function renderCharacterPresetOptions(includePlaceholder = false) {
+  const presets = getCharacterPresets();
+  const options = includePlaceholder ? '<option value="">Select preset…</option>' : '';
+  return (
+    options +
+    presets
+      .map((preset) => `<option value="${preset.id}">${escapeHtml(preset.name || 'Character Preset')}</option>`)
+      .join('')
+  );
+}
+
+function syncAddParticipantPresetControls() {
+  const select = els.addForm?.querySelector('[data-character-preset-select]');
+  const button = els.addForm?.querySelector('[data-add-from-character-preset]');
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML = renderCharacterPresetOptions(true);
+  if ([...select.options].some((option) => option.value === previous)) {
+    select.value = previous;
+  }
+  const hasPresets = getCharacterPresets().length > 0;
+  select.disabled = !hasPresets;
+  if (button) {
+    button.disabled = !hasPresets;
+  }
+}
+
 function render() {
+  syncAddParticipantPresetControls();
   renderMeta();
   renderTurnList();
   renderDetailPanel();
@@ -758,6 +855,7 @@ function renderDetailPanel() {
         <a href="/player?id=${participant.id}" target="_blank" rel="noopener noreferrer">Player View</a>
         <a href="/cards?participantId=${participant.id}" target="_blank" rel="noopener noreferrer">Card Library</a>
         <button type="button" data-toggle-base-stats>Edit Base Stats</button>
+        <button type="button" data-save-character-preset>Save As Preset</button>
         <button type="button" data-export-character>Export Character</button>
         <button type="button" data-export-deck>Export Deck</button>
         <button type="button" class="danger" data-remove>Remove</button>
@@ -1204,7 +1302,7 @@ function renderMitigationSection(participant) {
         ${renderMitigationGroup('Resistances', participant.resistances, 'resistance')}
         ${renderMitigationGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability')}
         ${renderMitigationGroup('Immunities', getMitigationImmunityEntries(participant), 'immunity')}
-        <p class="muted small-note">Resistances halve incoming damage; vulnerabilities double it. Immunities prevent matching damage or status effects while active. Recover (2 AP) removes 1 stack of Bleeding, Poisoned, or Burning.</p>
+        <p class="muted small-note">Resistances halve matching damage, and matching status effects decay by 2 each turn instead of 1. Vulnerabilities double incoming damage. Immunities prevent matching damage or status effects while active. Recover (2 AP) removes 1 stack of Bleeding, Poisoned, or Burning.</p>
       </div>
     </details>
   `;
@@ -1345,11 +1443,16 @@ function renderMitigationGroup(label, values = [], key) {
     .join('');
   const helperText =
     key === 'resistance'
-      ? 'Halves incoming damage'
+      ? 'Halves matching damage; matching statuses decay by 2 each turn instead of 1'
       : key === 'vulnerability'
         ? 'Doubles incoming damage'
         : 'Prevents matching damage or status effects';
-  const selectOptions = key === 'immunity' ? renderImmunityOptions(true) : renderDamageTypeOptions(true);
+  const selectOptions =
+    key === 'immunity'
+      ? renderImmunityOptions(true)
+      : key === 'resistance'
+        ? renderResistanceOptions(true)
+        : renderDamageTypeOptions(true);
   const singularLabel = key === 'immunity' ? 'Immunity' : label.slice(0, -1);
   return `
     <div class="damage-group">
@@ -2119,6 +2222,13 @@ function renderDamageTypeOptions(includePlaceholder = false) {
     options +
     DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')
   );
+}
+
+function renderResistanceOptions(includePlaceholder = false) {
+  const statusNames = (state.reference?.statuses || []).map((entry) => String(entry?.name || '').trim()).filter(Boolean);
+  const values = Array.from(new Set([...DAMAGE_TYPES, ...statusNames]));
+  const options = includePlaceholder ? '<option value="">Select resistance…</option>' : '';
+  return options + values.map((value) => `<option value="${value}">${value}</option>`).join('');
 }
 
 function normalizeMitigationToken(value) {
@@ -2962,6 +3072,32 @@ function wireDetailEvents(participant) {
       return;
     }
     downloadJson({ cards: latest.cards || [] }, `${slugify(latest.name)}-deck.json`);
+  });
+  panel.querySelector('[data-save-character-preset]')?.addEventListener('click', async () => {
+    const defaultName = participant.name || 'Character Preset';
+    const rawName = window.prompt('Preset name:', defaultName);
+    if (rawName == null) return;
+    const name = String(rawName || '').trim();
+    if (!name) {
+      notify('Preset name is required.');
+      return;
+    }
+    const existing = getCharacterPresets().find(
+      (entry) => String(entry?.name || '').trim().toLowerCase() === name.toLowerCase()
+    );
+    if (existing && !window.confirm(`Overwrite existing preset "${existing.name}"?`)) {
+      return;
+    }
+    try {
+      await api('/api/presets/characters', 'POST', {
+        participantId: participant.id,
+        presetId: existing?.id || '',
+        name
+      });
+      notify(`Saved preset: ${name}.`);
+    } catch (err) {
+      notify(err.message);
+    }
   });
   panel.querySelector('[data-team-select]')?.addEventListener('change', async (event) => {
     const team = String(event.currentTarget.value || '').trim();
@@ -5375,6 +5511,8 @@ function detectCleanseType(status) {
     if (token.includes('charmed') || token.includes('charm')) return 'charmed';
     if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
     if (token.includes('infernalbrand')) return 'infernal_brand';
+    if (token.includes('bloodcurse')) return 'blood_curse';
+    if (token.includes('curseofweakness')) return 'curse_of_weakness';
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
     if (token.includes('stunned') || token.includes('stun')) return 'stunned';
     if (token.includes('paralysed') || token.includes('paralyzed') || token.includes('paralyse') || token.includes('paralyze')) return 'paralysed';

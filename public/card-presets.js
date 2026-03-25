@@ -576,7 +576,8 @@ export const CARD_PRESETS = [
       shieldBonus: 1,
       tags: ['Utility'],
       damage: 1,
-      effect: 'Create Gravity Zone (Radius 10 ft). Creatures inside move at half speed and take 1 damage each turn. Duration 2 turns.',
+      damageType: 'Force',
+      effect: 'Create Gravity Zone (Radius 10 ft). Creatures inside move at half speed and take 1 Force damage each turn. Duration 2 turns.',
       utilityNote: 'Manually assign creatures inside the zone. Remove the Gravity Spike status manually when a creature leaves the zone.',
       isZone: true,
       targetMode: 'multi_select',
@@ -780,12 +781,13 @@ export const CARD_PRESETS = [
       shieldBonus: 2,
       tags: ['Utility'],
       effect:
-        'Teleport two creatures within 10 ft of each other up to card range. For each unwilling creature, the caster takes 1.5x the teleported distance as damage.',
+        'Teleport two creatures within 10 ft of each other up to card range. For each unwilling creature, the caster takes 1.5x the teleported distance as Psychic damage.',
       targetMode: 'multi_select',
       multiTargetMin: 2,
       multiTargetMax: 2,
       targetEntityKinds: ['participant'],
       customCardEffect: 'arcane_rift',
+      backlashDamageType: 'Psychic',
       perTargetInputs: [
         {
           id: 'distanceFt',
@@ -1562,7 +1564,8 @@ export const CARD_PRESETS = [
       shieldBonus: 1,
       tags: ['Bludgeoning'],
       damage: 7,
-      effect: 'Deal 7 damage. Push the target 10 ft.',
+      damageType: 'Bludgeoning',
+      effect: 'Deal 7 Bludgeoning damage. Push the target 10 ft.',
       pushDistanceByLevel: {
         1: 10
       },
@@ -1617,6 +1620,7 @@ export const CARD_PRESETS = [
       shieldBonus: 1,
       tags: ['Fire'],
       damage: 7,
+      damageType: 'Fire',
       effect: 'Deal 7 Fire damage.',
       masteryChoiceOptions: [
         {
@@ -1669,7 +1673,8 @@ export const CARD_PRESETS = [
       shieldBonus: 1,
       tags: ['Wind'],
       damage: 6,
-      effect: 'Deal 6 damage. Push target 5 ft.',
+      damageType: 'Slashing',
+      effect: 'Deal 6 Slashing damage. Push target 5 ft.',
       pushDistanceByLevel: {
         1: 5
       },
@@ -1789,7 +1794,8 @@ export const CARD_PRESETS = [
       shieldBonus: 1,
       tags: ['Earth'],
       damage: 8,
-      effect: 'Deal 8 damage. Apply Rooted 1.',
+      damageType: 'Piercing',
+      effect: 'Deal 8 Piercing damage. Apply Rooted 1.',
       statusApply: {
         id: 'rooted',
         stacksByLevel: {
@@ -1908,7 +1914,8 @@ export const CARD_PRESETS = [
       shieldBonus: 2,
       tags: ['Slashing'],
       damage: 10,
-      effect: 'Deal 10 damage. If the target has Shield remaining, deal +4 damage.',
+      damageType: 'Slashing',
+      effect: 'Deal 10 Slashing damage. If the target has Shield remaining, deal +4 damage.',
       bonusDamageIfTargetHasShieldByLevel: {
         1: 4
       },
@@ -1963,7 +1970,8 @@ export const CARD_PRESETS = [
       shieldBonus: 2,
       tags: ['Earth'],
       damage: 10,
-      effect: 'Deal 10 damage to enemies within Radius 10 ft. Apply Prone.',
+      damageType: 'Bludgeoning',
+      effect: 'Deal 10 Bludgeoning damage to enemies within Radius 10 ft. Apply Prone.',
       utilityNote: 'Manually select enemies within the 10 ft radius. Prone is tracked as a removable status note.',
       targetMode: 'multi_select',
       multiTargetMax: 12,
@@ -2326,6 +2334,184 @@ export const CARD_PRESETS = [
         'Level 1: Base.',
         'Level 2: Damage increases to 5.',
         'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_beguiling_whisper',
+    card: {
+      id: 'demonic_beguiling_whisper',
+      name: 'Beguiling Whisper',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 25,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Apply Charmed 1. Creatures may attempt to resist with contested WIS vs WIS.',
+      targetMode: 'single',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      targetEntityKinds: ['participant'],
+      contestedEffect: {
+        hostileOnly: true,
+        options: [
+          {
+            id: 'charmed',
+            label: 'Charmed',
+            statusId: 'charmed',
+            statusName: 'Charmed',
+            statusStacksByLevel: {
+              1: 1,
+              2: 1,
+              3: 1,
+              4: 1
+            },
+            durationTurnsByLevel: {
+              1: 1,
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        ]
+      },
+      abilityBonusesByLevel: {
+        3: { charisma: 1 },
+        4: { charisma: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 2 turns.',
+        'Level 3: CHA +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_blood_curse',
+    card: {
+      id: 'demonic_blood_curse',
+      name: 'Blood Curse',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Curse'],
+      effect: 'Target loses 3 HP each turn for 2 turns.',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      targetEntityKinds: ['participant'],
+      customCardEffect: 'demonic_blood_curse',
+      bloodCurseHpLossByLevel: {
+        1: 3,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      durationTurnsByLevel: {
+        1: 2,
+        2: 2,
+        3: 2,
+        4: 2
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 4 per turn.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_curse_of_weakness',
+    card: {
+      id: 'demonic_curse_of_weakness',
+      name: 'Curse of Weakness',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Curse'],
+      effect: 'Apply Weakened 1.',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      targetEntityKinds: ['participant'],
+      statusApply: {
+        id: 'weakened',
+        stacksByLevel: {
+          1: 1,
+          2: 2,
+          3: 2,
+          4: 2
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { charisma: 1 },
+        4: { charisma: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Weakened 2 instead of Weakened 1.',
+        'Level 3: CHA +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_gaze_into_the_abyss',
+    card: {
+      id: 'demonic_gaze_into_the_abyss',
+      name: 'Gaze into the Abyss',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 10,
+      rangeText: 'Radius 10 ft',
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Necrotic'],
+      damage: 5,
+      damageType: 'Necrotic',
+      effect: 'Deal 5 Necrotic damage to enemies within Radius 10 ft. Blinded enemies are immune to this effect.',
+      utilityNote: 'Manually select enemies within the 10 ft radius. Blinded enemies are unaffected.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      customCardEffect: 'demonic_gaze_into_the_abyss',
+      masteryDamageByLevel: {
+        1: 5,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 6.',
+        'Level 3: INT +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'

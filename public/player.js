@@ -20,7 +20,7 @@ const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
-  reference: { standardActions: [], sets: [], statuses: [], teams: [] },
+  reference: { standardActions: [], sets: [], statuses: [], teams: [], characterPresets: [] },
   updatedAt: null
 };
 
@@ -344,6 +344,15 @@ function renderCharacterCreator() {
       </div>
       <form id="playerCreateForm" class="stacked-form">
         <div class="form-row">
+          <label>Character Preset
+            <select name="characterPresetId" data-player-character-preset>
+              ${renderCharacterPresetOptions(true)}
+            </select>
+          </label>
+          <button type="button" data-player-create-from-preset>Create From Preset</button>
+        </div>
+        <p class="muted small-note">Use a saved preset for standard NPCs or previously built characters, or fill the form manually below.</p>
+        <div class="form-row">
           <label>Name
             <input type="text" name="name" placeholder="New Character" required />
           </label>
@@ -386,7 +395,7 @@ function renderCharacterCreator() {
         </div>
         <label>Resistances
           <select name="resistances" multiple size="6">
-            ${renderDamageTypeOptions(false)}
+            ${renderResistanceOptions(false)}
           </select>
           <small class="muted">Use Cmd/Ctrl-click to select multiple.</small>
         </label>
@@ -498,6 +507,25 @@ function getPlayerTurnEntries() {
 function wireCharacterCreator() {
   const form = document.getElementById('playerCreateForm');
   if (!form) return;
+  form.querySelector('[data-player-create-from-preset]')?.addEventListener('click', async () => {
+    const presetId = String(form.querySelector('[data-player-character-preset]')?.value || '').trim();
+    if (!presetId) {
+      notify('Select a character preset.');
+      return;
+    }
+    try {
+      const result = await api(`/api/presets/characters/${presetId}/spawn`, 'POST');
+      if (result?.participant?.id) {
+        focusId = result.participant.id;
+        createMode = false;
+        updateUrl({ create: false });
+        fetchState();
+        notify('Character created from preset.');
+      }
+    } catch (err) {
+      notify(`Preset creation failed: ${err.message}`);
+    }
+  });
   form.onsubmit = async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
@@ -752,7 +780,7 @@ function renderPlayerDamageSection(participant, manageMode = false) {
               <form data-resistance-form class="stacked-form compact-form">
                 <label class="compact-label">Add Resistance
                   <select name="resistance">
-                    ${renderDamageTypeOptions(true)}
+                    ${renderResistanceOptions(true)}
                   </select>
                 </label>
                 <button type="submit">Add</button>
@@ -777,7 +805,7 @@ function renderPlayerDamageSection(participant, manageMode = false) {
           `
             : ''
         }
-        <p class="muted">Resistances halve incoming damage; vulnerabilities double it. Immunities prevent matching damage or status effects while active. Recover (2 AP) removes 1 stack of Bleeding/Poisoned/Burning.</p>
+        <p class="muted">Resistances halve matching damage, and matching status effects decay by 2 each turn instead of 1. Vulnerabilities double incoming damage. Immunities prevent matching damage or status effects while active. Recover (2 AP) removes 1 stack of Bleeding/Poisoned/Burning.</p>
       </div>
     </details>
   `;
@@ -809,7 +837,7 @@ function renderPlayerDamageGroup(label, values = [], key, manageMode = false) {
     .join('');
   const helperText =
     key === 'resistance'
-      ? 'Halves incoming damage'
+      ? 'Halves matching damage; matching statuses decay by 2 each turn instead of 1'
       : key === 'vulnerability'
         ? 'Doubles incoming damage'
         : 'Prevents matching damage or status effects';
@@ -1498,6 +1526,8 @@ function detectPlayerCleanseType(status) {
     if (token.includes('charmed') || token.includes('charm')) return 'charmed';
     if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
     if (token.includes('infernalbrand')) return 'infernal_brand';
+    if (token.includes('bloodcurse')) return 'blood_curse';
+    if (token.includes('curseofweakness')) return 'curse_of_weakness';
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
     if (token.includes('stunned') || token.includes('stun')) return 'stunned';
     if (token.includes('paralysed') || token.includes('paralyzed') || token.includes('paralyse') || token.includes('paralyze')) return 'paralysed';
@@ -5340,6 +5370,21 @@ function renderDamageTypeOptions(includePlaceholder = false) {
     options +
     DAMAGE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')
   );
+}
+
+function renderResistanceOptions(includePlaceholder = false) {
+  const statusNames = (state.reference?.statuses || []).map((entry) => String(entry?.name || '').trim()).filter(Boolean);
+  const values = dedupeTypes([...DAMAGE_TYPES, ...statusNames]);
+  const options = includePlaceholder ? '<option value="">Select resistance…</option>' : '';
+  return options + values.map((value) => `<option value="${value}">${value}</option>`).join('');
+}
+
+function renderCharacterPresetOptions(includePlaceholder = false) {
+  const presets = [...(state.reference?.characterPresets || [])].sort((a, b) =>
+    String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' })
+  );
+  const options = includePlaceholder ? '<option value="">Select preset…</option>' : '';
+  return options + presets.map((preset) => `<option value="${preset.id}">${escapeHtml(preset.name || 'Character Preset')}</option>`).join('');
 }
 
 function renderImmunityOptions(includePlaceholder = false) {

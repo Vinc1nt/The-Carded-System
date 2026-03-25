@@ -177,6 +177,15 @@
           <div id="addDrawer" class="drawer">
             <form id="addParticipantForm" class="stacked-form">
               <h3>Add Combatant</h3>
+                <label>Character Preset
+                  <select name="characterPresetId" data-character-preset-select>
+                    <option value="">Select preset…</option>
+                  </select>
+                </label>
+                <div class="form-row">
+                  <button type="button" data-add-from-character-preset>Add From Preset</button>
+                </div>
+                <p class="muted small-note">Save presets from an existing combatant to reuse standard NPCs and enemies.</p>
                 <div class="form-row">
                   <label>Name
                     <input name="name" type="text" placeholder="Bladewalker" required />

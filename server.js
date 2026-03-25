@@ -88,7 +88,7 @@ const STANDARD_ACTIONS = {
   guard: {
     id: 'guard',
     label: 'Guard',
-    summary: '2 AP → Restore 3 Shield (once/turn, max shield limit).',
+    summary: '2 AP → Restore 3 Shield (repeatable, max shield limit).',
     apCost: 2,
     logText: 'guards and restores shield.'
   },
@@ -233,6 +233,22 @@ const STATUS_LIBRARY = [
     tags: ['Debuff']
   },
   {
+    id: 'blood_curse',
+    name: 'Blood Curse',
+    defaultStacks: 1,
+    description:
+      'Debuff. Timed curse that causes HP loss at the start of your turn. Different sources may maintain separate curses.',
+    tags: ['Debuff']
+  },
+  {
+    id: 'curse_of_weakness',
+    name: 'Curse of Weakness',
+    defaultStacks: 1,
+    description:
+      'Debuff. Timed curse that reduces the damage dealt by your attacks while active.',
+    tags: ['Debuff']
+  },
+  {
     id: 'half_cover',
     name: 'Half Cover',
     defaultStacks: 1,
@@ -321,6 +337,7 @@ const SHADOW_FINISHER_STATUS_TYPES = new Set([
 ]);
 
 const TEAM_OPTIONS = Object.freeze(['Team 1', 'Team 2', 'Team 3', 'Team 4']);
+let characterPresetLibrary = [];
 
 const JOURNAL_FIELD_BY_CATEGORY = {
   quest: 'quests',
@@ -335,8 +352,13 @@ function buildReferenceData() {
       bonuses
     })),
     statuses: STATUS_LIBRARY,
-    teams: TEAM_OPTIONS
+    teams: TEAM_OPTIONS,
+    characterPresets: characterPresetLibrary.map((preset) => structuredClone(preset))
   };
+}
+
+function refreshReferenceData() {
+  trackerState.reference = buildReferenceData();
 }
 
 const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
@@ -408,7 +430,7 @@ async function handleApi(req, res, pathname, method) {
     }
 
     if (method === 'GET' && pathname === '/api/export/encounter') {
-      return sendJson(res, { encounter: trackerState.encounter });
+      return sendJson(res, { encounter: getEncounterExportPayload() });
     }
 
     if (method === 'POST' && pathname === '/api/import/encounter') {
@@ -420,6 +442,66 @@ async function handleApi(req, res, pathname, method) {
       touchState();
       broadcastState('encounter_imported');
       return sendJson(res, { encounter: trackerState.encounter });
+    }
+
+    if (method === 'POST' && pathname === '/api/presets/characters') {
+      const body = await readBody(req);
+      const presetId = String(body?.presetId || '').trim();
+      const participantId = String(body?.participantId || '').trim();
+      let templateSource = null;
+      if (participantId) {
+        templateSource = findParticipant(participantId);
+        if (!templateSource) {
+          return sendJson(res, { error: 'Participant not found for preset save.' }, 404);
+        }
+      } else if (body?.template && typeof body.template === 'object') {
+        templateSource = body.template;
+      }
+      if (!templateSource) {
+        return sendJson(res, { error: 'Participant or preset template required.' }, 400);
+      }
+      const preset = upsertCharacterPreset({
+        id: presetId || undefined,
+        name: body?.name,
+        description: body?.description,
+        template: createParticipantPresetTemplate(templateSource, { name: body?.name })
+      });
+      touchState();
+      broadcastState('character_preset_saved');
+      return sendJson(res, { preset, presets: characterPresetLibrary });
+    }
+
+    if (pathname.startsWith('/api/presets/characters/')) {
+      const [, , , presetId, subresource] = pathname.split('/');
+      const preset = characterPresetLibrary.find((entry) => entry.id === presetId);
+      if (!preset) {
+        return sendJson(res, { error: 'Character preset not found.' }, 404);
+      }
+      if (method === 'POST' && subresource === 'spawn') {
+        const body = await readBody(req);
+        const participant = createParticipant({
+          ...structuredClone(preset.template),
+          name: String(body?.name || preset.template?.name || preset.name || 'Preset Character').trim(),
+          team: Object.prototype.hasOwnProperty.call(body || {}, 'team') ? body.team : preset.template?.team
+        });
+        participant.hp = participant.maxHp;
+        participant.shield = participant.maxShield;
+        participant.apCurrent = participant.apMax;
+        trackerState.encounter.participants.push(participant);
+        sortParticipants();
+        ensureCurrentIndex();
+        pushLog(`${participant.name} joins the encounter from preset ${preset.name}.`);
+        touchState();
+        broadcastState('participant_added_from_preset');
+        return sendJson(res, { participant, preset });
+      }
+      if (method === 'DELETE' && !subresource) {
+        characterPresetLibrary = characterPresetLibrary.filter((entry) => entry.id !== presetId);
+        refreshReferenceData();
+        touchState();
+        broadcastState('character_preset_removed');
+        return sendJson(res, { ok: true });
+      }
     }
 
     if (method === 'POST' && pathname === '/api/participants') {
@@ -1993,6 +2075,169 @@ function executeCardAction(body) {
     };
   }
 
+  if (customCardEffect === 'demonic_blood_curse') {
+    if (!primaryTarget || isConstructEntity(primaryTarget)) {
+      return { error: 'Blood Curse requires a creature target.' };
+    }
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      1,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, 2))
+    );
+    const hpLossPerTurn = Math.max(
+      0,
+      Math.round(
+        getCardScaledEffectValue(
+          card,
+          'bloodCurseHpLossByLevel',
+          masteryLevel,
+          Number(card.bloodCurseHpLoss || 3)
+        )
+      )
+    );
+    upsertTimedStatus(primaryTarget, {
+      presetId: 'blood_curse',
+      name: 'Blood Curse',
+      stacks: 1,
+      notes: `Lose ${hpLossPerTurn} HP at the start of your turn while active.`,
+      remainingTurns: durationTurns,
+      sourceParticipantId: participant.id,
+      stackBySource: true,
+      hpLossPerTurn
+    });
+    notes.push(
+      `${primaryTarget.name} is afflicted with Blood Curse for ${durationTurns} turn${durationTurns === 1 ? '' : 's'} (${hpLossPerTurn} HP loss each turn).`
+    );
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: primaryTarget.id,
+      targetIds: [primaryTarget.id],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'single',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      customStatus: 'blood_curse',
+      bloodCurse: {
+        durationTurns,
+        hpLossPerTurn
+      }
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: primaryTarget,
+      targets: [primaryTarget],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
+  if (customCardEffect === 'demonic_curse_of_weakness') {
+    if (!primaryTarget || isConstructEntity(primaryTarget)) {
+      return { error: 'Curse of Weakness requires a creature target.' };
+    }
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      1,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, 2))
+    );
+    const attackDamageModifier = Math.round(
+      getCardScaledEffectValue(
+        card,
+        'curseOfWeaknessDamageModifierByLevel',
+        masteryLevel,
+        Number(card.curseOfWeaknessDamageModifier || -3)
+      )
+    );
+    upsertTimedStatus(primaryTarget, {
+      presetId: 'curse_of_weakness',
+      name: 'Curse of Weakness',
+      stacks: 1,
+      notes: `Your attacks deal ${attackDamageModifier} damage while active.`,
+      remainingTurns: durationTurns,
+      attackDamageModifier
+    });
+    notes.push(
+      `${primaryTarget.name}'s attacks deal ${attackDamageModifier} damage for ${durationTurns} turn${durationTurns === 1 ? '' : 's'}.`
+    );
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: primaryTarget.id,
+      targetIds: [primaryTarget.id],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'single',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      customStatus: 'curse_of_weakness',
+      curseOfWeakness: {
+        durationTurns,
+        attackDamageModifier
+      }
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: primaryTarget,
+      targets: [primaryTarget],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   let damageResult = null;
@@ -2026,6 +2271,10 @@ function executeCardAction(body) {
   const demonicStatusProc = Boolean(statusApply) && ['bleeding', 'poisoned', 'burning'].includes(statusApply?.id);
   const addDamageResult = (damageTarget, amount, type, source = 'primary', options = {}) => {
     if (!damageTarget || amount <= 0) return;
+    if (customCardEffect === 'demonic_gaze_into_the_abyss' && getStatusStacks(damageTarget, 'blinded') > 0) {
+      notes.push(`${damageTarget.name} is Blinded and unaffected by ${card.name}.`);
+      return;
+    }
     const shieldConditionalBonus = Math.max(0, Number(options.bonusIfTargetHasShield || 0));
     const notActedConditionalBonus = Math.max(0, Number(options.bonusIfTargetNotActed || 0));
     const belowHalfHpConditionalBonus = Math.max(0, Number(options.bonusIfTargetBelowHalfHp || 0));
@@ -2645,6 +2894,7 @@ function executeCardAction(body) {
   }
   if (!isConstruct && customCardEffect === 'arcane_rift') {
     const teleportedTargets = [];
+    const backlashDamageType = String(card.backlashDamageType || 'Psychic').trim();
     for (const entry of effectivePrimaryTargets) {
       const detail = targetDetailsById[entry.id] || {};
       const distanceFt = Math.max(0, Math.round(Number(detail.distanceFt || 0)));
@@ -2652,11 +2902,17 @@ function executeCardAction(body) {
       teleportedTargets.push(`${entry.name} (${distanceFt} ft${willing ? ', willing' : ', unwilling'})`);
       if (!willing && distanceFt > 0) {
         const backlashAmount = Math.max(0, Math.ceil(distanceFt * 1.5));
-        const backlash = applyCardDamageWithType(participant, backlashAmount, '', {
+        const backlash = applyCardDamageWithType(participant, backlashAmount, backlashDamageType, {
           sourceEntityId: entry.id
         });
+        const mitigation =
+          backlash.resisted && !backlash.vulnerable
+            ? ' [resisted]'
+            : backlash.vulnerable && !backlash.resisted
+              ? ' [vulnerable]'
+              : '';
         notes.push(
-          `Arcane Rift backlash from ${entry.name}: ${participant.name} takes ${backlash.finalDamage} damage (${backlash.shieldDamage} Shield, ${backlash.hpDamage} HP).${
+          `Arcane Rift backlash from ${entry.name}: ${participant.name} takes ${backlash.finalDamage} ${backlashDamageType} damage (${backlash.shieldDamage} Shield, ${backlash.hpDamage} HP).${mitigation}${
             backlash.preventedByDivine ? ' [Reversed by Divine]' : ''
           }`
         );
@@ -3461,6 +3717,108 @@ function createParticipant(body = {}) {
   return participant;
 }
 
+function createParticipantPresetTemplate(source = {}, options = {}) {
+  const body = source && typeof source === 'object' ? source : {};
+  const baseStats = body.baseStats && typeof body.baseStats === 'object' ? body.baseStats : {};
+  const maxHp = Number.isFinite(Number(baseStats.maxHp)) ? Math.max(1, Math.round(Number(baseStats.maxHp))) : 20;
+  const maxShield = Number.isFinite(Number(baseStats.maxShield)) ? Math.max(0, Math.round(Number(baseStats.maxShield))) : 0;
+  const apMax = Number.isFinite(Number(baseStats.apMax)) ? Math.max(1, Math.round(Number(baseStats.apMax))) : 6;
+  const name = String(options.name || body.name || 'Preset Character').trim() || 'Preset Character';
+  const tags = Array.isArray(body.tags)
+    ? body.tags.map((entry) => String(entry || '').trim()).filter(Boolean)
+    : [];
+  const stats = {};
+  for (const key of ABILITY_KEYS) {
+    const value = Number(body?.stats?.[key]);
+    stats[key] = Number.isFinite(value) ? Math.round(value) : 0;
+  }
+  return {
+    name,
+    team: normalizeTeamName(body.team),
+    setFocus: String(body.setFocus || '').trim(),
+    apMax,
+    maxHp,
+    maxShield,
+    mastery: Number.isFinite(Number(body.mastery)) ? Math.max(1, Math.round(Number(body.mastery))) : 1,
+    cards: structuredClone(normalizeCards(body.cards)),
+    tags,
+    abilities: structuredClone(normalizeAbilityEntries(body.abilities)),
+    proficiencies: normalizeTextList(body.proficiencies),
+    languages: normalizeTextList(body.languages),
+    inventory: structuredClone(normalizeInventoryEntries(body.inventory)),
+    currencies: structuredClone(normalizeCurrencyEntries(body.currencies)),
+    resistances: normalizeDamageTypes(body.resistances),
+    vulnerabilities: normalizeDamageTypes(body.vulnerabilities),
+    immunities: normalizeImmunities(body.immunities),
+    notes: String(body.notes || '').trim(),
+    stats,
+    proficiencyBonus: Number.isFinite(Number(body.proficiencyBonus)) ? Math.round(Number(body.proficiencyBonus)) : 2,
+    savingThrows: structuredClone(normalizeSavingThrows(body.savingThrows)),
+    skills: structuredClone(normalizeSkills(body.skills)),
+    relics: structuredClone(normalizeRelics(body.relics)),
+    baseGuardRestore: Number.isFinite(Number(baseStats.guardRestore))
+      ? Math.round(Number(baseStats.guardRestore))
+      : DEFAULT_GUARD_RESTORE,
+    baseDamageBonus: Number.isFinite(Number(baseStats.damageBonus))
+      ? Math.round(Number(baseStats.damageBonus))
+      : 0
+  };
+}
+
+function normalizeCharacterPreset(raw = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const presetName = String(source.name || source.template?.name || source.participant?.name || 'Preset Character').trim() || 'Preset Character';
+  const templateSource =
+    source.template && typeof source.template === 'object'
+      ? source.template
+      : source.participant && typeof source.participant === 'object'
+        ? source.participant
+        : source;
+  const createdAt = String(source.createdAt || new Date().toISOString());
+  const updatedAt = String(source.updatedAt || createdAt);
+  return {
+    id: String(source.id || randomUUID()),
+    name: presetName,
+    description: String(source.description || '').trim(),
+    template: createParticipantPresetTemplate(templateSource, { name: presetName }),
+    createdAt,
+    updatedAt
+  };
+}
+
+function normalizeCharacterPresetLibrary(list = []) {
+  if (!Array.isArray(list)) return [];
+  const seenIds = new Set();
+  const normalized = [];
+  for (const entry of list) {
+    const preset = normalizeCharacterPreset(entry);
+    if (!preset.id || seenIds.has(preset.id)) continue;
+    seenIds.add(preset.id);
+    normalized.push(preset);
+  }
+  return normalized;
+}
+
+function upsertCharacterPreset(raw = {}) {
+  const preset = normalizeCharacterPreset(raw);
+  const existingIndex = characterPresetLibrary.findIndex((entry) => entry.id === preset.id);
+  if (existingIndex >= 0) {
+    preset.createdAt = characterPresetLibrary[existingIndex].createdAt || preset.createdAt;
+    characterPresetLibrary[existingIndex] = preset;
+  } else {
+    characterPresetLibrary.push(preset);
+  }
+  refreshReferenceData();
+  return preset;
+}
+
+function getEncounterExportPayload() {
+  return {
+    ...structuredClone(trackerState.encounter),
+    characterPresets: structuredClone(characterPresetLibrary)
+  };
+}
+
 function sortParticipants() {
   trackerState.encounter.participants.sort((a, b) => {
     if (b.initiative === a.initiative) {
@@ -3930,6 +4288,8 @@ function detectStatusType(status) {
     if (token.includes('charmed') || token.includes('charm')) return 'charmed';
     if (token.includes('frightened') || token.includes('frighten')) return 'frightened';
     if (token.includes('infernalbrand')) return 'infernal_brand';
+    if (token.includes('bloodcurse')) return 'blood_curse';
+    if (token.includes('curseofweakness')) return 'curse_of_weakness';
     if (token.includes('suppressed') || token.includes('suppress')) return 'suppressed';
     if (token.includes('halfcover')) return 'half_cover';
     if (token.includes('mindshield')) return 'mind_shield';
@@ -3978,6 +4338,8 @@ function getCleanseableStatuses(statuses = []) {
     'charmed',
     'frightened',
     'infernal_brand',
+    'blood_curse',
+    'curse_of_weakness',
     'suppressed',
     'paralysed',
     'stunned'
@@ -4012,6 +4374,8 @@ function statusDisplayName(type) {
     charmed: 'Charmed',
     frightened: 'Frightened',
     infernal_brand: 'Infernal Brand',
+    blood_curse: 'Blood Curse',
+    curse_of_weakness: 'Curse of Weakness',
     suppressed: 'Suppressed',
     half_cover: 'Half Cover',
     mind_shield: 'Mind Shield',
@@ -4086,6 +4450,12 @@ function normalizeStatuses(statuses = []) {
         stackBySource: rawStatus.stackBySource === true,
         damageBonus: Number.isFinite(Number(rawStatus.damageBonus))
           ? Math.max(0, Math.round(Number(rawStatus.damageBonus)))
+          : 0,
+        attackDamageModifier: Number.isFinite(Number(rawStatus.attackDamageModifier))
+          ? Math.round(Number(rawStatus.attackDamageModifier))
+          : 0,
+        hpLossPerTurn: Number.isFinite(Number(rawStatus.hpLossPerTurn))
+          ? Math.max(0, Math.round(Number(rawStatus.hpLossPerTurn)))
           : 0
       });
       return;
@@ -4106,6 +4476,17 @@ function normalizeStatuses(statuses = []) {
       Number(existing.damageBonus || 0),
       Number.isFinite(Number(rawStatus.damageBonus)) ? Math.max(0, Math.round(Number(rawStatus.damageBonus))) : 0
     );
+    if (Number.isFinite(Number(rawStatus.attackDamageModifier))) {
+      const incomingAttackDamageModifier = Math.round(Number(rawStatus.attackDamageModifier));
+      const currentAttackDamageModifier = Number(existing.attackDamageModifier || 0);
+      if (Math.abs(incomingAttackDamageModifier) > Math.abs(currentAttackDamageModifier)) {
+        existing.attackDamageModifier = incomingAttackDamageModifier;
+      }
+    }
+    existing.hpLossPerTurn = Math.max(
+      Number(existing.hpLossPerTurn || 0),
+      Number.isFinite(Number(rawStatus.hpLossPerTurn)) ? Math.max(0, Math.round(Number(rawStatus.hpLossPerTurn))) : 0
+    );
     existing.remainingTurns = Math.max(existing.remainingTurns || 0, remainingTurns);
   });
   return Array.from(merged.values());
@@ -4123,7 +4504,10 @@ function setStatusStacks(participant, type, stacks) {
   const matches = getStatusesByType(participant.statuses, type);
   const nextStacks = Math.max(0, Number(stacks || 0));
   if (nextStacks > 0 && isStatusImmune(participant, type)) {
-    return false;
+    const currentStacks = matches.reduce((total, entry) => total + Math.max(0, Number(entry.status?.stacks || 0)), 0);
+    if (!matches.length || nextStacks > currentStacks) {
+      return false;
+    }
   }
   if (!matches.length) {
     if (nextStacks > 0) {
@@ -4247,6 +4631,16 @@ function applyStartOfTurnStatusEffects(participant) {
     events.push(`takes ${stacks} ${statusDisplayName(type)} damage at start of turn.`);
   });
 
+  participant.statuses = normalizeStatuses(participant.statuses);
+  for (const status of participant.statuses || []) {
+    const hpLossPerTurn = Math.max(0, Number(status?.hpLossPerTurn || 0));
+    if (hpLossPerTurn <= 0 || participant.hp <= 0) continue;
+    const hpLoss = Math.min(participant.hp, hpLossPerTurn);
+    if (hpLoss <= 0) continue;
+    participant.hp = Math.max(0, participant.hp - hpLoss);
+    events.push(`loses ${hpLoss} HP from ${status.name || 'a curse'}.`);
+  }
+
   // Start-of-turn AP impact from Fatigued.
   if (startingStacks.fatigued > 0) {
     const penalty = Math.max(1, startingStacks.fatigued);
@@ -4277,7 +4671,8 @@ function applyStartOfTurnStatusEffects(participant) {
   const escalatedThisTurn = new Set();
   const nextStacks = {};
   KNOWN_STATUS_TYPES.forEach((type) => {
-    nextStacks[type] = Math.max(0, (startingStacks[type] || 0) - 1);
+    const reduction = isStatusResisted(participant, type) ? 2 : 1;
+    nextStacks[type] = Math.max(0, (startingStacks[type] || 0) - reduction);
   });
 
   // Escalations (checked after damage/effects resolve, from starting stacks).
@@ -5933,13 +6328,40 @@ function hasParticipantImmunity(participant = {}, value = '') {
   return hasImmunityEntry(getEffectiveImmunities(participant), value);
 }
 
-function isStatusImmune(participant = {}, type = '') {
-  const normalizedType = String(type || '').trim();
-  if (!normalizedType) return false;
-  return (
-    hasParticipantImmunity(participant, normalizedType) ||
-    hasParticipantImmunity(participant, statusDisplayName(normalizedType))
+function getStatusMitigationCandidates(statusOrType = '') {
+  const candidates = [];
+  const push = (value) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    if (!candidates.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) {
+      candidates.push(normalized);
+    }
+  };
+  if (statusOrType && typeof statusOrType === 'object') {
+    push(statusOrType.presetId);
+    push(statusOrType.id);
+    push(statusOrType.name);
+  } else {
+    push(statusOrType);
+  }
+  const detectedType = detectStatusType(
+    statusOrType && typeof statusOrType === 'object'
+      ? statusOrType
+      : { presetId: statusOrType, id: statusOrType, name: statusOrType }
   );
+  if (detectedType) {
+    push(detectedType);
+    push(statusDisplayName(detectedType));
+  }
+  return candidates;
+}
+
+function isStatusImmune(participant = {}, statusOrType = '') {
+  return getStatusMitigationCandidates(statusOrType).some((candidate) => hasParticipantImmunity(participant, candidate));
+}
+
+function isStatusResisted(participant = {}, statusOrType = '') {
+  return getStatusMitigationCandidates(statusOrType).some((candidate) => hasDamageTypeEntry(participant.resistances, candidate));
 }
 
 function applyCardDamageWithType(target, rawDamage, damageType = '', options = {}) {
@@ -6483,6 +6905,7 @@ function addCustomStatus(participant, status = {}) {
   if (!participant || !status || typeof status !== 'object') return;
   const name = String(status.name || '').trim();
   if (!name) return;
+  if (isStatusImmune(participant, status)) return;
   participant.statuses = normalizeStatuses(participant.statuses);
   const token = normalizeStatusToken(name);
   const current = Array.isArray(participant.statuses) ? [...participant.statuses] : [];
@@ -6508,6 +6931,12 @@ function addCustomStatus(participant, status = {}) {
     stackBySource: sourceScoped,
     damageBonus: Number.isFinite(Number(status.damageBonus ?? current[existingIndex]?.damageBonus))
       ? Math.max(0, Math.round(Number(status.damageBonus ?? current[existingIndex]?.damageBonus)))
+      : 0,
+    attackDamageModifier: Number.isFinite(Number(status.attackDamageModifier ?? current[existingIndex]?.attackDamageModifier))
+      ? Math.round(Number(status.attackDamageModifier ?? current[existingIndex]?.attackDamageModifier))
+      : 0,
+    hpLossPerTurn: Number.isFinite(Number(status.hpLossPerTurn ?? current[existingIndex]?.hpLossPerTurn))
+      ? Math.max(0, Math.round(Number(status.hpLossPerTurn ?? current[existingIndex]?.hpLossPerTurn)))
       : 0
   };
   if (existingIndex >= 0) {
@@ -6541,6 +6970,7 @@ function upsertTimedStatus(participant, status = {}) {
   const type = detectStatusType(status);
   const name = String(status.name || (type ? statusDisplayName(type) : '')).trim();
   if (!type && !name) return null;
+  if (isStatusImmune(participant, status)) return null;
   participant.statuses = normalizeStatuses(participant.statuses);
   const token = normalizeStatusToken(name || type);
   const current = Array.isArray(participant.statuses) ? [...participant.statuses] : [];
@@ -6564,6 +6994,12 @@ function upsertTimedStatus(participant, status = {}) {
     stackBySource: sourceScoped,
     damageBonus: Number.isFinite(Number(status.damageBonus ?? existing?.damageBonus))
       ? Math.max(0, Math.round(Number(status.damageBonus ?? existing?.damageBonus)))
+      : 0,
+    attackDamageModifier: Number.isFinite(Number(status.attackDamageModifier ?? existing?.attackDamageModifier))
+      ? Math.round(Number(status.attackDamageModifier ?? existing?.attackDamageModifier))
+      : 0,
+    hpLossPerTurn: Number.isFinite(Number(status.hpLossPerTurn ?? existing?.hpLossPerTurn))
+      ? Math.max(0, Math.round(Number(status.hpLossPerTurn ?? existing?.hpLossPerTurn)))
       : 0
   };
   if (existingIndex >= 0) {
@@ -6592,7 +7028,8 @@ function decrementTimedStatusesAtEndOfTurn(participant) {
     if (customEffect === 'two_step') {
       events.push('Two Step is active: resolve a 10 ft forward horizontal teleport if space permits.');
     }
-    const nextRemaining = Math.max(0, remainingTurns - 1);
+    const reduction = isStatusResisted(participant, status) ? 2 : 1;
+    const nextRemaining = Math.max(0, remainingTurns - reduction);
     if (nextRemaining > 0) {
       nextStatuses.push({ ...status, remainingTurns: nextRemaining });
     } else {
@@ -6652,12 +7089,19 @@ function isMeleeAttackCard(card = {}, level = 1) {
 
 function getParticipantAttackStatusDamageModifier(participant, card = {}, masteryLevel = 1) {
   if (!participant || !isAttackCard(card)) return 0;
+  participant.statuses = normalizeStatuses(participant.statuses);
   let modifier = 0;
+  if (getStatusStacks(participant, 'weakened') > 0) {
+    modifier -= 2;
+  }
   if (getStatusStacks(participant, 'reduce') > 0) {
     modifier -= 2;
   }
   if (getStatusStacks(participant, 'enlarge') > 0 && isMeleeAttackCard(card, masteryLevel)) {
     modifier += 2;
+  }
+  for (const status of participant.statuses || []) {
+    modifier += Math.round(Number(status?.attackDamageModifier || 0));
   }
   return modifier;
 }
@@ -7408,6 +7852,9 @@ function recalculateParticipant(participant) {
 }
 
 function importEncounter(encounter = {}) {
+  if (Array.isArray(encounter.characterPresets)) {
+    characterPresetLibrary = normalizeCharacterPresetLibrary(encounter.characterPresets);
+  }
   trackerState.encounter = {
     name: encounter.name || 'Imported Encounter',
     round: Number(encounter.round) || 1,
@@ -7427,4 +7874,5 @@ function importEncounter(encounter = {}) {
     typeof encounter.currentIndex === 'number' ? encounter.currentIndex : -1;
   sortParticipants();
   ensureCurrentIndex();
+  refreshReferenceData();
 }
