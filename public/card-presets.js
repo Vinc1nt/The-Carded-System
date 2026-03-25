@@ -2437,6 +2437,98 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'demonic_infernal_offering',
+    card: {
+      id: 'demonic_infernal_offering',
+      name: 'Infernal Offering',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 5,
+      rangeText: '5 ft',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Lose 5 HP to restore 1 HP to an ally.',
+      targetAlliesOnly: true,
+      selfHpLossByLevel: {
+        1: 5,
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      healByLevel: {
+        1: 1,
+        2: 1,
+        3: 1,
+        4: 1
+      },
+      removeStatusCountByLevel: {
+        2: 99,
+        3: 99,
+        4: 99
+      },
+      removeStatusSelectionOptional: true,
+      selfHpLossPerRemovedStatusByLevel: {
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: You may also remove status effects from the ally. Lose 5 additional HP per status removed.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_infernal_pact',
+    card: {
+      id: 'demonic_infernal_pact',
+      name: 'Infernal Pact',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 1,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Lose 12 HP to gain +3 AP this turn.',
+      selfHpLossByLevel: {
+        1: 12,
+        2: 12,
+        3: 12,
+        4: 12
+      },
+      apGainByLevel: {
+        1: 3,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Gain +4 AP instead.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'demonic_curse_of_weakness',
     card: {
       id: 'demonic_curse_of_weakness',
@@ -2470,6 +2562,45 @@ export const CARD_PRESETS = [
         'Level 1: Base.',
         'Level 2: Apply Weakened 2 instead of Weakened 1.',
         'Level 3: CHA +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_soul_rend',
+    card: {
+      id: 'demonic_soul_rend',
+      name: 'Soul Rend',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 10,
+      rangeText: '10 ft',
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Necrotic'],
+      damage: 8,
+      damageType: 'Necrotic',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 8 Necrotic damage. If the target is afflicted with Frightened, deal +4 damage.',
+      bonusDamageIfTargetHasStatusId: 'frightened',
+      bonusDamageIfTargetHasStatusByLevel: {
+        1: 4,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Bonus damage increases to +6.',
+        'Level 3: CON +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -2512,6 +2643,102 @@ export const CARD_PRESETS = [
         'Level 1: Base.',
         'Level 2: Damage increases to 6.',
         'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_rabies',
+    card: {
+      id: 'demonic_rabies',
+      name: 'Rabies',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 2,
+      range: 5,
+      rangeText: '5 ft',
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Poison'],
+      damage: 6,
+      damageType: 'Poison',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 6 Poison damage and apply Poisoned 2.',
+      masteryDamageByLevel: {
+        1: 6,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 2,
+          2: 2,
+          3: 2,
+          4: 2
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 8.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_ray_of_enfeeblement',
+    card: {
+      id: 'demonic_ray_of_enfeeblement',
+      name: 'Ray of Enfeeblement',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Very Rare',
+      apCost: 5,
+      range: 20,
+      rangeText: '20 ft ray',
+      rangeByLevel: {
+        1: 20,
+        2: 25,
+        3: 25,
+        4: 25
+      },
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Curse'],
+      effect: 'Shoot out a 20 ft ray of entropy. Creatures in the path are afflicted with Weakened 1.',
+      utilityNote: 'Manually select creatures in the ray. At Mastery 3+, you may sacrifice 10 HP to apply Weakened 2 instead.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      allowSelfTarget: false,
+      targetEntityKinds: ['participant'],
+      customCardEffect: 'demonic_ray_of_enfeeblement',
+      statusApply: {
+        id: 'weakened',
+        stacksByLevel: {
+          1: 1,
+          2: 1,
+          3: 1,
+          4: 1
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { charisma: 1 },
+        4: { charisma: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 25 ft.',
+        'Level 3: You may sacrifice 10 HP to inflict Weakened 2 instead of Weakened 1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'

@@ -20,6 +20,7 @@ const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
 const HELP_TOPIC_TITLES = Object.freeze({
   statuses: 'Statuses',
   combat: 'Combat Rules',
+  constructs: 'Constructs',
   standard_actions: 'Standard Actions',
   out_of_combat: 'Out of Combat',
   cards: 'Cards'
@@ -276,6 +277,9 @@ function getHelpTopicContent(topic) {
   if (topic === 'standard_actions') {
     return renderStandardActionHelpContent();
   }
+  if (topic === 'constructs') {
+    return renderConstructHelpContent();
+  }
   if (topic === 'combat') {
     return `
       <section class="help-section">
@@ -382,6 +386,46 @@ function getHelpTopicContent(topic) {
       <ul class="help-list">
         <li>Attacks auto-hit unless prevented by positioning or cover.</li>
         <li>Cards use flat damage modifiers and clear range values.</li>
+      </ul>
+    </section>
+  `;
+}
+
+function renderConstructHelpContent() {
+  return `
+    <section class="help-section">
+      <h3>Core Rules</h3>
+      <ul class="help-list">
+        <li>Constructs are controlled by their owner and use the owner's team.</li>
+        <li>They appear in the owner's Constructs section on GM and player dashboards.</li>
+        <li>Constructs are treated as separate combat entities with their own HP, AP, and statuses.</li>
+        <li>Construct AP refreshes each time the construct acts.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Turn Timing</h3>
+      <ul class="help-list">
+        <li>A construct acts immediately on the turn it is summoned.</li>
+        <li>After that immediate action, it still gets its full listed duration in later turns.</li>
+        <li>Example: a 2-turn construct acts on summon, then gets 2 full later turns before expiring.</li>
+        <li>Construct timing is suspended during Pause Button extra turns, the same way other suspended timing is handled.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Targeting and Placement</h3>
+      <ul class="help-list">
+        <li>Construct placement is resolved by the GM outside the app.</li>
+        <li>Any nearest-target, closest-to-death, or similar targeting behavior is card-specific, not a universal construct rule.</li>
+        <li>If a future card adds a targeting hint, the GM still makes the final targeting call.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Cards and Limits</h3>
+      <ul class="help-list">
+        <li>If a construct is given cards, it only has the cards explicitly listed on its summon card.</li>
+        <li>Construct cards default to Mastery 1 unless the summon card says otherwise.</li>
+        <li>Multiple copies of the same construct can be active at once if the owner's construct cap allows it.</li>
+        <li>If a new summon would exceed the owner's construct cap, the oldest active construct is replaced.</li>
       </ul>
     </section>
   `;
@@ -2630,6 +2674,7 @@ async function resolveCardStatusSelectionPrompt(participant, card, targetId, tar
         .map((entry) => entry.trim())
         .filter(Boolean);
   if (removeCount <= 0 || fixedRemoveIds.length) return [];
+  const optionalSelection = card?.removeStatusSelectionOptional === true;
   const selfOnly = isSelfTargetCard(card);
   const targetMode = getCardTargetMode(card);
   let recipients = [];
@@ -2647,6 +2692,7 @@ async function resolveCardStatusSelectionPrompt(participant, card, targetId, tar
     ? target.statuses.filter((entry) => Number(entry?.stacks || 0) > 0 || entry?.name)
     : [];
   if (!statuses.length) {
+    if (optionalSelection) return [];
     notify(`${target.name} has no removable statuses.`);
     return null;
   }
@@ -2654,7 +2700,9 @@ async function resolveCardStatusSelectionPrompt(participant, card, targetId, tar
     .map((status, index) => `${index + 1}. ${status.name}${status.stacks ? ` x${status.stacks}` : ''}`)
     .join('\n');
   const raw = window.prompt(
-    `${card.name || 'Card'} on ${target.name}:\n${lines}\nEnter up to ${removeCount} status number${removeCount === 1 ? '' : 's'} to remove (comma-separated):`,
+    `${card.name || 'Card'} on ${target.name}:\n${lines}\nEnter up to ${removeCount} status number${
+      removeCount === 1 ? '' : 's'
+    } to remove (comma-separated)${optionalSelection ? ', or leave blank for none' : ''}:`,
     statuses.slice(0, removeCount).map((_, index) => String(index + 1)).join(', ')
   );
   if (raw == null) {
@@ -2670,6 +2718,7 @@ async function resolveCardStatusSelectionPrompt(participant, card, targetId, tar
     )
   ).slice(0, removeCount);
   if (!selectedIndexes.length) {
+    if (optionalSelection) return [];
     notify('No statuses selected. Card use canceled.');
     return null;
   }
@@ -3548,6 +3597,7 @@ function wireDetailEvents(participant) {
       const arcaneSplitTargetId = article?.querySelector(`[data-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-card-override-damage-type="${cardId}"]`)?.value || '';
       const zoneId = article?.querySelector(`[data-card-zone="${cardId}"]`)?.value || '';
+      const useHpSacrifice = article?.querySelector(`[data-card-use-hp-sacrifice="${cardId}"]`)?.checked === true;
       const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
       const contestedChoiceId =
         article?.querySelector(`[data-card-contested-choice="${cardId}"]`)?.value || getCardDefaultContestedChoiceId(card);
@@ -3572,6 +3622,7 @@ function wireDetailEvents(participant) {
           arcaneSplitTargetId,
           overrideDamageType,
           zoneId,
+          useHpSacrifice,
           selectedRemoveStatusIds,
           targetDetails,
           contestedChoiceId: contestedResolution.contestedChoiceId,
@@ -4382,14 +4433,22 @@ function formatCardTargetSelectionLabel(card = {}, multiTargetCap = 0) {
 
 function renderCardCustomEffectControl(card = {}) {
   const effectId = String(card.customCardEffect || '').trim().toLowerCase();
-  if (effectId !== 'arcane_no') return '';
-  const zones = getEncounterZonesForUi();
-  return `<label>Zone to Cancel
-    <select data-card-zone="${card.id || ''}">
-      <option value="">${zones.length ? 'Select zone…' : 'No active zones'}</option>
-      ${zones.map((entry) => `<option value="${entry.id}">${escapeHtml(formatZoneSelectionLabel(entry))}</option>`).join('')}
-    </select>
-  </label>`;
+  if (effectId === 'arcane_no') {
+    const zones = getEncounterZonesForUi();
+    return `<label>Zone to Cancel
+      <select data-card-zone="${card.id || ''}">
+        <option value="">${zones.length ? 'Select zone…' : 'No active zones'}</option>
+        ${zones.map((entry) => `<option value="${entry.id}">${escapeHtml(formatZoneSelectionLabel(entry))}</option>`).join('')}
+      </select>
+    </label>`;
+  }
+  if (effectId === 'demonic_ray_of_enfeeblement' && Number(card.masteryLevel || 1) >= 3) {
+    return `<label class="checkbox-label">
+      <input type="checkbox" data-card-use-hp-sacrifice="${card.id || ''}" />
+      Sacrifice 10 HP to apply Weakened 2 instead.
+    </label>`;
+  }
+  return '';
 }
 
 function renderCardTargetControl(card = {}, participant = {}) {
@@ -4964,6 +5023,13 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     0,
     Math.round(getCardScaledEffectValue(card, 'apGainByLevel', level, Number(card.apGain || 0)))
   );
+  const selfHpLoss = Math.max(
+    0,
+    Math.round(getCardScaledEffectValue(card, 'selfHpLossByLevel', level, Number(card.selfHpLoss || 0)))
+  );
+  if (selfHpLoss > 0) {
+    parts.push(`Lose ${selfHpLoss} HP.`);
+  }
   if (apGainNow > 0) {
     parts.push(`Gain +${apGainNow} AP this turn.`);
   }
@@ -4975,6 +5041,20 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   );
   if (removeStatusCount > 0) {
     parts.push(`Remove up to ${removeStatusCount} status effect${removeStatusCount === 1 ? '' : 's'}.`);
+  }
+  const selfHpLossPerRemovedStatus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'selfHpLossPerRemovedStatusByLevel',
+        level,
+        Number(card.selfHpLossPerRemovedStatus || 0)
+      )
+    )
+  );
+  if (selfHpLossPerRemovedStatus > 0 && removeStatusCount > 0) {
+    parts.push(`Lose +${selfHpLossPerRemovedStatus} HP per removed status.`);
   }
   const utilityNote = String(card.utilityNote || '').trim();
   if (utilityNote) {

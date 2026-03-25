@@ -472,7 +472,7 @@ async function handleApi(req, res, pathname, method) {
     }
 
     if (pathname.startsWith('/api/presets/characters/')) {
-      const [, , , presetId, subresource] = pathname.split('/');
+      const [, , , presetId = '', subresource = ''] = pathname.split('/').filter(Boolean);
       const preset = characterPresetLibrary.find((entry) => entry.id === presetId);
       if (!preset) {
         return sendJson(res, { error: 'Character preset not found.' }, 404);
@@ -1204,7 +1204,7 @@ function executeCardAction(body) {
   const moveDistance = getCardScaledEffectValue(card, 'movementByLevel', masteryLevel, 0);
   const pushDistance = getCardScaledEffectValue(card, 'pushDistanceByLevel', masteryLevel, 0);
   const pullDistance = getCardScaledEffectValue(card, 'pullDistanceByLevel', masteryLevel, 0);
-  const statusApply = normalizeCardStatusApply(card, masteryLevel);
+  let statusApply = normalizeCardStatusApply(card, masteryLevel);
   const zoneStatusApply = zoneCard ? normalizeCardStatusApply(card, masteryLevel) : null;
   const zoneEnterStatusBase = zoneCard ? normalizeStatusApplyConfig(card.zoneEnterStatusApply, masteryLevel) : null;
   const zoneEnterStatusApply = zoneEnterStatusBase
@@ -1290,6 +1290,21 @@ function executeCardAction(body) {
     0,
     Math.round(getCardScaledEffectValue(card, 'directHpDamageOnFullyBlockedByLevel', masteryLevel, Number(card.directHpDamageOnFullyBlocked || 0)))
   );
+  const conditionalTargetStatusId = detectStatusType({
+    presetId: card.bonusDamageIfTargetHasStatusId,
+    name: card.bonusDamageIfTargetHasStatusName
+  });
+  const conditionalTargetStatusBonus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'bonusDamageIfTargetHasStatusByLevel',
+        masteryLevel,
+        Number(card.bonusDamageIfTargetHasStatus || 0)
+      )
+    )
+  );
   const nextAttackGrant = Math.max(
     0,
     Math.round(getCardScaledEffectValue(card, 'nextAttackDamageBonusByLevel', masteryLevel, Number(card.nextAttackDamageBonus || 0)))
@@ -1361,6 +1376,40 @@ function executeCardAction(body) {
     0,
     Math.max(0, removeStatusCount)
   );
+  const optionalRemoveStatusSelection = card.removeStatusSelectionOptional === true;
+  const selfHpLossBase = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'selfHpLossByLevel',
+        masteryLevel,
+        Number(card.selfHpLoss || 0)
+      )
+    )
+  );
+  const selfHpLossPerRemovedStatus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'selfHpLossPerRemovedStatusByLevel',
+        masteryLevel,
+        Number(card.selfHpLossPerRemovedStatus || 0)
+      )
+    )
+  );
+  const requestedHpSacrifice =
+    body.useHpSacrifice === true ||
+    String(body.useHpSacrifice || '').trim().toLowerCase() === 'true';
+  const rayEnfeeblementEmpowered =
+    customCardEffect === 'demonic_ray_of_enfeeblement' &&
+    masteryLevel >= 3 &&
+    requestedHpSacrifice;
+  const selfHpLossTotal =
+    selfHpLossBase +
+    selfHpLossPerRemovedStatus * uniqueSelectedRemoveStatusIds.length +
+    (rayEnfeeblementEmpowered ? 10 : 0);
   const rangedUntargetableTurnsGrant = Math.max(
     0,
     Math.round(
@@ -2240,6 +2289,18 @@ function executeCardAction(body) {
 
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
+  if (!isConstruct && selfHpLossTotal > 0) {
+    const hpLoss = Math.min(Math.max(0, Number(participant.hp || 0)), selfHpLossTotal);
+    if (hpLoss > 0) {
+      participant.hp = Math.max(0, participant.hp - hpLoss);
+      notes.push(`${participant.name} loses ${hpLoss} HP.`);
+    }
+    if (rayEnfeeblementEmpowered && statusApply) {
+      statusApply = { ...statusApply, stacks: Math.max(2, Number(statusApply.stacks || 1)) };
+      notes.push('Ray of Enfeeblement is empowered to apply Weakened 2.');
+    }
+  }
+
   let damageResult = null;
   const damageResults = [];
   let constructDeployResult = null;
@@ -2305,6 +2366,7 @@ function executeCardAction(body) {
     let notActedBonusApplied = 0;
     let belowHalfHpBonusApplied = 0;
     let damagedCasterLastTurnBonusApplied = 0;
+    let targetStatusBonusApplied = 0;
     let infernalBrandBonusApplied = 0;
     if (setDamageBonus > 0) {
       appliedAmount += setDamageBonus;
@@ -2329,6 +2391,14 @@ function executeCardAction(body) {
       appliedAmount += damagedCasterLastTurnBonus;
       damagedCasterLastTurnBonusApplied = damagedCasterLastTurnBonus;
     }
+    if (
+      conditionalTargetStatusBonus > 0 &&
+      conditionalTargetStatusId &&
+      getStatusStacks(damageTarget, conditionalTargetStatusId) > 0
+    ) {
+      appliedAmount += conditionalTargetStatusBonus;
+      targetStatusBonusApplied = conditionalTargetStatusBonus;
+    }
     if (infernalBrandBonus > 0) {
       appliedAmount += infernalBrandBonus;
       infernalBrandBonusApplied = infernalBrandBonus;
@@ -2340,6 +2410,8 @@ function executeCardAction(body) {
     result.notActedBonusDamage = notActedBonusApplied;
     result.belowHalfHpBonusDamage = belowHalfHpBonusApplied;
     result.damagedCasterLastTurnBonusDamage = damagedCasterLastTurnBonusApplied;
+    result.targetStatusBonusDamage = targetStatusBonusApplied;
+    result.targetStatusBonusStatusId = conditionalTargetStatusId;
     result.infernalBrandBonusDamage = infernalBrandBonusApplied;
     result.setBonusDamage = setDamageBonus;
     result.bleedingBefore = bleedingBefore;
@@ -2417,6 +2489,23 @@ function executeCardAction(body) {
       const displacedNames = constructDeployResult.displaced.map((entry) => entry.name).join(', ');
       notes.push(`Replaced construct slot: ${displacedNames}.`);
     }
+    const immediateConstructTarget = constructDeployResult.construct.targetId
+      ? findTargetableEntity(constructDeployResult.construct.targetId)
+      : null;
+    const immediateConstructActivation = performConstructActivation(
+      participant,
+      constructDeployResult.construct,
+      immediateConstructTarget,
+      { refreshAp: true }
+    );
+    constructDeployResult.construct = immediateConstructActivation.construct;
+    participant.constructs = normalizeConstructs(
+      (participant.constructs || []).map((entry) =>
+        entry?.id === immediateConstructActivation.construct.id ? immediateConstructActivation.construct : entry
+      ),
+      participant.id
+    );
+    notes.push(...immediateConstructActivation.events);
   } else if (zoneCard) {
     zoneDeployResult = deployZoneFromCard(participant, card, {
       masteryLevel,
@@ -2660,6 +2749,9 @@ function executeCardAction(body) {
   }
 
   if (!isConstruct && removeStatusCount > 0) {
+    if (optionalRemoveStatusSelection && !uniqueSelectedRemoveStatusIds.length) {
+      // Cards like Infernal Offering can optionally cleanse; a blank selection means "heal only".
+    } else {
     const cleanseTargets =
       targetMode === 'all_others'
         ? primaryTargets
@@ -2698,6 +2790,7 @@ function executeCardAction(body) {
       notes.push(`Removes up to ${removeStatusCount} status effect(s): ${cleanseSummaries.join('; ')}.`);
     } else {
       notes.push('No removable status effects were found.');
+    }
     }
   }
 
@@ -3047,6 +3140,12 @@ function executeCardAction(body) {
             entry.result.belowHalfHpBonusDamage > 0
               ? ` [+${entry.result.belowHalfHpBonusDamage} vs <50% HP]`
               : '';
+          const statusConditional =
+            entry.result.targetStatusBonusDamage > 0
+              ? ` [+${entry.result.targetStatusBonusDamage} vs ${
+                  statusDisplayName(entry.result.targetStatusBonusStatusId) || 'status'
+                }]`
+              : '';
           const fullyBlocked =
             entry.result.directHpDamage > 0
               ? ` [Fully Blocked: +${entry.result.directHpDamage} direct HP]`
@@ -3054,7 +3153,7 @@ function executeCardAction(body) {
           const setBonus = entry.result.setBonusDamage > 0 ? ` [+${entry.result.setBonusDamage} set bonus]` : '';
           const divineReverse = entry.result.preventedByDivine ? ' [Reversed by Divine]' : '';
           const destroyedConstruct = entry.result.destroyedConstruct ? ' [Construct destroyed]' : '';
-          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${notActedConditional}${belowHalfConditional}${fullyBlocked}${setBonus}${divineReverse}${destroyedConstruct}`;
+          return `${entry.target.name} takes ${entry.result.finalDamage} ${entry.damageType || 'damage'} (${entry.result.shieldDamage} Shield, ${entry.result.hpDamage} HP).${mitigation}${conditional}${notActedConditional}${belowHalfConditional}${statusConditional}${fullyBlocked}${setBonus}${divineReverse}${destroyedConstruct}`;
         })
         .join(' ')}`
     : '';
@@ -3720,9 +3819,18 @@ function createParticipant(body = {}) {
 function createParticipantPresetTemplate(source = {}, options = {}) {
   const body = source && typeof source === 'object' ? source : {};
   const baseStats = body.baseStats && typeof body.baseStats === 'object' ? body.baseStats : {};
-  const maxHp = Number.isFinite(Number(baseStats.maxHp)) ? Math.max(1, Math.round(Number(baseStats.maxHp))) : 20;
-  const maxShield = Number.isFinite(Number(baseStats.maxShield)) ? Math.max(0, Math.round(Number(baseStats.maxShield))) : 0;
-  const apMax = Number.isFinite(Number(baseStats.apMax)) ? Math.max(1, Math.round(Number(baseStats.apMax))) : 6;
+  const maxHpSource = Number.isFinite(Number(body.maxHp)) ? Number(body.maxHp) : Number(baseStats.maxHp);
+  const maxShieldSource = Number.isFinite(Number(body.maxShield)) ? Number(body.maxShield) : Number(baseStats.maxShield);
+  const apMaxSource = Number.isFinite(Number(body.apMax)) ? Number(body.apMax) : Number(baseStats.apMax);
+  const baseGuardRestoreSource = Number.isFinite(Number(body.baseGuardRestore))
+    ? Number(body.baseGuardRestore)
+    : Number(baseStats.guardRestore);
+  const baseDamageBonusSource = Number.isFinite(Number(body.baseDamageBonus))
+    ? Number(body.baseDamageBonus)
+    : Number(baseStats.damageBonus);
+  const maxHp = Number.isFinite(maxHpSource) ? Math.max(1, Math.round(maxHpSource)) : 20;
+  const maxShield = Number.isFinite(maxShieldSource) ? Math.max(0, Math.round(maxShieldSource)) : 0;
+  const apMax = Number.isFinite(apMaxSource) ? Math.max(1, Math.round(apMaxSource)) : 6;
   const name = String(options.name || body.name || 'Preset Character').trim() || 'Preset Character';
   const tags = Array.isArray(body.tags)
     ? body.tags.map((entry) => String(entry || '').trim()).filter(Boolean)
@@ -3756,11 +3864,11 @@ function createParticipantPresetTemplate(source = {}, options = {}) {
     savingThrows: structuredClone(normalizeSavingThrows(body.savingThrows)),
     skills: structuredClone(normalizeSkills(body.skills)),
     relics: structuredClone(normalizeRelics(body.relics)),
-    baseGuardRestore: Number.isFinite(Number(baseStats.guardRestore))
-      ? Math.round(Number(baseStats.guardRestore))
+    baseGuardRestore: Number.isFinite(baseGuardRestoreSource)
+      ? Math.round(baseGuardRestoreSource)
       : DEFAULT_GUARD_RESTORE,
-    baseDamageBonus: Number.isFinite(Number(baseStats.damageBonus))
-      ? Math.round(Number(baseStats.damageBonus))
+    baseDamageBonus: Number.isFinite(baseDamageBonusSource)
+      ? Math.round(baseDamageBonusSource)
       : 0
   };
 }
@@ -4708,6 +4816,176 @@ function applyStartOfTurnStatusEffects(participant) {
   return events;
 }
 
+function performConstructActivation(owner, construct, target, options = {}) {
+  const refreshed = {
+    ...construct,
+    apCurrent:
+      options.refreshAp === true
+        ? Math.max(0, Number(construct.apMax || 0))
+        : Math.max(0, Number(construct.apCurrent ?? construct.apMax ?? 0))
+  };
+  const prefix = String(options.prefix || '');
+  const events = [];
+  const mode = normalizeConstructMode(refreshed.mode || refreshed.constructMode) || 'damage';
+  if ((mode === 'damage' || mode === 'status') && !target) {
+    events.push(`${prefix}${refreshed.name} has no valid target this turn.`);
+    return { construct: refreshed, events };
+  }
+  if (mode === 'status' && target) {
+    const stacks = Math.max(1, Number(refreshed.statusStacks || 1));
+    const statusType = detectStatusType({
+      presetId: refreshed.statusId,
+      name: refreshed.statusName
+    });
+    if (statusType) {
+      if (addStatusStacks(target, statusType, stacks)) {
+        if (!isConstructEntity(target)) enforceControlHierarchy(target);
+        events.push(
+          `${prefix}${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${target.name}.`
+        );
+      }
+    } else {
+      const statusName = String(refreshed.statusName || refreshed.statusId || 'Status').trim();
+      target.statuses = normalizeStatuses([
+        ...(target.statuses || []),
+        {
+          id: randomUUID(),
+          presetId: String(refreshed.statusId || '').trim(),
+          name: statusName,
+          stacks,
+          notes: 'Applied by construct.'
+        }
+      ]);
+      events.push(`${prefix}${refreshed.name} applies ${statusName} x${stacks} to ${target.name}.`);
+    }
+    const forceDamage = Math.max(0, Number(refreshed.damage || 0));
+    if (forceDamage > 0) {
+      const result = applyCardDamageWithType(target, forceDamage, 'Force', {
+        sourceEntityId: refreshed.id
+      });
+      const mitigation =
+        result.resisted && !result.vulnerable
+          ? ' [Resisted]'
+          : result.vulnerable && !result.resisted
+            ? ' [Vulnerable]'
+            : '';
+      events.push(
+        `${prefix}${refreshed.name} deals ${result.finalDamage} Force to ${target.name} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+      );
+    }
+    return { construct: refreshed, events };
+  }
+  if (mode === 'damage' && target) {
+    const damage = Math.max(0, Number(refreshed.damage || 0));
+    const damageType = String(refreshed.damageType || '').trim();
+    if (damage > 0) {
+      const result = applyCardDamageWithType(target, damage, damageType, {
+        sourceEntityId: refreshed.id
+      });
+      const mitigation =
+        result.resisted && !result.vulnerable
+          ? ' [Resisted]'
+          : result.vulnerable && !result.resisted
+            ? ' [Vulnerable]'
+            : '';
+      events.push(
+        `${prefix}${refreshed.name} hits ${target.name} for ${result.finalDamage} ${damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+      );
+    }
+    return { construct: refreshed, events };
+  }
+  if (mode === 'utility') {
+    const shieldRestore = Math.max(0, Number(refreshed.shieldRestore || 0));
+    const heal = Math.max(0, Number(refreshed.heal || 0));
+    const auraRadiusFt = Math.max(0, Number(refreshed.auraRadiusFt || 0));
+    const detectDc = Math.max(0, Number(refreshed.detectDc || 0));
+    const visionRangeFt = Math.max(0, Number(refreshed.visionRangeFt || 0));
+    const utilityKind = String(refreshed.utilityKind || '').trim().toLowerCase();
+    const utilityNote = String(refreshed.utilityNote || '').trim();
+    if (shieldRestore > 0) {
+      const assignedTargets = (refreshed.targetIds || [])
+        .map((id) => findParticipant(id))
+        .filter(Boolean);
+      const recipients = assignedTargets.length
+        ? assignedTargets.filter((entry) => !refreshed.shieldRestoreAlliesOnly || isParticipantAlly(owner, entry))
+        : refreshed.shieldRestoreAlliesOnly
+          ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(owner, entry))
+          : [owner];
+      const restoredTargets = [];
+      for (const entry of recipients) {
+        const beforeShield = entry.shield;
+        entry.shield = Math.min(entry.maxShield, entry.shield + shieldRestore);
+        const restored = entry.shield - beforeShield;
+        if (restored > 0) restoredTargets.push(`${entry.name} (+${restored})`);
+      }
+      const auraText = auraRadiusFt > 0 ? ` within ${auraRadiusFt} ft` : '';
+      if (restoredTargets.length) {
+        events.push(`${prefix}${refreshed.name} restores Shield${auraText} to ${restoredTargets.join(', ')}.`);
+      } else {
+        events.push(`${prefix}${refreshed.name} pulses${auraText} but no Shield is restored.`);
+      }
+      return { construct: refreshed, events };
+    }
+    if (heal > 0) {
+      const recipients = refreshed.healTargetOnly && target
+        ? [target]
+        : refreshed.healAlliesOnly
+          ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(owner, entry))
+          : [owner];
+      const healedTargets = [];
+      for (const entry of recipients) {
+        const beforeHp = entry.hp;
+        entry.hp = Math.min(entry.maxHp, entry.hp + heal);
+        const restored = entry.hp - beforeHp;
+        if (restored > 0) healedTargets.push(`${entry.name} (+${restored})`);
+      }
+      if (healedTargets.length) {
+        events.push(`${prefix}${refreshed.name} restores HP to ${healedTargets.join(', ')}.`);
+      } else {
+        events.push(`${prefix}${refreshed.name} pulses but no HP is restored.`);
+      }
+      return { construct: refreshed, events };
+    }
+    if (utilityKind === 'scout') {
+      const detailParts = [];
+      if (visionRangeFt > 0) detailParts.push(`vision ${visionRangeFt} ft`);
+      if (detectDc > 0) detailParts.push(`detect DC ${detectDc}`);
+      if (utilityNote) detailParts.push(utilityNote);
+      events.push(
+        detailParts.length
+          ? `${prefix}${refreshed.name} relays scouting intel (${detailParts.join(', ')}).`
+          : `${prefix}${refreshed.name} relays scouting intel.`
+      );
+      return { construct: refreshed, events };
+    }
+    if (utilityKind === 'factory') {
+      events.push(
+        utilityNote
+          ? `${prefix}${refreshed.name} coordinates war production (${utilityNote}).`
+          : `${prefix}${refreshed.name} coordinates war production.`
+      );
+      return { construct: refreshed, events };
+    }
+    events.push(`${prefix}${refreshed.name} remains active.`);
+  }
+  return { construct: refreshed, events };
+}
+
+function updateConstructDurationAfterActivation(construct, nextConstructs, events, options = {}) {
+  const currentTurns = Math.max(0, Number(construct.remainingTurns || 0));
+  const prefix = String(options.prefix || '');
+  if (currentTurns > 0) {
+    const remainingTurns = Math.max(0, currentTurns - 1);
+    if (remainingTurns > 0) {
+      nextConstructs.push({ ...construct, remainingTurns });
+    } else {
+      events.push(`${prefix}${construct.name} expires.`);
+    }
+    return;
+  }
+  nextConstructs.push(construct);
+}
+
 function applyConstructStartOfTurnEffects(participant) {
   if (isPauseButtonTimingSuspended()) return [];
   participant.constructs = normalizeConstructs(participant.constructs, participant.id);
@@ -4726,146 +5004,9 @@ function applyConstructStartOfTurnEffects(participant) {
       nextConstructs.push(refreshed);
       continue;
     }
-    if ((mode === 'damage' || mode === 'status') && !target) {
-      events.push(`${refreshed.name} has no valid target this turn.`);
-    } else if (mode === 'status' && target) {
-      const stacks = Math.max(1, Number(refreshed.statusStacks || 1));
-      const statusType = detectStatusType({
-        presetId: refreshed.statusId,
-        name: refreshed.statusName
-      });
-      if (statusType) {
-        if (addStatusStacks(target, statusType, stacks)) {
-          events.push(
-            `${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${target.name}.`
-          );
-        }
-      } else {
-        const statusName = String(refreshed.statusName || refreshed.statusId || 'Status').trim();
-        target.statuses = normalizeStatuses([...(target.statuses || []), {
-          id: randomUUID(),
-          presetId: String(refreshed.statusId || '').trim(),
-          name: statusName,
-          stacks,
-          notes: 'Applied by construct.'
-        }]);
-        events.push(`${refreshed.name} applies ${statusName} x${stacks} to ${target.name}.`);
-      }
-      const forceDamage = Math.max(0, Number(refreshed.damage || 0));
-      if (forceDamage > 0) {
-        const result = applyCardDamageWithType(target, forceDamage, 'Force', {
-          sourceEntityId: refreshed.id
-        });
-        const mitigation =
-          result.resisted && !result.vulnerable
-            ? ' [Resisted]'
-            : result.vulnerable && !result.resisted
-              ? ' [Vulnerable]'
-              : '';
-        events.push(
-          `${refreshed.name} deals ${result.finalDamage} Force to ${target.name} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
-        );
-      }
-    } else if (mode === 'damage' && target) {
-      const damage = Math.max(0, Number(refreshed.damage || 0));
-      const damageType = String(refreshed.damageType || '').trim();
-      if (damage > 0) {
-        const result = applyCardDamageWithType(target, damage, damageType, {
-          sourceEntityId: refreshed.id
-        });
-        const mitigation =
-          result.resisted && !result.vulnerable
-            ? ' [Resisted]'
-            : result.vulnerable && !result.resisted
-              ? ' [Vulnerable]'
-              : '';
-        events.push(
-          `${refreshed.name} hits ${target.name} for ${result.finalDamage} ${damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
-        );
-      }
-    } else if (mode === 'utility') {
-      const shieldRestore = Math.max(0, Number(refreshed.shieldRestore || 0));
-      const heal = Math.max(0, Number(refreshed.heal || 0));
-      const auraRadiusFt = Math.max(0, Number(refreshed.auraRadiusFt || 0));
-      const detectDc = Math.max(0, Number(refreshed.detectDc || 0));
-      const visionRangeFt = Math.max(0, Number(refreshed.visionRangeFt || 0));
-      const utilityKind = String(refreshed.utilityKind || '').trim().toLowerCase();
-      const utilityNote = String(refreshed.utilityNote || '').trim();
-      if (shieldRestore > 0) {
-        const assignedTargets = (refreshed.targetIds || [])
-          .map((id) => findParticipant(id))
-          .filter(Boolean);
-        const recipients = assignedTargets.length
-          ? assignedTargets.filter((entry) => !refreshed.shieldRestoreAlliesOnly || isParticipantAlly(participant, entry))
-          : refreshed.shieldRestoreAlliesOnly
-            ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(participant, entry))
-            : [participant];
-        const restoredTargets = [];
-        for (const entry of recipients) {
-          const beforeShield = entry.shield;
-          entry.shield = Math.min(entry.maxShield, entry.shield + shieldRestore);
-          const restored = entry.shield - beforeShield;
-          if (restored > 0) {
-            restoredTargets.push(`${entry.name} (+${restored})`);
-          }
-        }
-        const auraText = auraRadiusFt > 0 ? ` within ${auraRadiusFt} ft` : '';
-        if (restoredTargets.length) {
-          events.push(`${refreshed.name} restores Shield${auraText} to ${restoredTargets.join(', ')}.`);
-        } else {
-          events.push(`${refreshed.name} pulses${auraText} but no Shield is restored.`);
-        }
-      } else if (heal > 0) {
-        const recipients = refreshed.healTargetOnly && target
-          ? [target]
-          : refreshed.healAlliesOnly
-            ? (trackerState.encounter.participants || []).filter((entry) => isParticipantAlly(participant, entry))
-            : [participant];
-        const healedTargets = [];
-        for (const entry of recipients) {
-          const beforeHp = entry.hp;
-          entry.hp = Math.min(entry.maxHp, entry.hp + heal);
-          const restored = entry.hp - beforeHp;
-          if (restored > 0) {
-            healedTargets.push(`${entry.name} (+${restored})`);
-          }
-        }
-        if (healedTargets.length) {
-          events.push(`${refreshed.name} restores HP to ${healedTargets.join(', ')}.`);
-        } else {
-          events.push(`${refreshed.name} pulses but no HP is restored.`);
-        }
-      } else if (utilityKind === 'scout') {
-        const detailParts = [];
-        if (visionRangeFt > 0) detailParts.push(`vision ${visionRangeFt} ft`);
-        if (detectDc > 0) detailParts.push(`detect DC ${detectDc}`);
-        if (utilityNote) detailParts.push(utilityNote);
-        events.push(
-          detailParts.length
-            ? `${refreshed.name} relays scouting intel (${detailParts.join(', ')}).`
-            : `${refreshed.name} relays scouting intel.`
-        );
-      } else if (utilityKind === 'factory') {
-        events.push(
-          utilityNote
-            ? `${refreshed.name} coordinates war production (${utilityNote}).`
-            : `${refreshed.name} coordinates war production.`
-        );
-      } else {
-        events.push(`${refreshed.name} remains active.`);
-      }
-    }
-    const currentTurns = Math.max(0, Number(refreshed.remainingTurns || 0));
-    if (currentTurns > 0) {
-      const remainingTurns = Math.max(0, currentTurns - 1);
-      if (remainingTurns > 0) {
-        nextConstructs.push({ ...refreshed, remainingTurns });
-      } else {
-        events.push(`${refreshed.name} expires.`);
-      }
-    } else {
-      nextConstructs.push(refreshed);
-    }
+    const activation = performConstructActivation(participant, refreshed, target, { refreshAp: true });
+    events.push(...activation.events);
+    updateConstructDurationAfterActivation(activation.construct, nextConstructs, events);
   }
   participant.constructs = nextConstructs;
   return events;
@@ -4893,104 +5034,13 @@ function applyIncomingConstructTurnEffects(participant) {
         nextConstructs.push(refreshed);
         continue;
       }
-      if ((mode === 'damage' || mode === 'status') && !participant) {
-        events.push(`${owner.name}'s ${refreshed.name} has no valid target this turn.`);
-      } else if (mode === 'status') {
-        const stacks = Math.max(1, Number(refreshed.statusStacks || 1));
-        const statusType = detectStatusType({
-          presetId: refreshed.statusId,
-          name: refreshed.statusName
-        });
-        if (statusType) {
-          if (addStatusStacks(participant, statusType, stacks)) {
-            enforceControlHierarchy(participant);
-            events.push(
-              `${owner.name}'s ${refreshed.name} applies ${statusDisplayName(statusType)} x${stacks} to ${participant.name}.`
-            );
-          }
-        }
-        const forceDamage = Math.max(0, Number(refreshed.damage || 0));
-        if (forceDamage > 0) {
-          const result = applyCardDamageWithType(participant, forceDamage, 'Force', {
-            sourceEntityId: refreshed.id
-          });
-          const mitigation =
-            result.resisted && !result.vulnerable
-              ? ' [Resisted]'
-              : result.vulnerable && !result.resisted
-                ? ' [Vulnerable]'
-                : '';
-          events.push(
-            `${owner.name}'s ${refreshed.name} deals ${result.finalDamage} Force to ${participant.name} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
-          );
-        }
-      } else if (mode === 'damage') {
-        const damage = Math.max(0, Number(refreshed.damage || 0));
-        const damageType = String(refreshed.damageType || '').trim();
-        if (damage > 0) {
-          const result = applyCardDamageWithType(participant, damage, damageType, {
-            sourceEntityId: refreshed.id
-          });
-          const mitigation =
-            result.resisted && !result.vulnerable
-              ? ' [Resisted]'
-              : result.vulnerable && !result.resisted
-                ? ' [Vulnerable]'
-                : '';
-          events.push(
-            `${owner.name}'s ${refreshed.name} hits ${participant.name} for ${result.finalDamage} ${damageType || 'damage'} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
-          );
-        }
-      } else if (mode === 'utility') {
-        const shieldRestore = Math.max(0, Number(refreshed.shieldRestore || 0));
-        const heal = Math.max(0, Number(refreshed.heal || 0));
-        if (shieldRestore > 0) {
-          const recipients = refreshed.shieldRestoreAlliesOnly
-            ? [participant].filter((entry) => isParticipantAlly(owner, entry))
-            : [participant];
-          const restoredTargets = [];
-          for (const entry of recipients) {
-            const beforeShield = entry.shield;
-            entry.shield = Math.min(entry.maxShield, entry.shield + shieldRestore);
-            const restored = entry.shield - beforeShield;
-            if (restored > 0) {
-              restoredTargets.push(`${entry.name} (+${restored})`);
-            }
-          }
-          if (restoredTargets.length) {
-            events.push(`${owner.name}'s ${refreshed.name} restores Shield to ${restoredTargets.join(', ')}.`);
-          }
-        } else if (heal > 0) {
-          const recipients = refreshed.healTargetOnly
-            ? [participant]
-            : refreshed.healAlliesOnly
-              ? [participant].filter((entry) => isParticipantAlly(owner, entry))
-              : [participant];
-          const healedTargets = [];
-          for (const entry of recipients) {
-            const beforeHp = entry.hp;
-            entry.hp = Math.min(entry.maxHp, entry.hp + heal);
-            const restored = entry.hp - beforeHp;
-            if (restored > 0) {
-              healedTargets.push(`${entry.name} (+${restored})`);
-            }
-          }
-          if (healedTargets.length) {
-            events.push(`${owner.name}'s ${refreshed.name} restores HP to ${healedTargets.join(', ')}.`);
-          }
-        }
-      }
-      const currentTurns = Math.max(0, Number(refreshed.remainingTurns || 0));
-      if (currentTurns > 0) {
-        const remainingTurns = Math.max(0, currentTurns - 1);
-        if (remainingTurns > 0) {
-          nextConstructs.push({ ...refreshed, remainingTurns });
-        } else {
-          events.push(`${owner.name}'s ${refreshed.name} expires.`);
-        }
-      } else {
-        nextConstructs.push(refreshed);
-      }
+      const activation = performConstructActivation(owner, refreshed, participant, {
+        prefix: `${owner.name}'s `
+      });
+      events.push(...activation.events);
+      updateConstructDurationAfterActivation(activation.construct, nextConstructs, events, {
+        prefix: `${owner.name}'s `
+      });
     }
     owner.constructs = nextConstructs;
     clampParticipant(owner);

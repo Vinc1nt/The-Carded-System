@@ -203,7 +203,7 @@ function applyState(nextState) {
 
   const participants = state.encounter.participants || [];
   if (!participants.find((p) => p.id === focusId)) {
-    focusId = participants[0]?.id || null;
+    focusId = createMode ? null : (participants[0]?.id || null);
     updateUrl();
   }
 
@@ -2222,6 +2222,7 @@ async function resolvePlayerCardStatusSelectionPrompt(participant, card, targetI
         .map((entry) => entry.trim())
         .filter(Boolean);
   if (removeCount <= 0 || fixedRemoveIds.length) return [];
+  const optionalSelection = card?.removeStatusSelectionOptional === true;
   const selfOnly = isSelfTargetCard(card);
   const targetMode = getCardTargetMode(card);
   let recipients = [];
@@ -2239,6 +2240,7 @@ async function resolvePlayerCardStatusSelectionPrompt(participant, card, targetI
     ? target.statuses.filter((entry) => Number(entry?.stacks || 0) > 0 || entry?.name)
     : [];
   if (!statuses.length) {
+    if (optionalSelection) return [];
     notify(`${target.name} has no removable statuses.`);
     return null;
   }
@@ -2246,7 +2248,9 @@ async function resolvePlayerCardStatusSelectionPrompt(participant, card, targetI
     .map((status, index) => `${index + 1}. ${status.name}${status.stacks ? ` x${status.stacks}` : ''}`)
     .join('\n');
   const raw = window.prompt(
-    `${card.name || 'Card'} on ${target.name}:\n${lines}\nEnter up to ${removeCount} status number${removeCount === 1 ? '' : 's'} to remove (comma-separated):`,
+    `${card.name || 'Card'} on ${target.name}:\n${lines}\nEnter up to ${removeCount} status number${
+      removeCount === 1 ? '' : 's'
+    } to remove (comma-separated)${optionalSelection ? ', or leave blank for none' : ''}:`,
     statuses.slice(0, removeCount).map((_, index) => String(index + 1)).join(', ')
   );
   if (raw == null) {
@@ -2262,6 +2266,7 @@ async function resolvePlayerCardStatusSelectionPrompt(participant, card, targetI
     )
   ).slice(0, removeCount);
   if (!selectedIndexes.length) {
+    if (optionalSelection) return [];
     notify('No statuses selected. Card use canceled.');
     return null;
   }
@@ -2759,14 +2764,22 @@ function formatPlayerCardTargetSelectionLabel(card = {}, multiTargetCap = 0) {
 
 function renderPlayerCardCustomEffectControl(card = {}) {
   const effectId = String(card.customCardEffect || '').trim().toLowerCase();
-  if (effectId !== 'arcane_no') return '';
-  const zones = getPlayerEncounterZones();
-  return `<label>Zone to Cancel
-    <select data-player-card-zone="${card.id}">
-      <option value="">${zones.length ? 'Select zone…' : 'No active zones'}</option>
-      ${zones.map((entry) => `<option value="${entry.id}">${escapeHtml(formatPlayerZoneLabel(entry))}</option>`).join('')}
-    </select>
-  </label>`;
+  if (effectId === 'arcane_no') {
+    const zones = getPlayerEncounterZones();
+    return `<label>Zone to Cancel
+      <select data-player-card-zone="${card.id}">
+        <option value="">${zones.length ? 'Select zone…' : 'No active zones'}</option>
+        ${zones.map((entry) => `<option value="${entry.id}">${escapeHtml(formatPlayerZoneLabel(entry))}</option>`).join('')}
+      </select>
+    </label>`;
+  }
+  if (effectId === 'demonic_ray_of_enfeeblement' && Number(card.masteryLevel || 1) >= 3) {
+    return `<label class="checkbox-label">
+      <input type="checkbox" data-player-card-use-hp-sacrifice="${card.id}" />
+      Sacrifice 10 HP to apply Weakened 2 instead.
+    </label>`;
+  }
+  return '';
 }
 
 function renderPlayerCardTargetControl(card = {}, participant = {}) {
@@ -3244,6 +3257,13 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     0,
     Math.round(getCardScaledEffectValue(card, 'apGainByLevel', level, Number(card.apGain || 0)))
   );
+  const selfHpLoss = Math.max(
+    0,
+    Math.round(getCardScaledEffectValue(card, 'selfHpLossByLevel', level, Number(card.selfHpLoss || 0)))
+  );
+  if (selfHpLoss > 0) {
+    parts.push(`Lose ${selfHpLoss} HP.`);
+  }
   if (apGainNow > 0) {
     parts.push(`Gain +${apGainNow} AP this turn.`);
   }
@@ -3255,6 +3275,20 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   );
   if (removeStatusCount > 0) {
     parts.push(`Remove up to ${removeStatusCount} status effect${removeStatusCount === 1 ? '' : 's'}.`);
+  }
+  const selfHpLossPerRemovedStatus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'selfHpLossPerRemovedStatusByLevel',
+        level,
+        Number(card.selfHpLossPerRemovedStatus || 0)
+      )
+    )
+  );
+  if (selfHpLossPerRemovedStatus > 0 && removeStatusCount > 0) {
+    parts.push(`Lose +${selfHpLossPerRemovedStatus} HP per removed status.`);
   }
   const utilityNote = String(card.utilityNote || '').trim();
   if (utilityNote) {
@@ -3726,6 +3760,7 @@ function wirePlayerCardUses(participant) {
       const arcaneSplitTargetId = article?.querySelector(`[data-player-card-arcane-split-target="${cardId}"]`)?.value || '';
       const overrideDamageType = article?.querySelector(`[data-player-card-override-damage-type="${cardId}"]`)?.value || '';
       const zoneId = article?.querySelector(`[data-player-card-zone="${cardId}"]`)?.value || '';
+      const useHpSacrifice = article?.querySelector(`[data-player-card-use-hp-sacrifice="${cardId}"]`)?.checked === true;
       const card = (participant.cards || []).find((entry) => entry.id === cardId) || {};
       const contestedChoiceId =
         article?.querySelector(`[data-player-card-contested-choice="${cardId}"]`)?.value || getPlayerCardDefaultContestedChoiceId(card);
@@ -3750,6 +3785,7 @@ function wirePlayerCardUses(participant) {
           arcaneSplitTargetId,
           overrideDamageType,
           zoneId,
+          useHpSacrifice,
           selectedRemoveStatusIds,
           targetDetails,
           contestedChoiceId: contestedResolution.contestedChoiceId,
