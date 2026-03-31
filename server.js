@@ -31,11 +31,13 @@ import {
   getCurrentParticipantForEncounter,
   findZoneInOwner
 } from './lib/turn-order.js';
+import { CARD_PRESETS } from './public/card-presets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const PORT = process.env.PORT || 3000;
+const CARD_PRESET_LOOKUP = buildCardPresetLookup(CARD_PRESETS);
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -46,6 +48,90 @@ const MIME_TYPES = {
   '.png': 'image/png',
   '.ico': 'image/x-icon'
 };
+
+function normalizePresetCardToken(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function buildCardPresetLookup(list = []) {
+  const lookup = new Map();
+  for (const entry of list || []) {
+    if (!entry || typeof entry !== 'object' || !entry.card) continue;
+    const candidates = [
+      entry.id,
+      entry.card.id,
+      entry.card.name
+    ];
+    for (const candidate of candidates) {
+      const token = normalizePresetCardToken(candidate);
+      if (token && !lookup.has(token)) {
+        lookup.set(token, entry);
+      }
+    }
+  }
+  return lookup;
+}
+
+function getCardPresetEntry(reference = '') {
+  const token = normalizePresetCardToken(reference);
+  return token ? CARD_PRESET_LOOKUP.get(token) || null : null;
+}
+
+function constructHasManualTurn(construct = {}) {
+  return construct?.manualTurns === true || (Array.isArray(construct?.cardObjects) && construct.cardObjects.length > 0);
+}
+
+function constructCannotActOnSummonTurn(construct = {}) {
+  return constructHasManualTurn(construct) && construct?.summonSicknessTurn === true;
+}
+
+function clampMasteryLevel(value, fallback = 1) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return Math.max(1, Math.min(4, Number(fallback) || 1));
+  return Math.max(1, Math.min(4, Math.round(raw)));
+}
+
+function buildConstructCardObjects(sourceCard = {}) {
+  const refs = Array.isArray(sourceCard?.constructCards)
+    ? sourceCard.constructCards
+    : String(sourceCard?.constructCards || sourceCard?.constructLinkedCard || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+  if (!refs.length) return [];
+  const masteryByRef =
+    sourceCard?.constructCardMasteryById && typeof sourceCard.constructCardMasteryById === 'object'
+      ? sourceCard.constructCardMasteryById
+      : {};
+  const defaultMastery = clampMasteryLevel(sourceCard?.constructCardMasteryLevel ?? 1, 1);
+  return refs
+    .map((reference, index) => {
+      const preset = getCardPresetEntry(reference);
+      if (!preset?.card) return null;
+      const refCandidates = [reference, preset.id, preset.card.id, preset.card.name];
+      let masteryLevel = defaultMastery;
+      for (const candidate of refCandidates) {
+        const override = masteryByRef?.[candidate];
+        if (Number.isFinite(Number(override))) {
+          masteryLevel = clampMasteryLevel(override, defaultMastery);
+          break;
+        }
+      }
+      const normalized = normalizeCards([{
+        ...structuredClone(preset.card),
+        id: `${preset.card.id || randomUUID()}__construct__${index}`,
+        masteryLevel,
+        masteryUses: 0,
+        active: true
+      }])[0];
+      return normalized ? { ...normalized, active: true } : null;
+    })
+    .filter(Boolean);
+}
 
 const STANDARD_ACTIONS = {
   move: {
@@ -870,21 +956,38 @@ function endEncounter() {
 }
 
 function executeStandardAction(body) {
-  const actor = resolveActor(body?.participantId);
+  const constructRecord = body?.constructId ? findConstructWithOwner(body.constructId) : null;
+  const actor = constructRecord?.construct || resolveActor(body?.participantId);
   const action = STANDARD_ACTIONS?.[body?.actionId];
-  const pauseError = getPauseActionError(actor, { label: action?.label || 'That action' });
+  const pauseController = constructRecord?.owner || actor;
+  if (constructRecord && !isCurrentConstructTurn(constructRecord.owner.id, constructRecord.construct.id)) {
+    return { error: `${constructRecord.construct.name} can only use standard actions on its own turn.` };
+  }
+  if (constructRecord && constructCannotActOnSummonTurn(constructRecord.construct)) {
+    return { error: `${constructRecord.construct.name} cannot act on the turn it was summoned.` };
+  }
+  const pauseError = getPauseActionError(pauseController, { label: action?.label || 'That action' });
   if (pauseError) {
     return { error: pauseError };
   }
   const result = executeStandardActionForEncounter(body, {
     standardActions: STANDARD_ACTIONS,
     defaultGuardRestore: DEFAULT_GUARD_RESTORE,
-    resolveActor,
+    resolveActor: () => actor,
     applyRecoverAction,
     applyCleanseAction,
     setStatusStacks,
     markTurnActionTaken,
-    pushLog,
+    pushLog: (text, participantId = null, meta = {}) =>
+      pushLog(
+        text,
+        constructRecord && participantId === constructRecord.construct.id
+          ? constructRecord.owner.id
+          : participantId,
+        constructRecord && participantId === constructRecord.construct.id
+          ? { ...meta, constructId: constructRecord.construct.id, constructTurn: true }
+          : meta
+      ),
     touchState,
     broadcastState
   });
@@ -892,14 +995,22 @@ function executeStandardAction(body) {
     return result;
   }
   const participant = result.participant;
+  if (constructRecord) {
+    constructRecord.owner.constructs = normalizeConstructs(
+      (constructRecord.owner.constructs || []).map((entry) =>
+        String(entry.id || '') === String(participant.id || '') ? participant : entry
+      ),
+      constructRecord.owner.id
+    );
+  }
   const actionId = String(result.action.id || '').toLowerCase();
   let changed = false;
-  if (actionId === 'move') {
+  if (!constructRecord && actionId === 'move') {
     changed = applyShadowMovementProgress(participant, 10) > 0 || changed;
-  } else if (actionId === 'move_difficult') {
+  } else if (!constructRecord && actionId === 'move_difficult') {
     changed = applyShadowMovementProgress(participant, 5) > 0 || changed;
   }
-  if (actionId === 'recover') {
+  if (!constructRecord && actionId === 'recover') {
     changed = maybeApplyDivineRecoverHealing(participant, participant, { triggeredBySelfRecover: true, silent: true }) > 0 || changed;
   }
   if (changed) {
@@ -970,7 +1081,48 @@ function applyCardProgression(card, participant, notes, options = {}) {
   return masteryChoicePrompt;
 }
 
+function executeConstructCardAction(body = {}) {
+  const constructRecord = body?.constructId ? findConstructWithOwner(body.constructId) : null;
+  if (!constructRecord?.owner || !constructRecord?.construct) {
+    return { error: 'Construct required' };
+  }
+  const pauseError = getPauseActionError(constructRecord.owner, { label: 'That construct card' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
+  const result = performConstructCardAction(constructRecord.owner, constructRecord.construct, body);
+  if (result?.error) {
+    return result;
+  }
+  constructRecord.owner.constructs = normalizeConstructs(
+    (constructRecord.owner.constructs || []).map((entry) =>
+      String(entry.id || '') === String(result.construct.id || '') ? result.construct : entry
+    ),
+    constructRecord.owner.id
+  );
+  for (const event of result.events || []) {
+    pushLog(`${constructRecord.owner.name}'s ${event}`, constructRecord.owner.id, {
+      constructId: result.construct.id,
+      cardId: result.card?.id || '',
+      constructTurn: true
+    });
+  }
+  touchState();
+  broadcastState('construct_card_action');
+  return {
+    participant: result.construct,
+    construct: result.construct,
+    owner: constructRecord.owner,
+    card: result.card,
+    target: result.target || null,
+    masteryChoicePrompt: null
+  };
+}
+
 function executeCardAction(body) {
+  if (body?.constructId) {
+    return executeConstructCardAction(body);
+  }
   const context = resolveCardActionContext(body, { resolveActor, isCardActive });
   if (context.error) {
     return context;
@@ -2489,23 +2641,6 @@ function executeCardAction(body) {
       const displacedNames = constructDeployResult.displaced.map((entry) => entry.name).join(', ');
       notes.push(`Replaced construct slot: ${displacedNames}.`);
     }
-    const immediateConstructTarget = constructDeployResult.construct.targetId
-      ? findTargetableEntity(constructDeployResult.construct.targetId)
-      : null;
-    const immediateConstructActivation = performConstructActivation(
-      participant,
-      constructDeployResult.construct,
-      immediateConstructTarget,
-      { refreshAp: true }
-    );
-    constructDeployResult.construct = immediateConstructActivation.construct;
-    participant.constructs = normalizeConstructs(
-      (participant.constructs || []).map((entry) =>
-        entry?.id === immediateConstructActivation.construct.id ? immediateConstructActivation.construct : entry
-      ),
-      participant.id
-    );
-    notes.push(...immediateConstructActivation.events);
   } else if (zoneCard) {
     zoneDeployResult = deployZoneFromCard(participant, card, {
       masteryLevel,
@@ -3276,6 +3411,16 @@ function executeMoveConstructAction(body) {
   if (pauseError) {
     return { error: pauseError };
   }
+  const constructId = String(body?.constructId || '').trim();
+  if (constructId) {
+    const found = findConstructWithOwner(constructId);
+    if (found?.construct && constructHasManualTurn(found.construct) && !isCurrentConstructTurn(found.owner.id, found.construct.id)) {
+      return { error: `${found.construct.name} can only move on its own turn.` };
+    }
+    if (found?.construct && constructCannotActOnSummonTurn(found.construct)) {
+      return { error: `${found.construct.name} cannot act on the turn it was summoned.` };
+    }
+  }
   return executeMoveConstructActionForEncounter(body, {
     resolveActor,
     normalizeConstructs,
@@ -4017,6 +4162,19 @@ function advanceTurn(direction = 1) {
       }
     }
   }
+  if (direction > 0 && previousEntry?.kind === 'construct') {
+    const previousOwner = findParticipant(previousEntry.participantId);
+    const previousConstruct = previousOwner ? findConstructWithOwner(previousEntry.constructId)?.construct : null;
+    if (previousOwner && previousConstruct) {
+      const endEvents = finishConstructTurn(previousOwner, previousConstruct);
+      endEvents.forEach((event) =>
+        pushLog(`${previousOwner.name}'s ${event}`, previousOwner.id, {
+          constructId: previousConstruct.id,
+          constructTurn: true
+        })
+      );
+    }
+  }
 
   let nextIndex = 0;
   if (previousIndex === -1) {
@@ -4042,6 +4200,26 @@ function advanceTurn(direction = 1) {
       pushLog(`It is now ${owner.name}'s zone effect: ${zone.name}.`, owner.id, {
         zoneId: zone.id,
         zoneTurn: true
+      });
+    }
+  } else if (entry?.kind === 'construct') {
+    const owner = findParticipant(entry.participantId);
+    const construct = owner ? findConstructWithOwner(entry.constructId)?.construct : null;
+    if (owner && construct) {
+      const startEvents = beginConstructTurn(owner, construct);
+      owner.constructs = normalizeConstructs(
+        (owner.constructs || []).map((item) => (String(item.id || '') === String(construct.id || '') ? construct : item)),
+        owner.id
+      );
+      startEvents.forEach((event) =>
+        pushLog(`${owner.name}'s ${construct.name} ${event}`, owner.id, {
+          constructId: construct.id,
+          constructTurn: true
+        })
+      );
+      pushLog(`It is now ${owner.name}'s construct turn: ${construct.name} (AP ${construct.apCurrent}).`, owner.id, {
+        constructId: construct.id,
+        constructTurn: true
       });
     }
   } else {
@@ -4134,6 +4312,15 @@ function getCurrentParticipant() {
   return getCurrentParticipantForEncounter(trackerState.encounter, normalizeZones);
 }
 
+function isCurrentConstructTurn(ownerId, constructId) {
+  const entry = getCurrentTurnEntry();
+  return (
+    entry?.kind === 'construct' &&
+    String(entry.participantId || '') === String(ownerId || '') &&
+    String(entry.constructId || '') === String(constructId || '')
+  );
+}
+
 function findParticipant(id) {
   return findParticipantInEncounter(trackerState.encounter, id);
 }
@@ -4154,6 +4341,79 @@ function findConstructWithOwner(id) {
     }
   }
   return null;
+}
+
+function getConstructCardObjects(construct = {}) {
+  return normalizeCards(
+    Array.isArray(construct?.cardObjects)
+      ? construct.cardObjects
+      : Array.isArray(construct?.constructCardObjects)
+        ? construct.constructCardObjects
+        : []
+  ).map((card) => ({ ...card, active: true }));
+}
+
+function findConstructCard(construct = {}, cardId = '') {
+  const cards = getConstructCardObjects(construct);
+  if (!cards.length) return { cards, card: null };
+  const targetId = String(cardId || '').trim();
+  const card = targetId
+    ? cards.find((entry) => String(entry.id || '').trim() === targetId) || null
+    : cards.find((entry) => entry.active !== false) || cards[0] || null;
+  return { cards, card };
+}
+
+function findLowestHpEnemyTargetForOwner(owner, options = {}) {
+  if (!owner?.id) return null;
+  const excludeIds = new Set(
+    (Array.isArray(options.excludeIds) ? options.excludeIds : [options.excludeIds])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+  return getEncounterTargetablesForOwner(owner)
+    .filter((entry) => entry?.id && !excludeIds.has(String(entry.id || '')))
+    .filter((entry) => Number(entry.hp || 0) > 0)
+    .filter((entry) => isParticipantEnemy(owner, entry))
+    .sort((left, right) => {
+      const hpCompare = Number(left.hp || 0) - Number(right.hp || 0);
+      if (hpCompare !== 0) return hpCompare;
+      const maxHpCompare = Number(left.maxHp || 0) - Number(right.maxHp || 0);
+      if (maxHpCompare !== 0) return maxHpCompare;
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    })[0] || null;
+}
+
+function getEncounterTargetablesForOwner(owner) {
+  const entries = [];
+  for (const participant of trackerState.encounter.participants || []) {
+    if (!participant?.id) continue;
+    entries.push(participant);
+    for (const construct of participant.constructs || []) {
+      if (!construct?.id) continue;
+      entries.push({
+        ...construct,
+        entityKind: 'construct',
+        ownerId: participant.id
+      });
+    }
+  }
+  return entries.filter((entry) => String(entry.id || '').trim() !== String(owner?.id || '').trim());
+}
+
+function maybeAssignConstructPriorityTarget(owner, construct) {
+  if (!owner?.id || !construct?.id) return null;
+  const current = construct.targetId ? findTargetableEntity(construct.targetId) : null;
+  if (current && Number(current.hp || 0) > 0) {
+    return current;
+  }
+  if (String(construct.targetPriority || '').trim().toLowerCase() === 'lowest_hp_enemy') {
+    const target = findLowestHpEnemyTargetForOwner(owner, { excludeIds: [construct.id] });
+    if (target?.id) {
+      construct.targetId = target.id;
+      return target;
+    }
+  }
+  return current || null;
 }
 
 function findTargetableEntity(id) {
@@ -4971,6 +5231,152 @@ function performConstructActivation(owner, construct, target, options = {}) {
   return { construct: refreshed, events };
 }
 
+function performConstructCardAction(owner, construct, body = {}, options = {}) {
+  if (!owner?.id || !construct?.id) {
+    return { error: 'Construct required' };
+  }
+  if (!constructHasManualTurn(construct)) {
+    return { error: `${construct.name || 'This construct'} has no manual card actions.` };
+  }
+  if (options.bypassTurnCheck !== true && !isCurrentConstructTurn(owner.id, construct.id)) {
+    return { error: `${construct.name || 'This construct'} can only use cards on its own turn.` };
+  }
+  if (constructCannotActOnSummonTurn(construct)) {
+    return { error: `${construct.name || 'This construct'} cannot act on the turn it was summoned.` };
+  }
+  const normalizedConstruct = normalizeConstructs([construct], owner.id)[0] || construct;
+  const { cards, card } = findConstructCard(normalizedConstruct, body.cardId);
+  if (!card) {
+    return { error: 'Construct card not found.' };
+  }
+  const apCost = Math.max(0, Number(card.apCost || 0));
+  if (Number(normalizedConstruct.apCurrent || 0) < apCost) {
+    return { error: `${normalizedConstruct.name} does not have enough AP.` };
+  }
+  let target = null;
+  const explicitTargetId = String(body.targetId || '').trim();
+  if (explicitTargetId) {
+    target = findTargetableEntity(explicitTargetId);
+    if (!target) {
+      return { error: 'Target not found.' };
+    }
+  } else if (normalizedConstruct.targetId) {
+    target = findTargetableEntity(normalizedConstruct.targetId);
+  }
+  const targetMode = normalizeCardTargetMode(card);
+  const selfTarget = isSelfTargetCard(card, Number(card.masteryLevel || 1));
+  const requiresTarget = targetMode !== 'none' && !selfTarget && targetMode !== 'all_others';
+  if (requiresTarget && !target) {
+    return options.allowNoTarget === true
+      ? { construct: normalizedConstruct, card, target: null, events: [`${normalizedConstruct.name} has no valid target.`] }
+      : { error: 'Target is required for this construct card.' };
+  }
+  if (!selfTarget && target && card.allowSelfTarget === false && target.id === normalizedConstruct.id) {
+    return { error: `${card.name} cannot target self.` };
+  }
+  if (target && card.targetAlliesOnly === true && !isParticipantAlly(owner, target)) {
+    return { error: `${card.name} can only target allies.` };
+  }
+  if (target && card.targetEnemiesOnly === true && !isParticipantEnemy(owner, target)) {
+    return { error: `${card.name} can only target enemies.` };
+  }
+  if (target && !isEntityKindAllowedForCard(card, target)) {
+    return { error: `${card.name} cannot target ${isConstructEntity(target) ? 'constructs' : 'participants'}.` };
+  }
+
+  normalizedConstruct.apCurrent = Math.max(0, Number(normalizedConstruct.apCurrent || 0) - apCost);
+  normalizedConstruct.turnActionCount = Math.max(0, Number(normalizedConstruct.turnActionCount || 0)) + 1;
+  normalizedConstruct.lastActedRound = trackerState.encounter.round;
+  if (target?.id) {
+    normalizedConstruct.targetId = target.id;
+  }
+  const damage = Math.max(0, Number(getCardDamageAtCurrentMastery(card) || 0));
+  const damageType = String(card.damageType || '').trim() || 'damage';
+  const events = [];
+  if (target && damage > 0) {
+    const result = applyCardDamageWithType(target, damage, damageType, {
+      sourceEntityId: normalizedConstruct.id
+    });
+    const mitigation =
+      result.resisted && !result.vulnerable
+        ? ' [Resisted]'
+        : result.vulnerable && !result.resisted
+          ? ' [Vulnerable]'
+          : '';
+    events.push(
+      `${normalizedConstruct.name} uses ${card.name} on ${target.name} for ${result.finalDamage} ${damageType} (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}`
+    );
+    const destroyedConstruct = removeDefeatedConstructByEntity(target);
+    if (destroyedConstruct) {
+      events.push(`${destroyedConstruct.construct.name} is destroyed.`);
+    }
+  } else if (target) {
+    events.push(`${normalizedConstruct.name} uses ${card.name} on ${target.name}.`);
+  } else {
+    events.push(`${normalizedConstruct.name} uses ${card.name}.`);
+  }
+
+  normalizedConstruct.cardObjects = cards.map((entry) =>
+    entry.id === card.id ? { ...card } : entry
+  );
+  normalizedConstruct.cards = normalizedConstruct.cardObjects.map((entry) => entry.name).filter(Boolean);
+  return {
+    owner,
+    construct: normalizedConstruct,
+    card,
+    target,
+    events
+  };
+}
+
+function beginConstructTurn(owner, construct) {
+  if (!owner?.id || !construct?.id) return [];
+  if (constructCannotActOnSummonTurn(construct)) {
+    construct.apCurrent = 0;
+  } else {
+    construct.apCurrent = Math.max(0, Number(construct.apMax || 0));
+  }
+  construct.guardUsedThisTurn = false;
+  construct.turnActionCount = 0;
+  construct.lastActedRound = trackerState.encounter.round;
+  if (constructCannotActOnSummonTurn(construct)) {
+    return ['cannot act on the turn it was summoned.'];
+  }
+  return applyStartOfTurnStatusEffects(construct);
+}
+
+function finishConstructTurn(owner, construct) {
+  if (!owner?.id || !construct?.id) return [];
+  const events = decrementTimedStatusesAtEndOfTurn(construct);
+  if (constructCannotActOnSummonTurn(construct)) {
+    construct.summonSicknessTurn = false;
+    owner.constructs = normalizeConstructs(
+      (owner.constructs || []).map((entry) => (String(entry.id || '') === String(construct.id || '') ? construct : entry)),
+      owner.id
+    );
+    return events;
+  }
+  const currentTurns = Math.max(0, Number(construct.remainingTurns || 0));
+  if (currentTurns > 0) {
+    const remainingTurns = Math.max(0, currentTurns - 1);
+    if (remainingTurns > 0) {
+      construct.remainingTurns = remainingTurns;
+    } else {
+      owner.constructs = normalizeConstructs(
+        (owner.constructs || []).filter((entry) => String(entry.id || '') !== String(construct.id || '')),
+        owner.id
+      );
+      events.push(`${construct.name} expires.`);
+      return events;
+    }
+  }
+  owner.constructs = normalizeConstructs(
+    (owner.constructs || []).map((entry) => (String(entry.id || '') === String(construct.id || '') ? construct : entry)),
+    owner.id
+  );
+  return events;
+}
+
 function updateConstructDurationAfterActivation(construct, nextConstructs, events, options = {}) {
   const currentTurns = Math.max(0, Number(construct.remainingTurns || 0));
   const prefix = String(options.prefix || '');
@@ -4993,6 +5399,10 @@ function applyConstructStartOfTurnEffects(participant) {
   const events = [];
   const nextConstructs = [];
   for (const construct of participant.constructs) {
+    if (constructHasManualTurn(construct)) {
+      nextConstructs.push(construct);
+      continue;
+    }
     const refreshed = {
       ...construct,
       apCurrent: Math.max(0, Number(construct.apMax || 0))
@@ -5022,6 +5432,10 @@ function applyIncomingConstructTurnEffects(participant) {
     if (!owner.constructs.length) continue;
     const nextConstructs = [];
     for (const construct of owner.constructs) {
+      if (constructHasManualTurn(construct)) {
+        nextConstructs.push(construct);
+        continue;
+      }
       const refreshed = {
         ...construct,
         apCurrent: Math.max(0, Number(construct.apCurrent ?? construct.apMax ?? 0))
@@ -5883,6 +6297,8 @@ function normalizeConstructs(list = [], ownerId = '') {
             .split(',')
             .map((value) => value.trim())
             .filter(Boolean);
+      const cardObjects = getConstructCardObjects(entry);
+      const cardNames = cardObjects.length ? cardObjects.map((card) => card.name).filter(Boolean) : cards;
       const targetIds = Array.isArray(entry.targetIds)
         ? Array.from(new Set(entry.targetIds.map((value) => String(value || '').trim()).filter(Boolean)))
         : [];
@@ -5937,12 +6353,19 @@ function normalizeConstructs(list = [], ownerId = '') {
         apMax,
         apCurrent,
         moveFt,
-        cards,
+        cards: cardNames,
+        cardObjects,
+        manualTurns: Boolean(entry.manualTurns ?? entry.constructManualTurns ?? (cardObjects.length > 0)),
+        summonSicknessTurn: Boolean(entry.summonSicknessTurn),
+        targetPriority: String(entry.targetPriority ?? entry.constructTargetPriority ?? '').trim().toLowerCase(),
         statuses: normalizeStatuses(entry.statuses),
         resistances: normalizeDamageTypes(entry.resistances),
         vulnerabilities: normalizeDamageTypes(entry.vulnerabilities),
         immunities: normalizeImmunities(entry.immunities),
         rangedUntargetableTurns: Math.max(0, Math.round(Number(entry.rangedUntargetableTurns || 0))),
+        turnActionCount: Math.max(0, Math.round(Number(entry.turnActionCount || 0))),
+        guardUsedThisTurn: entry.guardUsedThisTurn === true,
+        lastActedRound: Math.max(0, Math.round(Number(entry.lastActedRound || 0))),
         tags: Array.isArray(entry.tags)
           ? entry.tags.map((tag) => String(tag).trim()).filter(Boolean)
           : [],
@@ -7445,6 +7868,11 @@ function deployConstructFromCard(participant, card, options = {}) {
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean);
+  const cardObjects = buildConstructCardObjects(card);
+  const manualTurns = constructHasManualTurn({
+    manualTurns: card?.constructManualTurns,
+    cardObjects
+  });
   const appliedDamageBonus = mode === 'damage' || mode === 'status' ? bonusDamage : 0;
   const finalDamage =
     mode === 'damage'
@@ -7495,12 +7923,19 @@ function deployConstructFromCard(participant, card, options = {}) {
     apMax,
     apCurrent: apMax,
     moveFt,
-    cards,
+    cards: cardObjects.length ? cardObjects.map((entry) => entry.name).filter(Boolean) : cards,
+    cardObjects,
+    manualTurns,
+    summonSicknessTurn: manualTurns,
+    targetPriority: String(card?.constructTargetPriority || '').trim().toLowerCase(),
     statuses: [],
     resistances: [],
     vulnerabilities: [],
     immunities: [],
     rangedUntargetableTurns: 0,
+    turnActionCount: 0,
+    guardUsedThisTurn: false,
+    lastActedRound: 0,
     tags: Array.isArray(card.tags) ? card.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
     createdAt: new Date().toISOString(),
     createdOrder: Date.now()

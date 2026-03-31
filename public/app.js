@@ -405,9 +405,9 @@ function renderConstructHelpContent() {
     <section class="help-section">
       <h3>Turn Timing</h3>
       <ul class="help-list">
-        <li>A construct acts immediately on the turn it is summoned.</li>
-        <li>After that immediate action, it still gets its full listed duration in later turns.</li>
-        <li>Example: a 2-turn construct acts on summon, then gets 2 full later turns before expiring.</li>
+        <li>Constructs do not act on the turn they are summoned.</li>
+        <li>Their duration starts from their first later turn after the summon turn.</li>
+        <li>Example: a 2-turn construct summoned this turn gets 2 full later turns before expiring.</li>
         <li>Construct timing is suspended during Pause Button extra turns, the same way other suspended timing is handled.</li>
       </ul>
     </section>
@@ -770,16 +770,34 @@ function updateGlobalJournalTargetVisibility(form) {
 }
 
 function getTurnEntryKey(entry = {}) {
+  if (entry.kind === 'construct') {
+    return `construct:${entry.participantId}:${entry.constructId}`;
+  }
   if (entry.kind === 'zone') {
     return `zone:${entry.participantId}:${entry.zoneId}`;
   }
   return `participant:${entry.participantId}`;
 }
 
+function constructHasManualTurnForUi(construct = {}) {
+  return construct?.manualTurns === true || (Array.isArray(construct?.cardObjects) && construct.cardObjects.length > 0);
+}
+
 function getEncounterTurnEntries() {
   const entries = [];
   for (const participant of state.encounter.participants || []) {
     entries.push({ kind: 'participant', participantId: participant.id, participant, zone: null });
+    for (const construct of participant.constructs || []) {
+      if (!construct?.id || !constructHasManualTurnForUi(construct)) continue;
+      entries.push({
+        kind: 'construct',
+        participantId: participant.id,
+        constructId: construct.id,
+        participant,
+        construct,
+        zone: null
+      });
+    }
     for (const zone of participant.zones || []) {
       entries.push({
         kind: 'zone',
@@ -791,6 +809,17 @@ function getEncounterTurnEntries() {
     }
   }
   return entries;
+}
+
+function getCurrentEncounterTurnEntry() {
+  const entries = getEncounterTurnEntries();
+  if (!entries.length) return null;
+  const key = String(state.encounter.currentTurnKey || '');
+  if (key) {
+    return entries.find((entry) => getTurnEntryKey(entry) === key) || null;
+  }
+  const index = Number(state.encounter.currentIndex);
+  return Number.isInteger(index) && index >= 0 && index < entries.length ? entries[index] : entries[0];
 }
 
 function renderTurnList() {
@@ -807,7 +836,7 @@ function renderTurnList() {
     if (!participant) return;
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = `turn-row${entry.kind === 'zone' ? ' turn-row-zone' : ''}`;
+    row.className = `turn-row${entry.kind === 'zone' ? ' turn-row-zone' : entry.kind === 'construct' ? ' turn-row-construct' : ''}`;
     row.dataset.id = participant.id;
     const turnKey = getTurnEntryKey(entry);
     row.dataset.turnKey = turnKey;
@@ -819,7 +848,22 @@ function renderTurnList() {
     } else if (!state.encounter.currentTurnKey && index === state.encounter.currentIndex) {
       row.classList.add('is-current');
     }
-    if (entry.kind === 'zone') {
+    if (entry.kind === 'construct') {
+      const construct = entry.construct || {};
+      row.innerHTML = `
+        <strong>${escapeHtml(construct.name || 'Construct')}</strong>
+        <div class="statline">
+          <span>Construct (${escapeHtml(participant.name)})</span>
+          <span>AP ${Number(construct.apCurrent || 0)}/${Number(construct.apMax || 0)}</span>
+          <span>HP ${Number(construct.hp || 0)}/${Number(construct.maxHp || 0)}</span>
+        </div>
+        <div class="statline">${
+          Number(construct.remainingTurns || 0) > 0
+            ? `${Number(construct.remainingTurns || 0)} turn${Number(construct.remainingTurns || 0) === 1 ? '' : 's'} left`
+            : 'Until removed'
+        }</div>
+      `;
+    } else if (entry.kind === 'zone') {
       const zone = entry.zone || {};
       const targetCount = Array.isArray(zone.targetIds) ? zone.targetIds.length : 0;
       const remaining =
@@ -1638,13 +1682,134 @@ function renderConstructSection(participant) {
   `;
 }
 
+function getLowestHpEnemyTargetForUi(participant) {
+  return getEncounterTargetablesForUi()
+    .filter((entry) => Number(entry.hp || 0) > 0)
+    .filter((entry) => isParticipantEnemyForUi(participant, entry))
+    .sort((left, right) => {
+      const hpCompare = Number(left.hp || 0) - Number(right.hp || 0);
+      if (hpCompare !== 0) return hpCompare;
+      const maxHpCompare = Number(left.maxHp || 0) - Number(right.maxHp || 0);
+      if (maxHpCompare !== 0) return maxHpCompare;
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    })[0] || null;
+}
+
+function renderConstructPriorityHint(participant, construct = {}) {
+  if (String(construct.targetPriority || '').trim().toLowerCase() !== 'lowest_hp_enemy') {
+    return '';
+  }
+  const target = getLowestHpEnemyTargetForUi(participant);
+  if (!target) return '<p class="muted small-note">Target assist: no enemy target available.</p>';
+  return `<p class="muted small-note">Target assist: closest to death is ${escapeHtml(formatTargetableEntityLabel(target))}.</p>`;
+}
+
+function renderConstructTargetAssistForCard(card = {}, participant = {}) {
+  if (String(card.constructTargetPriority || '').trim().toLowerCase() !== 'lowest_hp_enemy') {
+    return '';
+  }
+  const target = getLowestHpEnemyTargetForUi(participant);
+  if (!target) return '<p class="muted small-note">Target assist: no enemy target available.</p>';
+  return `<p class="muted small-note">Target assist: closest to death is ${escapeHtml(formatTargetableEntityLabel(target))}.</p>`;
+}
+
+function renderConstructTurnStandardButtons(construct = {}) {
+  const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
+  const order = ['disengage', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
+  return order
+    .map((id) => actionsById.get(id))
+    .filter(Boolean)
+    .map(
+      (action) =>
+        `<button type="button" data-construct-standard="${action.id}" data-construct-id="${construct.id || ''}">${escapeHtml(action.label)} (${Number(action.apCost || 0)} AP)</button>`
+    )
+    .join('');
+}
+
+function renderConstructTurnCards(participant, construct = {}) {
+  const cards = Array.isArray(construct.cardObjects) ? construct.cardObjects : [];
+  if (!cards.length) return '';
+  return cards
+    .map((card) => {
+      const filterMode = card.targetAlliesOnly === true ? 'allies' : card.targetEnemiesOnly === true ? 'enemies' : 'all';
+      return `
+        <div class="card-item">
+          <strong>${escapeHtml(card.name || 'Card')}</strong>
+          <p>${escapeHtml(card.effect || renderConstructCardSummary({ damage: card.damage || 0, damageType: card.damageType || '' }))}</p>
+          ${
+            getCardTargetMode(card) !== 'none'
+              ? `<label>Target
+                  <select data-construct-card-target="${construct.id || ''}:${card.id || ''}">
+                    <option value="">Select target…</option>
+                    ${getEncounterTargetablesForUi()
+                      .filter((entry) => entry.id !== construct.id)
+                      .filter((entry) => {
+                        if (filterMode === 'allies') return isTargetableAllyForUi(participant, entry);
+                        if (filterMode === 'enemies') return isParticipantEnemyForUi(participant, entry);
+                        return true;
+                      })
+                      .filter((entry) => {
+                        const allowedKinds = getCardTargetEntityKinds(card);
+                        if (!Array.isArray(allowedKinds) || !allowedKinds.length) return true;
+                        const kind = String(entry.entityKind || 'participant').toLowerCase();
+                        return allowedKinds.includes(kind);
+                      })
+                      .map(
+                        (entry) =>
+                          `<option value="${entry.id}" ${entry.id === construct.targetId ? 'selected' : ''}>${escapeHtml(formatTargetableEntityLabel(entry))}</option>`
+                      )
+                      .join('')}
+                  </select>
+                </label>
+                ${renderConstructPriorityHint(participant, construct)}`
+              : ''
+          }
+          <div class="card-actions">
+            <button type="button" data-construct-use-card="${construct.id || ''}" data-construct-card-id="${card.id || ''}" ${Number(construct.apCurrent || 0) < Number(card.apCost || 0) ? 'disabled' : ''}>Use ${escapeHtml(card.name || 'Card')} (${Number(card.apCost || 0)} AP)</button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function renderConstructTurnPanel(participant, construct = {}) {
+  if (construct?.summonSicknessTurn === true) {
+    return `
+      <div class="construct-turn-panel">
+        <p class="muted small-note">This construct was summoned this turn and cannot act yet.</p>
+        <div class="card-actions">
+          <button type="button" data-construct-pass-turn="${construct.id || ''}">Pass Turn</button>
+        </div>
+      </div>
+    `;
+  }
+  const standardButtons = renderConstructTurnStandardButtons(construct);
+  const cardMarkup = renderConstructTurnCards(participant, construct);
+  return `
+    <div class="construct-turn-panel">
+      <p class="muted small-note">Construct turn active. Use a card, move, take a standard action, or pass.</p>
+      ${cardMarkup}
+      ${standardButtons ? `<div class="button-grid">${standardButtons}</div>` : ''}
+      <div class="card-actions">
+        <button type="button" data-construct-pass-turn="${construct.id || ''}">Pass Turn</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderConstructCards(participant) {
   const constructs = participant.constructs || [];
+  const currentTurnEntry = getCurrentEncounterTurnEntry();
   if (!constructs.length) {
     return '<p class="muted">No active constructs.</p>';
   }
   return constructs
     .map((construct) => {
+      const isConstructTurn =
+        currentTurnEntry?.kind === 'construct' &&
+        currentTurnEntry.participantId === participant.id &&
+        currentTurnEntry.constructId === construct.id;
       const assignedTargets = Array.isArray(construct.targetIds)
         ? construct.targetIds
             .map((targetId) => formatTargetableEntityLabel(getEncounterTargetableById(targetId)))
@@ -1664,7 +1829,8 @@ function renderConstructCards(participant) {
                 )
                 .join('')}
             </select>
-          </label>`;
+          </label>
+          ${renderConstructPriorityHint(participant, construct)}`;
       return `
         <article class="card-item construct-item">
           <h4>${escapeHtml(construct.name || 'Construct')}</h4>
@@ -1678,15 +1844,19 @@ function renderConstructCards(participant) {
           <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
           ${targetMarkup}
           <div class="card-actions">
-            <button type="button" data-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
+            <button type="button" data-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 || (constructHasManualTurnForUi(construct) && !isConstructTurn) ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
             <button type="button" data-remove-construct="${construct.id || ''}">Remove</button>
           </div>
+          ${isConstructTurn ? renderConstructTurnPanel(participant, construct) : ''}
         </article>`;
     })
     .join('');
 }
 
 function renderConstructCardSummary(construct = {}) {
+  if (Array.isArray(construct.cardObjects) && construct.cardObjects.length) {
+    return `Card actions: ${construct.cardObjects.map((card) => card.name).filter(Boolean).join(', ')}`;
+  }
   const mode = String(construct.mode || '').toLowerCase();
   if (mode === 'status') {
     const statusLabel = construct.statusName || construct.statusId || 'Status';
@@ -3258,6 +3428,62 @@ function wireDetailEvents(participant) {
       }
     });
   });
+  panel.querySelectorAll('[data-construct-standard]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const actionId = button.dataset.constructStandard;
+      const constructId = button.dataset.constructId;
+      if (!actionId || !constructId) return;
+      try {
+        await api('/api/actions/standard', 'POST', {
+          actionId,
+          participantId: participant.id,
+          constructId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelectorAll('[data-construct-use-card]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const constructId = button.dataset.constructUseCard;
+      const cardId = button.dataset.constructCardId;
+      if (!constructId || !cardId) return;
+      const article = button.closest('.construct-turn-panel');
+      const targetId = article?.querySelector(`[data-construct-card-target="${constructId}:${cardId}"]`)?.value || '';
+      try {
+        await api('/api/actions/card', 'POST', {
+          participantId: participant.id,
+          constructId,
+          cardId,
+          targetId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
+  panel.querySelectorAll('[data-construct-pass-turn]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const constructId = button.dataset.constructPassTurn;
+      const currentTurn = getCurrentEncounterTurnEntry();
+      if (
+        !constructId ||
+        currentTurn?.kind !== 'construct' ||
+        currentTurn.constructId !== constructId ||
+        currentTurn.participantId !== participant.id
+      ) {
+        return;
+      }
+      try {
+        await api('/api/turn/next', 'POST');
+      } catch (err) {
+        notify(err.message);
+      }
+    });
+  });
 
   const basePanel = panel.querySelector('[data-base-panel]');
   const baseForm = basePanel?.querySelector('[data-form="baseStats"]');
@@ -4472,11 +4698,12 @@ function renderCardTargetControl(card = {}, participant = {}) {
     shiftEnabled: arcaneShiftEnabled
   });
   const customEffectControl = renderCardCustomEffectControl(card);
+  const constructTargetAssist = renderConstructTargetAssistForCard(card, participant);
   const perTargetDetailContainer = getCardPerTargetInputs(card).length
     ? `<div data-card-target-detail-container="${card.id || ''}">${renderCardPerTargetDetailSection(card)}</div>`
     : '';
   if (targetMode === 'none') {
-    return [customEffectControl, contestedControl, perTargetDetailContainer, arcaneControls].filter(Boolean).join('');
+    return [constructTargetAssist, customEffectControl, contestedControl, perTargetDetailContainer, arcaneControls].filter(Boolean).join('');
   }
   const selfId = participant.id || '';
   if (selfOnly || targetMode === 'all_others') {
@@ -4497,6 +4724,7 @@ function renderCardTargetControl(card = {}, participant = {}) {
     </label>`
         : ''
     }
+    ${constructTargetAssist}
     ${customEffectControl}
     ${contestedControl}
     ${perTargetDetailContainer}
@@ -4525,6 +4753,7 @@ function renderCardTargetControl(card = {}, participant = {}) {
       )}
     </select>
   </label>
+  ${constructTargetAssist}
   ${
     showSecondaryTarget
       ? `<label>${escapeHtml(card.secondaryTargetLabel || 'Secondary Target')}

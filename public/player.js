@@ -472,7 +472,13 @@ function renderPlayerTurnTrack() {
         .map(
           (entry, index) => `
             <div class="turn-pill ${(state.encounter.currentTurnKey && getPlayerTurnEntryKey(entry) === state.encounter.currentTurnKey) || (!state.encounter.currentTurnKey && index === (state.encounter.currentIndex ?? -1)) ? 'is-active' : ''} ${entry.participantId === focusId ? 'is-focus' : ''}">
-              <span>${escapeHtml(entry.kind === 'zone' ? `${entry.zone?.name || 'Zone'}` : entry.participant?.name || 'Combatant')}</span>
+              <span>${escapeHtml(
+                entry.kind === 'zone'
+                  ? `${entry.zone?.name || 'Zone'}`
+                  : entry.kind === 'construct'
+                    ? `${entry.construct?.name || 'Construct'} (${entry.participant?.name || 'Owner'})`
+                    : entry.participant?.name || 'Combatant'
+              )}</span>
             </div>`
         )
         .join('')}
@@ -481,16 +487,34 @@ function renderPlayerTurnTrack() {
 }
 
 function getPlayerTurnEntryKey(entry = {}) {
+  if (entry.kind === 'construct') {
+    return `construct:${entry.participantId}:${entry.constructId}`;
+  }
   if (entry.kind === 'zone') {
     return `zone:${entry.participantId}:${entry.zoneId}`;
   }
   return `participant:${entry.participantId}`;
 }
 
+function playerConstructHasManualTurn(construct = {}) {
+  return construct?.manualTurns === true || (Array.isArray(construct?.cardObjects) && construct.cardObjects.length > 0);
+}
+
 function getPlayerTurnEntries() {
   const entries = [];
   for (const participant of state.encounter.participants || []) {
     entries.push({ kind: 'participant', participantId: participant.id, participant, zone: null });
+    for (const construct of participant.constructs || []) {
+      if (!construct?.id || !playerConstructHasManualTurn(construct)) continue;
+      entries.push({
+        kind: 'construct',
+        participantId: participant.id,
+        constructId: construct.id,
+        participant,
+        construct,
+        zone: null
+      });
+    }
     for (const zone of participant.zones || []) {
       entries.push({
         kind: 'zone',
@@ -2803,11 +2827,12 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
     shiftEnabled: arcaneShiftEnabled
   });
   const customEffectControl = renderPlayerCardCustomEffectControl(card);
+  const constructTargetAssist = renderPlayerConstructTargetAssistForCard(card, participant);
   const perTargetDetailContainer = getPlayerCardPerTargetInputs(card).length
     ? `<div data-player-card-target-detail-container="${card.id}">${renderPlayerCardPerTargetDetailSection(card)}</div>`
     : '';
   if (targetMode === 'none') {
-    return [customEffectControl, contestedControl, perTargetDetailContainer, arcaneControls].filter(Boolean).join('');
+    return [constructTargetAssist, customEffectControl, contestedControl, perTargetDetailContainer, arcaneControls].filter(Boolean).join('');
   }
   const selfId = participant.id || '';
   if (selfOnly || targetMode === 'all_others') {
@@ -2828,6 +2853,7 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
     </label>`
         : ''
     }
+    ${constructTargetAssist}
     ${customEffectControl}
     ${contestedControl}
     ${perTargetDetailContainer}
@@ -2856,6 +2882,7 @@ function renderPlayerCardTargetControl(card = {}, participant = {}) {
       )}
     </select>
   </label>
+  ${constructTargetAssist}
   ${
     showSecondaryTarget
       ? `<label>${escapeHtml(card.secondaryTargetLabel || 'Secondary Target')}
@@ -3902,11 +3929,16 @@ function renderPlayerConstructs(participant) {
     return;
   }
   listEl.classList.remove('empty-state');
+  const currentTurnEntry = getCurrentTurnEntry();
   listEl.innerHTML = `
     <p class="muted small-note">Active ${constructs.length}/${cap} • Bonus +${summary.damageBonus || 0} damage, +${summary.durationBonusTurns || 0} duration.</p>
     <div class="cards-grid construct-grid">
       ${constructs
         .map((construct) => {
+          const isConstructTurn =
+            currentTurnEntry?.kind === 'construct' &&
+            currentTurnEntry.participantId === participant.id &&
+            currentTurnEntry.constructId === construct.id;
           const assignedTargets = Array.isArray(construct.targetIds)
             ? construct.targetIds
                 .map((targetId) => formatPlayerTargetableLabel(getPlayerEncounterTargetableById(targetId)))
@@ -3926,7 +3958,8 @@ function renderPlayerConstructs(participant) {
                     )
                     .join('')}
                 </select>
-              </label>`;
+              </label>
+              ${renderPlayerConstructPriorityHint(participant, construct)}`;
           return `
             <article class="card-item construct-item">
               <h4>${escapeHtml(construct.name || 'Construct')}</h4>
@@ -3940,9 +3973,10 @@ function renderPlayerConstructs(participant) {
               <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
               ${targetMarkup}
               <div class="card-actions">
-                <button type="button" data-player-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
+                <button type="button" data-player-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 || (playerConstructHasManualTurn(construct) && !isConstructTurn) ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
                 <button type="button" data-player-remove-construct="${construct.id || ''}">Remove</button>
               </div>
+              ${isConstructTurn ? renderPlayerConstructTurnPanel(participant, construct) : ''}
             </article>`;
         })
         .join('')}
@@ -3995,9 +4029,184 @@ function renderPlayerConstructs(participant) {
       }
     };
   });
+  listEl.querySelectorAll('[data-player-construct-standard]').forEach((button) => {
+    button.onclick = async () => {
+      const actionId = button.dataset.playerConstructStandard;
+      const constructId = button.dataset.playerConstructId;
+      if (!actionId || !constructId) return;
+      try {
+        await api('/api/actions/standard', 'POST', {
+          actionId,
+          participantId: participant.id,
+          constructId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    };
+  });
+  listEl.querySelectorAll('[data-player-construct-use-card]').forEach((button) => {
+    button.onclick = async () => {
+      const constructId = button.dataset.playerConstructUseCard;
+      const cardId = button.dataset.playerConstructCardId;
+      if (!constructId || !cardId) return;
+      const article = button.closest('.construct-turn-panel');
+      const targetId = article?.querySelector(`[data-player-construct-card-target="${constructId}:${cardId}"]`)?.value || '';
+      try {
+        await api('/api/actions/card', 'POST', {
+          participantId: participant.id,
+          constructId,
+          cardId,
+          targetId
+        });
+        fetchState();
+      } catch (err) {
+        notify(err.message);
+      }
+    };
+  });
+  listEl.querySelectorAll('[data-player-construct-pass-turn]').forEach((button) => {
+    button.onclick = async () => {
+      const constructId = button.dataset.playerConstructPassTurn;
+      const activeEntry = getCurrentTurnEntry();
+      if (
+        !constructId ||
+        activeEntry?.kind !== 'construct' ||
+        activeEntry.constructId !== constructId ||
+        activeEntry.participantId !== participant.id
+      ) {
+        return;
+      }
+      try {
+        await api('/api/turn/next', 'POST');
+      } catch (err) {
+        notify(err.message);
+      }
+    };
+  });
+}
+
+function getPlayerLowestHpEnemyTarget(participant) {
+  return getPlayerEncounterTargetables()
+    .filter((entry) => Number(entry.hp || 0) > 0)
+    .filter((entry) => isPlayerEnemyForUi(participant, entry))
+    .sort((left, right) => {
+      const hpCompare = Number(left.hp || 0) - Number(right.hp || 0);
+      if (hpCompare !== 0) return hpCompare;
+      const maxHpCompare = Number(left.maxHp || 0) - Number(right.maxHp || 0);
+      if (maxHpCompare !== 0) return maxHpCompare;
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    })[0] || null;
+}
+
+function renderPlayerConstructPriorityHint(participant, construct = {}) {
+  if (String(construct.targetPriority || '').trim().toLowerCase() !== 'lowest_hp_enemy') {
+    return '';
+  }
+  const target = getPlayerLowestHpEnemyTarget(participant);
+  if (!target) return '<p class="muted small-note">Target assist: no enemy target available.</p>';
+  return `<p class="muted small-note">Target assist: closest to death is ${escapeHtml(formatPlayerTargetableLabel(target))}.</p>`;
+}
+
+function renderPlayerConstructTargetAssistForCard(card = {}, participant = {}) {
+  if (String(card.constructTargetPriority || '').trim().toLowerCase() !== 'lowest_hp_enemy') {
+    return '';
+  }
+  const target = getPlayerLowestHpEnemyTarget(participant);
+  if (!target) return '<p class="muted small-note">Target assist: no enemy target available.</p>';
+  return `<p class="muted small-note">Target assist: closest to death is ${escapeHtml(formatPlayerTargetableLabel(target))}.</p>`;
+}
+
+function renderPlayerConstructTurnStandardButtons(construct = {}) {
+  const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
+  const order = ['disengage', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
+  return order
+    .map((id) => actionsById.get(id))
+    .filter(Boolean)
+    .map(
+      (action) =>
+        `<button type="button" data-player-construct-standard="${action.id}" data-player-construct-id="${construct.id || ''}">${escapeHtml(action.label)} (${Number(action.apCost || 0)} AP)</button>`
+    )
+    .join('');
+}
+
+function renderPlayerConstructTurnCards(participant, construct = {}) {
+  const cards = Array.isArray(construct.cardObjects) ? construct.cardObjects : [];
+  if (!cards.length) return '';
+  return cards
+    .map((card) => {
+      const filterMode = card.targetAlliesOnly === true ? 'allies' : card.targetEnemiesOnly === true ? 'enemies' : 'all';
+      return `
+        <div class="card-item">
+          <strong>${escapeHtml(card.name || 'Card')}</strong>
+          <p>${escapeHtml(card.effect || renderConstructCardSummary({ damage: card.damage || 0, damageType: card.damageType || '' }))}</p>
+          ${
+            getCardTargetMode(card) !== 'none'
+              ? `<label>Target
+                  <select data-player-construct-card-target="${construct.id || ''}:${card.id || ''}">
+                    <option value="">Select target…</option>
+                    ${getPlayerEncounterTargetables()
+                      .filter((entry) => entry.id !== construct.id)
+                      .filter((entry) => {
+                        if (filterMode === 'allies') return isPlayerTargetableAlly(participant, entry);
+                        if (filterMode === 'enemies') return isPlayerEnemyForUi(participant, entry);
+                        return true;
+                      })
+                      .filter((entry) => {
+                        const allowedKinds = getPlayerCardTargetEntityKinds(card);
+                        if (!Array.isArray(allowedKinds) || !allowedKinds.length) return true;
+                        const kind = String(entry.entityKind || 'participant').toLowerCase();
+                        return allowedKinds.includes(kind);
+                      })
+                      .map(
+                        (entry) =>
+                          `<option value="${entry.id}" ${entry.id === construct.targetId ? 'selected' : ''}>${escapeHtml(formatPlayerTargetableLabel(entry))}</option>`
+                      )
+                      .join('')}
+                  </select>
+                </label>
+                ${renderPlayerConstructPriorityHint(participant, construct)}`
+              : ''
+          }
+          <div class="card-actions">
+            <button type="button" data-player-construct-use-card="${construct.id || ''}" data-player-construct-card-id="${card.id || ''}" ${Number(construct.apCurrent || 0) < Number(card.apCost || 0) ? 'disabled' : ''}>Use ${escapeHtml(card.name || 'Card')} (${Number(card.apCost || 0)} AP)</button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function renderPlayerConstructTurnPanel(participant, construct = {}) {
+  if (construct?.summonSicknessTurn === true) {
+    return `
+      <div class="construct-turn-panel">
+        <p class="muted small-note">This construct was summoned this turn and cannot act yet.</p>
+        <div class="card-actions">
+          <button type="button" data-player-construct-pass-turn="${construct.id || ''}">Pass Turn</button>
+        </div>
+      </div>
+    `;
+  }
+  const standardButtons = renderPlayerConstructTurnStandardButtons(construct);
+  const cardMarkup = renderPlayerConstructTurnCards(participant, construct);
+  return `
+    <div class="construct-turn-panel">
+      <p class="muted small-note">Construct turn active. Use a card, move, take a standard action, or pass.</p>
+      ${cardMarkup}
+      ${standardButtons ? `<div class="button-grid">${standardButtons}</div>` : ''}
+      <div class="card-actions">
+        <button type="button" data-player-construct-pass-turn="${construct.id || ''}">Pass Turn</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderConstructCardSummary(construct = {}) {
+  if (Array.isArray(construct.cardObjects) && construct.cardObjects.length) {
+    return `Card actions: ${construct.cardObjects.map((card) => card.name).filter(Boolean).join(', ')}`;
+  }
   const mode = String(construct.mode || '').toLowerCase();
   if (mode === 'status') {
     const statusLabel = construct.statusName || construct.statusId || 'Status';
@@ -4322,6 +4531,15 @@ function renderTurnInfo() {
     els.turnInfo.innerHTML = isFocused
       ? `<strong>Your zone effect turn:</strong> ${escapeHtml(zone?.name || 'Zone')}`
       : `Current turn: ${escapeHtml(owner?.name || 'Combatant')} zone (${escapeHtml(zone?.name || 'Zone')})`;
+    return;
+  }
+  if (currentEntry.kind === 'construct') {
+    const owner = currentEntry.participant;
+    const construct = currentEntry.construct;
+    const isFocused = owner?.id && owner.id === focusId;
+    els.turnInfo.innerHTML = isFocused
+      ? `<strong>Your construct turn:</strong> ${escapeHtml(construct?.name || 'Construct')} (${Number(construct?.apCurrent || 0)}/${Number(construct?.apMax || 0)} AP)`
+      : `Current turn: ${escapeHtml(owner?.name || 'Combatant')} construct (${escapeHtml(construct?.name || 'Construct')})`;
     return;
   }
   const current = currentEntry.participant;

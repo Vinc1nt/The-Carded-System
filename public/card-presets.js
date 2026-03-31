@@ -2260,6 +2260,53 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'demonic_summon_imp',
+    card: {
+      id: 'demonic_summon_imp',
+      name: 'Summon Imp',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Construct', 'Fire'],
+      targetMode: 'none',
+      effect:
+        'Summon an Imp construct with Spitfire. It does nothing on the turn it is summoned. On later Imp turns, the GM chooses its Spitfire target.',
+      isConstruct: true,
+      constructMode: 'utility',
+      constructManualTurns: true,
+      constructDurationTurns: 2,
+      constructDurationTurnsByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
+      constructAp: 2,
+      constructMaxHp: 6,
+      constructMaxHpByLevel: {
+        1: 6,
+        2: 6,
+        3: 8,
+        4: 8
+      },
+      constructMoveFt: 10,
+      constructCards: ['demonic_spitfire'],
+      constructCardMasteryLevel: 1,
+      constructTargetPriority: 'lowest_hp_enemy',
+      mastery: [
+        'Level 1: Summon an Imp with Spitfire (Imp card mastery defaults to 1). The Imp does not act on the turn it is summoned.',
+        'Level 2: Duration increases to 3 later turns.',
+        'Level 3: Imp HP increases to 8.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'demonic_spitfire',
     card: {
       id: 'demonic_spitfire',
