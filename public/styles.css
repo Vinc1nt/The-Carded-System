@@ -1379,6 +1379,12 @@ textarea {
   width: 96px;
 }
 
+.ability-score-input {
+  width: 92px;
+  min-width: 92px;
+  padding-inline: 0.75rem;
+}
+
 .player-tab-card {
   min-height: 100%;
 }
@@ -1429,22 +1435,6 @@ textarea {
 
 .player-subpanel {
   min-height: 100%;
-}
-
-.player-dashboard-details {
-  gap: 0.6rem;
-}
-
-.player-dashboard-details summary {
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  list-style: none;
-}
-
-.player-dashboard-details summary::-webkit-details-marker {
-  display: none;
 }
 
 .player-subpanel-wide {

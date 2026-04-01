@@ -34,6 +34,7 @@ const playerJournalState = new Map();
 const playerManageState = new Map();
 const playerCardOpenState = new Map();
 const playerDashboardTabState = new Map();
+const playerCompactTableState = new Map();
 const PLAYER_DASHBOARD_TABS = ['standardActions', 'cards', 'inventory', 'journal', 'notes'];
 
 const els = {
@@ -235,13 +236,18 @@ function setPlayerDashboardTab(participantId, tabId) {
   playerDashboardTabState.set(participantId, tabId);
 }
 
-function getPlayerSectionOpen(participantId, sectionKey, defaultOpen = false) {
-  if (!participantId || !sectionKey) return defaultOpen;
-  const snapshot = playerSectionState.get(participantId);
-  if (!snapshot || !Object.prototype.hasOwnProperty.call(snapshot, sectionKey)) {
-    return defaultOpen;
-  }
-  return Boolean(snapshot[sectionKey]);
+function getPlayerCompactTableExpanded(participantId, key) {
+  const snapshot = participantId ? playerCompactTableState.get(participantId) : null;
+  return Boolean(snapshot?.[key]);
+}
+
+function togglePlayerCompactTableExpanded(participantId, key) {
+  if (!participantId || !key) return;
+  const current = playerCompactTableState.get(participantId) || {};
+  playerCompactTableState.set(participantId, {
+    ...current,
+    [key]: !current[key]
+  });
 }
 
 function renderSelectOptions() {
@@ -291,8 +297,8 @@ function renderStats() {
   const showZoneSection = participantHasActiveZoneCard(participant);
   const showConstructSection = participantHasActiveConstructCard(participant);
   const activeTab = getPlayerDashboardTab(participant.id);
-  const savesExpanded = getPlayerSectionOpen(participant.id, 'saves');
-  const skillsExpanded = getPlayerSectionOpen(participant.id, 'skills');
+  const savesExpanded = getPlayerCompactTableExpanded(participant.id, 'saves');
+  const skillsExpanded = getPlayerCompactTableExpanded(participant.id, 'skills');
   els.stats.innerHTML = `
     <div class="player-board">
       <section class="player-dashboard-card player-turn-order-card">
@@ -356,14 +362,20 @@ function renderStats() {
           ${renderPlayerMitigationPanel(participant, manageState.mitigation)}
         </div>
         <div class="player-dashboard-side">
-          <details class="player-dashboard-card player-dashboard-details" data-player-section="saves" ${savesExpanded ? 'open' : ''}>
-            <summary><h3>Saving Throws</h3></summary>
+          <section class="player-dashboard-card">
+            <div class="section-header">
+              <h3>Saving Throws</h3>
+              <button type="button" data-player-compact-toggle="saves">${savesExpanded ? 'Hide Prof' : 'Show Prof'}</button>
+            </div>
             ${renderSavingThrows(participant, { expanded: savesExpanded })}
-          </details>
-          <details class="player-dashboard-card player-dashboard-details" data-player-section="skills" ${skillsExpanded ? 'open' : ''}>
-            <summary><h3>Skills</h3></summary>
+          </section>
+          <section class="player-dashboard-card">
+            <div class="section-header">
+              <h3>Skills</h3>
+              <button type="button" data-player-compact-toggle="skills">${skillsExpanded ? 'Hide Prof/Expert' : 'Show Prof/Expert'}</button>
+            </div>
             ${renderSkillsTable(participant, { expanded: skillsExpanded })}
-          </details>
+          </section>
           ${renderPlayerAbilitiesPanel(participant, manageState.abilities)}
         </div>
         <section class="player-dashboard-card player-tab-card">
@@ -518,7 +530,6 @@ function renderPlayerMitigationPanel(participant, manageMode = false) {
           `
           : ''
       }
-      <p class="muted">Resistances halve matching damage, and matching status effects decay by 2 each turn instead of 1. Vulnerabilities double incoming damage. Immunities prevent matching damage or status effects while active.</p>
     </section>
   `;
 }
@@ -1297,7 +1308,6 @@ function renderPlayerDamageSection(participant, manageMode = false) {
           `
             : ''
         }
-        <p class="muted">Resistances halve matching damage, and matching status effects decay by 2 each turn instead of 1. Vulnerabilities double incoming damage. Immunities prevent matching damage or status effects while active. Recover (2 AP) removes 1 stack of Bleeding/Poisoned/Burning.</p>
       </div>
     </details>
   `;
@@ -1327,17 +1337,10 @@ function renderPlayerDamageGroup(label, values = [], key, manageMode = false) {
         </span>`
     )
     .join('');
-  const helperText =
-    key === 'resistance'
-      ? 'Halves matching damage; matching statuses decay by 2 each turn instead of 1'
-      : key === 'vulnerability'
-        ? 'Doubles incoming damage'
-        : 'Prevents matching damage or status effects';
   return `
     <div class="damage-group">
       <div class="damage-group-header">
         <h4>${label}</h4>
-        <small class="muted">${helperText}</small>
       </div>
       <div class="tag-list">
         ${list || '<span class="muted">None</span>'}
@@ -1827,7 +1830,7 @@ function renderAbilityTable(participant) {
     return `
       <tr>
         <th>${label}</th>
-        <td><input type="number" data-ability-input="${key}" value="${value}" /></td>
+        <td><input type="number" class="ability-score-input" data-ability-input="${key}" value="${value}" /></td>
         <td>${bonus ? formatSignedValue(bonus) : '0'}</td>
         <td>${formatMod(mod)}</td>
       </tr>`;
@@ -5170,8 +5173,11 @@ function wirePlayerSheetEvents(participant) {
       render();
     });
   });
-  panel.querySelectorAll('details.player-dashboard-details[data-player-section]').forEach((detail) => {
-    detail.addEventListener('toggle', () => {
+  panel.querySelectorAll('[data-player-compact-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.playerCompactToggle;
+      if (!key) return;
+      togglePlayerCompactTableExpanded(participant.id, key);
       render();
     });
   });
