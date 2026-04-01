@@ -33,6 +33,8 @@ const playerSectionState = new Map();
 const playerJournalState = new Map();
 const playerManageState = new Map();
 const playerCardOpenState = new Map();
+const playerDashboardTabState = new Map();
+const PLAYER_DASHBOARD_TABS = ['standardActions', 'cards', 'inventory', 'journal', 'notes'];
 
 const els = {
   select: document.getElementById('playerSelect'),
@@ -223,6 +225,16 @@ function render() {
   renderTurnInfo();
 }
 
+function getPlayerDashboardTab(participantId) {
+  const saved = participantId ? playerDashboardTabState.get(participantId) : null;
+  return PLAYER_DASHBOARD_TABS.includes(saved) ? saved : 'standardActions';
+}
+
+function setPlayerDashboardTab(participantId, tabId) {
+  if (!participantId || !PLAYER_DASHBOARD_TABS.includes(tabId)) return;
+  playerDashboardTabState.set(participantId, tabId);
+}
+
 function renderSelectOptions() {
   const participants = state.encounter.participants || [];
   const options = [];
@@ -269,70 +281,527 @@ function renderStats() {
   const manageState = getPlayerManageState(participant.id);
   const showZoneSection = participantHasActiveZoneCard(participant);
   const showConstructSection = participantHasActiveConstructCard(participant);
+  const activeTab = getPlayerDashboardTab(participant.id);
   els.stats.innerHTML = `
-    <div class="panel player-sheet">
-      ${renderPlayerTurnTrack()}
-      <div class="panel-header">
+    <div class="player-board">
+      <section class="player-dashboard-card player-turn-order-card">
+        <div class="panel-header">
+          <div>
+            <h2>Turn Order</h2>
+            <p class="muted">Current encounter flow including construct and zone turns.</p>
+          </div>
+        </div>
+        ${renderPlayerTurnTrack()}
+      </section>
+      <div class="panel-header player-dashboard-nameplate">
         <div>
           <h2>${participant.name}</h2>
           <p class="muted">Set Focus: ${participant.setFocus || '—'}</p>
         </div>
-        <div class="player-header-actions">
-          <div class="muted">Round ${state.encounter.round}</div>
-          <label class="team-select-inline">
-            Team
-            <select data-player-team-select>
-              ${renderPlayerTeamOptions(participant)}
-            </select>
-          </label>
-        </div>
       </div>
-      <div class="vitals-grid">
-        ${renderPlayerVital('HP', participant.hp, participant.maxHp, 'hp')}
-        ${renderPlayerVital('Shield', participant.shield, participant.maxShield, 'shield')}
-        ${renderPlayerVital('AP', participant.apCurrent, participant.apMax, 'ap')}
-        ${renderPlayerVital('Guard Restore', participant.guardRestore || 3)}
-        ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
-        ${renderPlayerConstructVital(participant)}
+      <div class="player-dashboard-top">
+        <section class="player-dashboard-card player-vitals-card">
+          <div class="vitals-grid player-dashboard-vitals">
+            ${renderPlayerVital('HP', participant.hp, participant.maxHp, 'hp')}
+            ${renderPlayerVital('Shield', participant.shield, participant.maxShield, 'shield')}
+            ${renderPlayerVital('AP', participant.apCurrent, participant.apMax, 'ap')}
+          </div>
+          <div class="player-bonus-strip">
+            <span class="player-bonus-chip">Guard Restore ${participant.guardRestore || 3}</span>
+            <span class="player-bonus-chip">Damage Bonus ${formatSignedValue(participant.damageBonus || 0)}</span>
+            ${
+              participant.constructs?.length
+                ? `<span class="player-bonus-chip">Constructs ${participant.constructs.length}${
+                    Number(participant?.derivedBonuses?.machineConstructs?.maxActive || 0) > 0
+                      ? ` / ${Number(participant.derivedBonuses.machineConstructs.maxActive)}`
+                      : ''
+                  }</span>`
+                : ''
+            }
+          </div>
+        </section>
+        <section class="player-dashboard-card player-active-status-card">
+          <div class="panel-header">
+            <div>
+              <h3>Active Statuses</h3>
+              <p class="muted">Round ${state.encounter.round}</p>
+            </div>
+            <label class="team-select-inline">
+              Team
+              <select data-player-team-select>
+                ${renderPlayerTeamOptions(participant)}
+              </select>
+            </label>
+          </div>
+          ${renderPlayerActiveStatusSummary(participant)}
+        </section>
       </div>
-      ${renderPlayerStandardActionsSection(participant)}
-      ${renderPlayerStatusSection(participant)}
-      ${showZoneSection ? renderPlayerZoneSection() : ''}
-      ${renderPlayerCardsSection(participant)}
-      ${renderPlayerSetSection(participant)}
-      ${showConstructSection ? renderPlayerConstructSection() : ''}
-      <details class="player-collapsible" data-player-section="abilities">
-        <summary><strong>Ability Scores</strong></summary>
-        <div class="collapsible-body">
-          <label>Proficiency Bonus
-            <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
-          </label>
-          ${renderAbilityTable(participant)}
-          ${renderPlayerAttributeScalingNote(participant)}
+      <div class="player-dashboard-body">
+        <div class="player-dashboard-side">
+          <section class="player-dashboard-card">
+            <div class="panel-header">
+              <h3>Stats</h3>
+              <label class="player-proficiency-inline">Proficiency Bonus
+                <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
+              </label>
+            </div>
+            ${renderAbilityTable(participant)}
+            ${renderPlayerAttributeScalingNote(participant)}
+          </section>
+          ${renderPlayerMitigationPanel(participant, manageState.mitigation)}
         </div>
-      </details>
-      <details class="player-collapsible" data-player-section="saves">
-        <summary><strong>Saving Throws</strong></summary>
-        <div class="collapsible-body">
-          ${renderSavingThrows(participant)}
+        <div class="player-dashboard-side">
+          <section class="player-dashboard-card">
+            <div class="panel-header">
+              <h3>Saving Throws</h3>
+            </div>
+            ${renderSavingThrows(participant)}
+          </section>
+          <section class="player-dashboard-card">
+            <div class="panel-header">
+              <h3>Skills</h3>
+            </div>
+            ${renderSkillsTable(participant)}
+          </section>
+          ${renderPlayerAbilitiesPanel(participant, manageState.abilities)}
         </div>
-      </details>
-      <details class="player-collapsible" data-player-section="skills">
-        <summary><strong>Skills</strong></summary>
-        <div class="collapsible-body">
-          ${renderSkillsTable(participant)}
-        </div>
-      </details>
-      ${renderPlayerDamageSection(participant, manageState.mitigation)}
-      ${renderPlayerAbilitiesSection(participant, manageState.abilities)}
-      ${renderPlayerInventorySection()}
-      ${renderPlayerRelicSection()}
-      ${renderPlayerNotesSection(participant)}
+        <section class="player-dashboard-card player-tab-card">
+          <div class="player-tab-bar" role="tablist" aria-label="Player dashboard sections">
+            ${renderPlayerDashboardTabs(participant.id, activeTab)}
+          </div>
+          <div class="player-tab-panels">
+            ${renderPlayerDashboardTabPanel(
+              'standardActions',
+              activeTab,
+              renderPlayerStandardActionsTab(participant, showZoneSection, showConstructSection)
+            )}
+            ${renderPlayerDashboardTabPanel('cards', activeTab, renderPlayerCardsTab(participant))}
+            ${renderPlayerDashboardTabPanel('inventory', activeTab, renderPlayerInventoryTab())}
+            ${renderPlayerDashboardTabPanel(
+              'journal',
+              activeTab,
+              `
+                <section class="player-tab-section">
+                  <div class="panel-header">
+                    <h3>Journal</h3>
+                  </div>
+                  <div id="playerJournalContent" class="journal-columns"></div>
+                </section>
+              `
+            )}
+            ${renderPlayerDashboardTabPanel('notes', activeTab, renderPlayerNotesTab(participant))}
+          </div>
+        </section>
+      </div>
     </div>
   `;
   cachePlayerSectionRefs();
   wirePlayerSheetEvents(participant);
   restorePlayerSections(participant.id);
+}
+
+function renderPlayerDashboardTabs(participantId, activeTab) {
+  const labels = {
+    standardActions: 'SA',
+    cards: 'Cards',
+    inventory: 'Inventory',
+    journal: 'Journal',
+    notes: 'Notes'
+  };
+  return PLAYER_DASHBOARD_TABS.map(
+    (tabId) => `
+      <button
+        type="button"
+        class="player-tab-button ${tabId === activeTab ? 'is-active' : ''}"
+        data-player-dashboard-tab="${tabId}"
+        data-player-dashboard-owner="${participantId}"
+        role="tab"
+        aria-selected="${tabId === activeTab ? 'true' : 'false'}"
+      >
+        ${labels[tabId] || tabId}
+      </button>
+    `
+  ).join('');
+}
+
+function renderPlayerDashboardTabPanel(tabId, activeTab, content) {
+  return `
+    <div class="player-tab-panel ${tabId === activeTab ? 'is-active' : ''}" data-player-tab-panel="${tabId}" role="tabpanel">
+      ${content}
+    </div>
+  `;
+}
+
+function renderPlayerActiveStatusSummary(participant) {
+  const entries = [];
+  (participant.statuses || []).forEach((status) => {
+    const stacks = Math.max(1, Number(status?.stacks || 1));
+    const turns = Math.max(0, Number(status?.remainingTurns || 0));
+    entries.push({
+      label: `${status.name || 'Status'}${stacks > 1 ? ` ×${stacks}` : ''}`,
+      meta: turns > 0 ? `${turns} turn${turns === 1 ? '' : 's'} left` : ''
+    });
+  });
+  (participant.constructs || []).forEach((construct) => {
+    const turns = Math.max(0, Number(construct?.remainingTurns || 0));
+    entries.push({
+      label: `Construct: ${construct.name || 'Construct'}`,
+      meta: turns > 0 ? `${turns} turn${turns === 1 ? '' : 's'} left` : ''
+    });
+  });
+  (participant.zones || []).forEach((zone) => {
+    const turns = Math.max(0, Number(zone?.remainingTurns || 0));
+    entries.push({
+      label: `Zone: ${zone.name || 'Zone'}`,
+      meta: turns > 0 ? `${turns} turn${turns === 1 ? '' : 's'} left` : ''
+    });
+  });
+  if (!entries.length) {
+    return '<p class="muted">No active statuses, constructs, or zones.</p>';
+  }
+  return `
+    <div class="player-status-summary-list">
+      ${entries
+        .map(
+          (entry) => `
+            <article class="player-status-summary-card">
+              <strong>${escapeHtml(entry.label)}</strong>
+              ${entry.meta ? `<small>${escapeHtml(entry.meta)}</small>` : ''}
+            </article>
+          `
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+function renderPlayerMitigationPanel(participant, manageMode = false) {
+  return `
+    <section class="player-dashboard-card">
+      <div class="section-header">
+        <h3>Resistances, Vulnerabilities, & Immunities</h3>
+        <button type="button" data-player-toggle-mitigation-manage>${manageMode ? 'Done' : 'Manage'}</button>
+      </div>
+      ${renderPlayerDamageGroup('Resistances', participant.resistances, 'resistance', manageMode)}
+      ${renderPlayerDamageGroup('Vulnerabilities', participant.vulnerabilities, 'vulnerability', manageMode)}
+      ${renderPlayerDamageGroup('Immunities', getPlayerImmunityEntries(participant), 'immunity', manageMode)}
+      ${
+        manageMode
+          ? `
+            <div class="form-row">
+              <form data-resistance-form class="stacked-form compact-form">
+                <label class="compact-label">Add Resistance
+                  <select name="resistance">
+                    ${renderResistanceOptions(true)}
+                  </select>
+                </label>
+                <button type="submit">Add</button>
+              </form>
+              <form data-vulnerability-form class="stacked-form compact-form">
+                <label class="compact-label">Add Vulnerability
+                  <select name="vulnerability">
+                    ${renderDamageTypeOptions(true)}
+                  </select>
+                </label>
+                <button type="submit">Add</button>
+              </form>
+              <form data-immunity-form class="stacked-form compact-form">
+                <label class="compact-label">Add Immunity
+                  <select name="immunity">
+                    ${renderImmunityOptions(true)}
+                  </select>
+                </label>
+                <button type="submit">Add</button>
+              </form>
+            </div>
+          `
+          : ''
+      }
+      <p class="muted">Resistances halve matching damage, and matching status effects decay by 2 each turn instead of 1. Vulnerabilities double incoming damage. Immunities prevent matching damage or status effects while active.</p>
+    </section>
+  `;
+}
+
+function renderPlayerAbilitiesPanel(participant, manageMode = false) {
+  return `
+    <section class="player-dashboard-card">
+      <div class="section-header">
+        <h3>Abilities</h3>
+        <button type="button" data-player-toggle-ability-manage>${manageMode ? 'Done' : 'Manage'}</button>
+      </div>
+      <div class="ability-list">
+        ${renderPlayerAbilityEntries(participant, manageMode)}
+      </div>
+      ${renderPlayerTextListEditor('Proficiencies', participant.proficiencies || [], 'proficiency', manageMode)}
+      ${renderPlayerTextListEditor('Languages', participant.languages || [], 'language', manageMode)}
+      ${
+        manageMode
+          ? `
+            <form data-player-ability-form class="stacked-form">
+              <label>Name
+                <input type="text" name="name" placeholder="Ability name" />
+              </label>
+              <label>Description
+                <textarea name="description" rows="2" placeholder="Describe the ability..." required></textarea>
+              </label>
+              <button type="submit">Add Ability</button>
+            </form>
+          `
+          : ''
+      }
+    </section>
+  `;
+}
+
+function renderPlayerStandardActionsTab(participant, showZoneSection, showConstructSection) {
+  return `
+    <section class="player-tab-section">
+      <div class="panel-header">
+        <h3>Standard Actions</h3>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" data-player-difficult />
+        <span>Difficult terrain (Move = ${getPlayerMoveDistanceFt(participant, { difficultTerrain: true })} ft)</span>
+      </label>
+      <div class="standard-actions-grid">
+        ${renderPlayerStandardActionButtons(participant)}
+      </div>
+    </section>
+    ${renderPlayerStatusSection(participant)}
+    ${showZoneSection ? renderPlayerZoneSection() : ''}
+    ${showConstructSection ? renderPlayerConstructSection() : ''}
+  `;
+}
+
+function renderPlayerCardsTab(participant) {
+  const { active, total } = getPlayerCardBuckets(participant || {});
+  return `
+    <section class="player-tab-section">
+      <div class="panel-header">
+        <h3>Cards & Loadout</h3>
+        <p class="muted">${active.length}/${MAX_ACTIVE_CARDS} active · ${total} total</p>
+      </div>
+      <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
+      <details id="playerCardDrawer">
+        <summary>Card Tools</summary>
+        <div class="card-import">
+          <label class="file-upload">
+            Import Card
+            <input type="file" id="playerImportCard" accept="application/json" />
+          </label>
+          <label class="file-upload">
+            Import Card Deck
+            <input type="file" id="playerImportDeck" accept="application/json" />
+          </label>
+          <p class="muted help-text">Upload single cards or a {"cards": []} deck file.</p>
+        </div>
+        <form id="playerCardForm" class="stacked-form">
+          <div class="form-row">
+            <label>Name
+              <input type="text" name="name" required />
+            </label>
+            <label>Set
+              <input type="text" name="set" placeholder="Machine" />
+            </label>
+            <label>Type
+              <input type="text" name="type" placeholder="Attack" />
+            </label>
+            <label>Tier
+              <input type="text" name="tier" placeholder="Common" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>AP Cost
+              <input type="number" name="apCost" value="2" />
+            </label>
+            <label>Range
+              <input type="number" name="range" value="5" />
+            </label>
+            <label>Health Bonus
+              <input type="number" name="healthBonus" value="0" />
+            </label>
+            <label>Shield Bonus
+              <input type="number" name="shieldBonus" placeholder="Auto by tier" />
+            </label>
+            <label>Damage
+              <input type="number" name="damage" value="0" />
+            </label>
+            <label>Damage Type
+              <select name="damageType">
+                ${renderDamageTypeOptions(true)}
+              </select>
+            </label>
+            <label>Construct Duration
+              <input type="number" name="constructDurationTurns" value="1" min="1" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Construct Mode
+              <select name="constructMode">
+                <option value="">Auto</option>
+                <option value="damage">Damage</option>
+                <option value="status">Status</option>
+                <option value="utility">Utility</option>
+              </select>
+            </label>
+            <label>Construct Status
+              <select name="constructStatusId">
+                <option value="">None</option>
+                ${renderStatusPresetOptions()}
+              </select>
+            </label>
+            <label>Status Stacks
+              <input type="number" name="constructStatusStacks" value="1" min="1" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Max HP Bonus
+              <input type="number" name="modMaxHp" value="0" />
+            </label>
+            <label>Max Shield Bonus
+              <input type="number" name="modMaxShield" value="0" />
+            </label>
+            <label>AP Max Bonus
+              <input type="number" name="modApMax" value="0" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Guard Bonus
+              <input type="number" name="modGuard" value="0" />
+            </label>
+            <label>Damage Bonus
+              <input type="number" name="modDamage" value="0" />
+            </label>
+          </div>
+          <label>Tags
+            <input type="text" name="tags" placeholder="Melee, Shield" />
+          </label>
+          <label>Effect
+            <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
+          </label>
+          <div class="form-row">
+            <label>Mastery to L2 uses
+              <input type="number" name="masteryTo2" value="10" min="1" />
+            </label>
+            <label>Mastery to L3 uses
+              <input type="number" name="masteryTo3" value="25" min="2" />
+            </label>
+            <label>Mastery to L4 uses
+              <input type="number" name="masteryTo4" value="50" min="3" />
+            </label>
+          </div>
+          <button type="submit">Add Card</button>
+        </form>
+      </details>
+    </section>
+    ${renderPlayerSetSection(participant)}
+  `;
+}
+
+function renderPlayerInventoryTab() {
+  return `
+    <section class="player-tab-section player-inventory-tab">
+      <div class="player-inventory-grid">
+        <section class="player-dashboard-card player-subpanel">
+          <div class="section-header">
+            <h3>Currencies</h3>
+            <button type="button" data-player-toggle-currency>Add Currency</button>
+          </div>
+          <div id="playerCurrencyList" class="relic-list empty-state">No currencies yet.</div>
+          <form id="playerCurrencyForm" class="stacked-form hidden">
+            <div class="form-row">
+              <label>Name
+                <input type="text" name="name" placeholder="Gold" required />
+              </label>
+              <label>Starting Amount
+                <input type="number" name="amount" min="0" value="0" />
+              </label>
+            </div>
+            <button type="submit">Add Currency</button>
+          </form>
+        </section>
+        <section class="player-dashboard-card player-subpanel">
+          <div class="section-header">
+            <h3>Weapons & Armour</h3>
+          </div>
+          <div id="playerWeaponArmorList" class="relic-list empty-state">No weapons or armour tracked.</div>
+        </section>
+        <section class="player-dashboard-card player-subpanel">
+          <div class="section-header">
+            <h3>Items & Supplies</h3>
+            <button type="button" data-player-toggle-inventory>Add Item</button>
+          </div>
+          <div id="playerInventoryList" class="relic-list empty-state">No inventory items yet.</div>
+          <form id="playerInventoryForm" class="stacked-form hidden">
+            <div class="form-row">
+              <label>Item
+                <input type="text" name="name" placeholder="Potion" required />
+              </label>
+              <label>Qty
+                <input type="number" name="quantity" min="1" value="1" />
+              </label>
+            </div>
+            <label>Description
+              <input type="text" name="description" placeholder="Optional details" />
+            </label>
+            <label>Tags
+              <input type="text" name="tags" placeholder="Consumable, Quest, Crafting, Weapon, Armour" />
+            </label>
+            <button type="submit">Add Item</button>
+          </form>
+        </section>
+        <section class="player-dashboard-card player-subpanel player-subpanel-wide">
+          <div class="section-header">
+            <h3>Relics & Artifacts</h3>
+          </div>
+          <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
+          <details id="playerRelicDrawer">
+            <summary>Relic Tools</summary>
+            <div class="card-import">
+              <label class="file-upload">
+                Import Relics
+                <input type="file" id="playerImportRelic" accept="application/json" />
+              </label>
+            </div>
+            <form id="playerRelicForm" class="stacked-form">
+              <div class="form-row">
+                <label>Name
+                  <input type="text" name="name" required />
+                </label>
+                <label>HP Bonus
+                  <input type="number" name="hp" value="0" />
+                </label>
+                <label>AP Bonus
+                  <input type="number" name="ap" value="0" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Ability Focus
+                  <input type="text" name="ability" placeholder="Machine, Shield, etc." />
+                </label>
+                <label>Description
+                  <input type="text" name="description" placeholder="What does it do?" />
+                </label>
+              </div>
+              <button type="submit">Add Relic</button>
+            </form>
+          </details>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderPlayerNotesTab(participant) {
+  return `
+    <section class="player-tab-section">
+      <div class="section-header">
+        <h3>Notes</h3>
+        <button type="button" data-player-save-notes>Save</button>
+      </div>
+      <textarea data-player-notes rows="14" placeholder="Add notes for the GM or reminders">${participant.notes || ''}</textarea>
+    </section>
+  `;
 }
 
 function renderCharacterCreator() {
@@ -463,6 +932,7 @@ function cachePlayerSectionRefs() {
   els.importCardFile = document.getElementById('playerImportCard');
   els.importDeckFile = document.getElementById('playerImportDeck');
   els.importRelicFile = document.getElementById('playerImportRelic');
+  els.journalContent = document.getElementById('playerJournalContent');
 }
 
 function renderPlayerTurnTrack() {
@@ -980,7 +1450,8 @@ function journalFieldName(category) {
 
 function renderJournal() {
   rememberPlayerJournalSections();
-  if (!els.journal || !els.journalContent) return;
+  els.journalContent = document.getElementById('playerJournalContent');
+  if (!els.journalContent) return;
   const participant = getFocusedParticipant();
   if (!participant || (createMode && !focusId)) {
     els.journalContent.innerHTML = '<p class="empty-state">Journal becomes available once a character is selected.</p>';
@@ -4366,41 +4837,65 @@ function renderRelics(participant) {
   }
 }
 
+function isPlayerEquipmentItem(item = {}) {
+  const tokens = [item.name, item.description, ...(Array.isArray(item.tags) ? item.tags : [])]
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ');
+  return /\b(weapon|weapons|armor|armour|shield|sword|dagger|axe|bow|staff|spear|mace|hammer|mail|plate|helmet|helm|gauntlet)\b/.test(tokens);
+}
+
+function renderPlayerInventoryCards(items = [], emptyText = 'No inventory items yet.') {
+  if (!items.length) {
+    return `<p class="empty-state">${emptyText}</p>`;
+  }
+  return items
+    .map(
+      ({ item, index }) => `
+        <article class="relic-card">
+          <h4>${escapeHtml(item.name || `Item ${index + 1}`)}</h4>
+          <p>Qty ${Number(item.quantity || 1)}</p>
+          ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
+          ${(item.tags || []).length ? `<p>Tags: ${escapeHtml((item.tags || []).join(', '))}</p>` : ''}
+          <button type="button" data-remove-inventory="${item.id || ''}" data-inventory-index="${index}">Remove</button>
+        </article>`
+    )
+    .join('');
+}
+
 function renderInventory(participant) {
   const listEl = document.getElementById('playerInventoryList');
   const formEl = document.getElementById('playerInventoryForm');
   const currencyListEl = document.getElementById('playerCurrencyList');
   const currencyFormEl = document.getElementById('playerCurrencyForm');
-  if (!listEl || !currencyListEl) return;
+  const equipmentListEl = document.getElementById('playerWeaponArmorList');
+  if (!listEl || !currencyListEl || !equipmentListEl) return;
   if (!participant) {
     listEl.classList.add('empty-state');
     listEl.innerHTML = '<p class="empty-state">Select a combatant to view inventory.</p>';
     currencyListEl.classList.add('empty-state');
     currencyListEl.innerHTML = '<p class="empty-state">Select a combatant to view currencies.</p>';
+    equipmentListEl.classList.add('empty-state');
+    equipmentListEl.innerHTML = '<p class="empty-state">Select a combatant to view weapons and armour.</p>';
     if (formEl) formEl.onsubmit = null;
     if (currencyFormEl) currencyFormEl.onsubmit = null;
     return;
   }
   const items = participant?.inventory || [];
   const currencies = participant?.currencies || [];
-  if (!items.length) {
-    listEl.classList.add('empty-state');
-    listEl.innerHTML = '<p class="empty-state">No inventory items yet.</p>';
-  } else {
-    listEl.classList.remove('empty-state');
-    listEl.innerHTML = items
-      .map(
-        (item, index) => `
-          <article class="relic-card">
-            <h4>${escapeHtml(item.name || `Item ${index + 1}`)}</h4>
-            <p>Qty ${Number(item.quantity || 1)}</p>
-            ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
-            ${(item.tags || []).length ? `<p>Tags: ${escapeHtml((item.tags || []).join(', '))}</p>` : ''}
-            <button type="button" data-remove-inventory="${item.id || ''}" data-inventory-index="${index}">Remove</button>
-          </article>`
-      )
-      .join('');
-  }
+  const equipmentItems = [];
+  const generalItems = [];
+  items.forEach((item, index) => {
+    const entry = { item, index };
+    if (isPlayerEquipmentItem(item)) {
+      equipmentItems.push(entry);
+    } else {
+      generalItems.push(entry);
+    }
+  });
+  listEl.classList.toggle('empty-state', generalItems.length === 0);
+  listEl.innerHTML = renderPlayerInventoryCards(generalItems, 'No items or supplies tracked.');
+  equipmentListEl.classList.toggle('empty-state', equipmentItems.length === 0);
+  equipmentListEl.innerHTML = renderPlayerInventoryCards(equipmentItems, 'No weapons or armour tracked.');
   if (!currencies.length) {
     currencyListEl.classList.add('empty-state');
     currencyListEl.innerHTML = '<p class="empty-state">No currencies yet.</p>';
@@ -4424,19 +4919,21 @@ function renderInventory(participant) {
       )
       .join('');
   }
-  listEl.querySelectorAll('[data-remove-inventory]').forEach((button) => {
-    button.onclick = async () => {
-      const itemId = button.dataset.removeInventory;
-      const fallbackIndex = Number(button.dataset.inventoryIndex);
-      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
-      const inventory = [...(latest?.inventory || participant.inventory || [])];
-      let idx = inventory.findIndex((item) => itemId && item.id === itemId);
-      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
-      if (idx < 0 || idx >= inventory.length) return;
-      inventory.splice(idx, 1);
-      await patchParticipant(participant.id, { inventory });
-      fetchState();
-    };
+  [listEl, equipmentListEl].forEach((container) => {
+    container.querySelectorAll('[data-remove-inventory]').forEach((button) => {
+      button.onclick = async () => {
+        const itemId = button.dataset.removeInventory;
+        const fallbackIndex = Number(button.dataset.inventoryIndex);
+        const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+        const inventory = [...(latest?.inventory || participant.inventory || [])];
+        let idx = inventory.findIndex((item) => itemId && item.id === itemId);
+        if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+        if (idx < 0 || idx >= inventory.length) return;
+        inventory.splice(idx, 1);
+        await patchParticipant(participant.id, { inventory });
+        fetchState();
+      };
+    });
   });
   currencyListEl.querySelectorAll('[data-player-currency-adjust]').forEach((button) => {
     button.onclick = async () => {
@@ -4665,6 +5162,14 @@ function togglePlayerManageState(participantId, key) {
 
 function wirePlayerSheetEvents(participant) {
   const panel = els.stats;
+  panel.querySelectorAll('[data-player-dashboard-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const tabId = button.dataset.playerDashboardTab;
+      if (!tabId) return;
+      setPlayerDashboardTab(participant.id, tabId);
+      render();
+    });
+  });
   panel.querySelector('[data-player-team-select]')?.addEventListener('change', async (event) => {
     const team = String(event.currentTarget.value || '').trim();
     await patchParticipant(participant.id, { team });
