@@ -235,6 +235,15 @@ function setPlayerDashboardTab(participantId, tabId) {
   playerDashboardTabState.set(participantId, tabId);
 }
 
+function getPlayerSectionOpen(participantId, sectionKey, defaultOpen = false) {
+  if (!participantId || !sectionKey) return defaultOpen;
+  const snapshot = playerSectionState.get(participantId);
+  if (!snapshot || !Object.prototype.hasOwnProperty.call(snapshot, sectionKey)) {
+    return defaultOpen;
+  }
+  return Boolean(snapshot[sectionKey]);
+}
+
 function renderSelectOptions() {
   const participants = state.encounter.participants || [];
   const options = [];
@@ -282,15 +291,11 @@ function renderStats() {
   const showZoneSection = participantHasActiveZoneCard(participant);
   const showConstructSection = participantHasActiveConstructCard(participant);
   const activeTab = getPlayerDashboardTab(participant.id);
+  const savesExpanded = getPlayerSectionOpen(participant.id, 'saves');
+  const skillsExpanded = getPlayerSectionOpen(participant.id, 'skills');
   els.stats.innerHTML = `
     <div class="player-board">
       <section class="player-dashboard-card player-turn-order-card">
-        <div class="panel-header">
-          <div>
-            <h2>Turn Order</h2>
-            <p class="muted">Current encounter flow including construct and zone turns.</p>
-          </div>
-        </div>
         ${renderPlayerTurnTrack()}
       </section>
       <div class="panel-header player-dashboard-nameplate">
@@ -323,7 +328,7 @@ function renderStats() {
         <section class="player-dashboard-card player-active-status-card">
           <div class="panel-header">
             <div>
-              <h3>Active Statuses</h3>
+              <h3>Active Effects</h3>
               <p class="muted">Round ${state.encounter.round}</p>
             </div>
             <label class="team-select-inline">
@@ -351,18 +356,14 @@ function renderStats() {
           ${renderPlayerMitigationPanel(participant, manageState.mitigation)}
         </div>
         <div class="player-dashboard-side">
-          <section class="player-dashboard-card">
-            <div class="panel-header">
-              <h3>Saving Throws</h3>
-            </div>
-            ${renderSavingThrows(participant)}
-          </section>
-          <section class="player-dashboard-card">
-            <div class="panel-header">
-              <h3>Skills</h3>
-            </div>
-            ${renderSkillsTable(participant)}
-          </section>
+          <details class="player-dashboard-card player-dashboard-details" data-player-section="saves" ${savesExpanded ? 'open' : ''}>
+            <summary><h3>Saving Throws</h3></summary>
+            ${renderSavingThrows(participant, { expanded: savesExpanded })}
+          </details>
+          <details class="player-dashboard-card player-dashboard-details" data-player-section="skills" ${skillsExpanded ? 'open' : ''}>
+            <summary><h3>Skills</h3></summary>
+            ${renderSkillsTable(participant, { expanded: skillsExpanded })}
+          </details>
           ${renderPlayerAbilitiesPanel(participant, manageState.abilities)}
         </div>
         <section class="player-dashboard-card player-tab-card">
@@ -402,7 +403,7 @@ function renderStats() {
 
 function renderPlayerDashboardTabs(participantId, activeTab) {
   const labels = {
-    standardActions: 'SA',
+    standardActions: 'Standard Actions',
     cards: 'Cards',
     inventory: 'Inventory',
     journal: 'Journal',
@@ -704,21 +705,38 @@ function renderPlayerInventoryTab() {
       <div class="player-inventory-grid">
         <section class="player-dashboard-card player-subpanel">
           <div class="section-header">
-            <h3>Currencies</h3>
-            <button type="button" data-player-toggle-currency>Add Currency</button>
+            <h3>Relics & Artifacts</h3>
+            <button type="button" data-player-toggle-relic>Add Relic</button>
           </div>
-          <div id="playerCurrencyList" class="relic-list empty-state">No currencies yet.</div>
-          <form id="playerCurrencyForm" class="stacked-form hidden">
+          <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
+          <form id="playerRelicForm" class="stacked-form hidden">
             <div class="form-row">
               <label>Name
-                <input type="text" name="name" placeholder="Gold" required />
+                <input type="text" name="name" required />
               </label>
-              <label>Starting Amount
-                <input type="number" name="amount" min="0" value="0" />
+              <label>HP Bonus
+                <input type="number" name="hp" value="0" />
+              </label>
+              <label>AP Bonus
+                <input type="number" name="ap" value="0" />
               </label>
             </div>
-            <button type="submit">Add Currency</button>
+            <div class="form-row">
+              <label>Ability Focus
+                <input type="text" name="ability" placeholder="Machine, Shield, etc." />
+              </label>
+              <label>Description
+                <input type="text" name="description" placeholder="What does it do?" />
+              </label>
+            </div>
+            <button type="submit">Add Relic</button>
           </form>
+          <div class="card-import">
+            <label class="file-upload">
+              Import Relics
+              <input type="file" id="playerImportRelic" accept="application/json" />
+            </label>
+          </div>
         </section>
         <section class="player-dashboard-card player-subpanel">
           <div class="section-header">
@@ -750,42 +768,23 @@ function renderPlayerInventoryTab() {
             <button type="submit">Add Item</button>
           </form>
         </section>
-        <section class="player-dashboard-card player-subpanel player-subpanel-wide">
+        <section class="player-dashboard-card player-subpanel">
           <div class="section-header">
-            <h3>Relics & Artifacts</h3>
+            <h3>Currencies</h3>
+            <button type="button" data-player-toggle-currency>Add Currency</button>
           </div>
-          <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
-          <details id="playerRelicDrawer">
-            <summary>Relic Tools</summary>
-            <div class="card-import">
-              <label class="file-upload">
-                Import Relics
-                <input type="file" id="playerImportRelic" accept="application/json" />
+          <div id="playerCurrencyList" class="relic-list empty-state">No currencies yet.</div>
+          <form id="playerCurrencyForm" class="stacked-form hidden">
+            <div class="form-row">
+              <label>Name
+                <input type="text" name="name" placeholder="Gold" required />
+              </label>
+              <label>Starting Amount
+                <input type="number" name="amount" min="0" value="0" />
               </label>
             </div>
-            <form id="playerRelicForm" class="stacked-form">
-              <div class="form-row">
-                <label>Name
-                  <input type="text" name="name" required />
-                </label>
-                <label>HP Bonus
-                  <input type="number" name="hp" value="0" />
-                </label>
-                <label>AP Bonus
-                  <input type="number" name="ap" value="0" />
-                </label>
-              </div>
-              <div class="form-row">
-                <label>Ability Focus
-                  <input type="text" name="ability" placeholder="Machine, Shield, etc." />
-                </label>
-                <label>Description
-                  <input type="text" name="description" placeholder="What does it do?" />
-                </label>
-              </div>
-              <button type="submit">Add Relic</button>
-            </form>
-          </details>
+            <button type="submit">Add Currency</button>
+          </form>
         </section>
       </div>
     </section>
@@ -1230,10 +1229,10 @@ function renderPlayerCardsSection(participant) {
 function renderPlayerStatusSection(participant) {
   return `
     <details class="player-collapsible" data-player-section="statuses">
-      <summary><strong>Statuses</strong></summary>
+      <summary><strong>Active Effects</strong></summary>
       <div class="collapsible-body">
         <div class="section-header">
-          <h4>Active Statuses</h4>
+          <h4>Active Effects</h4>
           <button type="button" data-player-toggle-status>Manage</button>
         </div>
         <div class="status-list">${renderStatuses(participant)}</div>
@@ -2126,7 +2125,8 @@ async function handlePlayerDamageRemove(participant, field, index) {
   }
 }
 
-function renderSavingThrows(participant) {
+function renderSavingThrows(participant, options = {}) {
+  const expanded = options.expanded === true;
   const rows = ABILITIES.map(({ key, label }) => {
     const mod = abilityMod(getPlayerEffectiveAbilityScore(participant, key));
     const proficient = Boolean(participant.savingThrows?.[key]);
@@ -2134,15 +2134,14 @@ function renderSavingThrows(participant) {
     return `
       <tr>
         <th>${label}</th>
-        <td>${formatMod(mod)}</td>
-        <td><input type="checkbox" data-save-toggle="${key}" ${proficient ? 'checked' : ''} /></td>
+        ${expanded ? `<td><input type="checkbox" data-save-toggle="${key}" ${proficient ? 'checked' : ''} /></td>` : ''}
         <td>${formatMod(total)}</td>
       </tr>`;
   }).join('');
   return `
     <table class="player-table">
       <thead>
-        <tr><th>Ability</th><th>Mod</th><th>Prof</th><th>Total</th></tr>
+        <tr><th>Ability</th>${expanded ? '<th>Prof</th>' : ''}<th>Total</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -2169,7 +2168,8 @@ const SKILLS = [
   ['Survival', 'wisdom', 'survival']
 ];
 
-function renderSkillsTable(participant) {
+function renderSkillsTable(participant, options = {}) {
+  const expanded = options.expanded === true;
   const prof = participant.proficiencyBonus || 0;
   const rows = SKILLS.map(([skill, ability, key]) => {
     const mod = abilityMod(getPlayerEffectiveAbilityScore(participant, ability));
@@ -2179,16 +2179,15 @@ function renderSkillsTable(participant) {
       <tr>
         <th>${skill}</th>
         <td>${abilityLabel(ability)}</td>
-        <td>${formatMod(mod)}</td>
-        <td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="proficient" ${entry.proficient ? 'checked' : ''} /></td>
-        <td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="expert" ${entry.expert ? 'checked' : ''} /></td>
+        ${expanded ? `<td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="proficient" ${entry.proficient ? 'checked' : ''} /></td>` : ''}
+        ${expanded ? `<td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="expert" ${entry.expert ? 'checked' : ''} /></td>` : ''}
         <td>${formatMod(total)}</td>
       </tr>`;
   }).join('');
   return `
     <table class="player-table">
       <thead>
-        <tr><th>Skill</th><th>Ability</th><th>Mod</th><th>Prof</th><th>Expert</th><th>Total</th></tr>
+        <tr><th>Skill</th><th>Ability</th>${expanded ? '<th>Prof</th><th>Expert</th>' : ''}<th>Total</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -4832,6 +4831,7 @@ function renderRelics(participant) {
       const currentRelics = latest?.relics || relics;
       await patchParticipant(participant.id, { relics: [...currentRelics, newRelic] });
       formEl.reset();
+      formEl.classList.add('hidden');
       fetchState();
     };
   }
@@ -5167,6 +5167,11 @@ function wirePlayerSheetEvents(participant) {
       const tabId = button.dataset.playerDashboardTab;
       if (!tabId) return;
       setPlayerDashboardTab(participant.id, tabId);
+      render();
+    });
+  });
+  panel.querySelectorAll('details.player-dashboard-details[data-player-section]').forEach((detail) => {
+    detail.addEventListener('toggle', () => {
       render();
     });
   });
@@ -5507,11 +5512,15 @@ function wirePlayerSheetEvents(participant) {
   });
   const inventoryForm = panel.querySelector('#playerInventoryForm');
   const currencyForm = panel.querySelector('#playerCurrencyForm');
+  const relicForm = panel.querySelector('#playerRelicForm');
   panel.querySelector('[data-player-toggle-inventory]')?.addEventListener('click', () => {
     inventoryForm?.classList.toggle('hidden');
   });
   panel.querySelector('[data-player-toggle-currency]')?.addEventListener('click', () => {
     currencyForm?.classList.toggle('hidden');
+  });
+  panel.querySelector('[data-player-toggle-relic]')?.addEventListener('click', () => {
+    relicForm?.classList.toggle('hidden');
   });
   const notesButton = panel.querySelector('[data-player-save-notes]');
   const notesInput = panel.querySelector('[data-player-notes]');
