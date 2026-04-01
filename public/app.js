@@ -1,5 +1,6 @@
 import { UI_LIMITS } from './shared/game-config.js';
 import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
+import { ATTRIBUTE_BALANCE, getAttributeScalingFromScores } from './shared/stat-balance.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -20,6 +21,7 @@ const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
 const HELP_TOPIC_TITLES = Object.freeze({
   statuses: 'Statuses',
   combat: 'Combat Rules',
+  stats: 'Stat Rules',
   constructs: 'Constructs',
   standard_actions: 'Standard Actions',
   out_of_combat: 'Out of Combat',
@@ -148,10 +150,8 @@ function wireGlobalEvents() {
       setFocus: data.get('setFocus') || ''
     };
     payload.stats = {
-      dexterity: Number(data.get('dexterity') || 0)
+      dexterity: Number(data.get('dexterity') || 10)
     };
-    payload.hp = payload.maxHp;
-    payload.shield = payload.maxShield;
     try {
       await api('/api/participants', 'POST', payload);
       event.target.reset();
@@ -274,6 +274,9 @@ function getHelpTopicContent(topic) {
   if (topic === 'statuses') {
     return renderStatusHelpContent();
   }
+  if (topic === 'stats') {
+    return renderStatRulesHelpContent();
+  }
   if (topic === 'standard_actions') {
     return renderStandardActionHelpContent();
   }
@@ -317,7 +320,7 @@ function getHelpTopicContent(topic) {
           <li>Auto-hit attacks (no advantage/disadvantage).</li>
           <li>Damage goes to Shield first, then HP.</li>
           <li>Persistent Shield during combat.</li>
-          <li>Movement: 1 AP = 10 ft. Difficult terrain: 1 AP = 5 ft.</li>
+          <li>Movement starts at 10 ft per AP, plus or minus 5 ft per DEX modifier. Difficult terrain starts at 5 ft per AP.</li>
           <li>Guard can restore Shield but cannot exceed Max Shield.</li>
           <li>Recover action reduces damaging status stacks.</li>
         </ul>
@@ -387,6 +390,54 @@ function getHelpTopicContent(topic) {
         <li>Attacks auto-hit unless prevented by positioning or cover.</li>
         <li>Cards use flat damage modifiers and clear range values.</li>
       </ul>
+    </section>
+  `;
+}
+
+function renderStatRulesHelpContent() {
+  const physicalTypes = ATTRIBUTE_BALANCE.meleeDamageTypes.map((type) => `<li>${escapeHtml(type)}</li>`).join('');
+  const magicTypes = ATTRIBUTE_BALANCE.directMagicDamageTypes.map((type) => `<li>${escapeHtml(type)}</li>`).join('');
+  return `
+    <section class="help-section">
+      <h3>Ability Modifier Rule</h3>
+      <ul class="help-list">
+        <li>Ability modifiers use the standard formula: floor((score - 10) / 2).</li>
+        <li>A score of 10 is neutral (+0 modifier).</li>
+        <li>Legacy or blank 0 ability scores are treated as 10 for derived stat recalculation and fallback display.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Current Stat Scaling</h3>
+      <ul class="help-list">
+        <li>STR: +${ATTRIBUTE_BALANCE.strengthMeleeDamagePerModifier} melee damage per modifier.</li>
+        <li>DEX: +${ATTRIBUTE_BALANCE.dexterityMoveFtPerModifier} ft movement per modifier. Base move is ${ATTRIBUTE_BALANCE.baseMoveFt} ft per AP and difficult terrain starts at ${ATTRIBUTE_BALANCE.difficultMoveFt} ft per AP.</li>
+        <li>CON: +${ATTRIBUTE_BALANCE.constitutionMaxHpPerModifier} max HP per modifier.</li>
+        <li>WIS: +${ATTRIBUTE_BALANCE.wisdomMaxShieldPerModifier} max Shield per modifier.</li>
+        <li>INT: +${ATTRIBUTE_BALANCE.intelligenceMagicDamagePerModifier} direct magic damage per modifier.</li>
+        <li>CHA: +${ATTRIBUTE_BALANCE.charismaAbilityShieldPerModifier} Shield restored from abilities and effects per modifier.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Where Scaling Applies</h3>
+      <ul class="help-list">
+        <li>Movement scaling applies to standard movement, difficult-terrain movement, and card-based movement.</li>
+        <li>Melee damage scaling applies to melee physical attacks within ${ATTRIBUTE_BALANCE.meleeRangeFt} ft.</li>
+        <li>Direct magic damage scaling applies to non-zone, non-construct attacks that use one of the listed magic damage types.</li>
+        <li>Shield restoration scaling applies to Guard and other shield-restoring cards or effects.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Damage Types Used For Scaling</h3>
+      <div class="form-row">
+        <div>
+          <h4>Melee Physical</h4>
+          <ul class="help-list">${physicalTypes}</ul>
+        </div>
+        <div>
+          <h4>Direct Magic</h4>
+          <ul class="help-list">${magicTypes}</ul>
+        </div>
+      </div>
     </section>
   `;
 }
@@ -482,7 +533,7 @@ function renderStandardActionHelpContent() {
     <section class="help-section">
       <h3>Notes</h3>
       <ul class="help-list">
-        <li>Move and Move (Difficult Terrain) use the same base action with different terrain assumptions.</li>
+        <li>Move scales with DEX. Difficult terrain uses the reduced difficult-terrain distance.</li>
         <li>Guard restores Shield but cannot exceed Max Shield.</li>
         <li>Recover reduces one stack of Bleeding, Poisoned, or Burning.</li>
         <li>Cleanse removes one eligible control or debuff status for 4 AP.</li>
@@ -1144,10 +1195,10 @@ function renderActionsSection(participant) {
       <div class="collapsible-body">
         <label class="checkbox-row">
           <input type="checkbox" id="difficultTerrain" />
-          <span>Difficult terrain (Move = 5 ft)</span>
+          <span>Difficult terrain (Move = ${getParticipantMoveDistanceFt(participant, { difficultTerrain: true })} ft)</span>
         </label>
         <div class="button-grid" id="standardActions">
-          ${renderStandardActionButtons()}
+          ${renderStandardActionButtons(participant)}
         </div>
         <div class="rest-controls">
           <button type="button" data-rest="short">Short Rest</button>
@@ -2596,6 +2647,7 @@ function renderAdvancedSection(participant, base) {
           ${renderAbilityNumberInput(participant, 'WIS', 'wisdom')}
           ${renderAbilityNumberInput(participant, 'CHA', 'charisma')}
         </div>
+        ${renderParticipantAttributeScalingNote(participant)}
         <label>Tags
           <input type="text" name="tags" value="${(participant.tags || []).join(', ')}" placeholder="Melee, Shield, Bleed" />
         </label>
@@ -2616,14 +2668,19 @@ function renderStatusSummary(participant) {
     .join('');
 }
 
-function renderStandardActionButtons() {
+function renderStandardActionButtons(participant) {
   const actions = (state.reference?.standardActions || []).filter((action) => action.id !== 'move_difficult');
   if (!actions.length) {
     return '<p class="empty-state">Standard actions will appear once the server boots.</p>';
   }
   return actions
     .map(
-      (action) => `<button type="button" data-standard="${action.id}">${action.label} (${action.apCost} AP)</button>`
+      (action) => `
+        <div class="standard-action-item">
+          <button type="button" data-standard="${action.id}">${action.label} (${action.apCost} AP)</button>
+          <small class="muted small-note">${escapeHtml(getStandardActionSummary(action, participant))}</small>
+        </div>
+      `
     )
     .join('');
 }
@@ -4866,8 +4923,55 @@ function getParticipantEffectiveAbilityScore(participant = {}, ability = '') {
     return Math.round(derived);
   }
   const base = Number(participant?.stats?.[ability] ?? 0);
-  const safeBase = Number.isFinite(base) ? Math.round(base) : 0;
+  const safeBase = Number.isFinite(base) && Math.round(base) !== 0 ? Math.round(base) : 10;
   return safeBase + getParticipantAbilityBonus(participant, ability);
+}
+
+function getParticipantAttributeScaling(participant = {}) {
+  const derived = participant?.derivedBonuses?.attributeScaling;
+  if (derived && typeof derived === 'object') {
+    return derived;
+  }
+  const scores = {
+    strength: getParticipantEffectiveAbilityScore(participant, 'strength'),
+    dexterity: getParticipantEffectiveAbilityScore(participant, 'dexterity'),
+    constitution: getParticipantEffectiveAbilityScore(participant, 'constitution'),
+    intelligence: getParticipantEffectiveAbilityScore(participant, 'intelligence'),
+    wisdom: getParticipantEffectiveAbilityScore(participant, 'wisdom'),
+    charisma: getParticipantEffectiveAbilityScore(participant, 'charisma')
+  };
+  return getAttributeScalingFromScores(scores);
+}
+
+function getParticipantMoveDistanceFt(participant = {}, options = {}) {
+  const scaling = getParticipantAttributeScaling(participant);
+  const value = options.difficultTerrain === true ? scaling.moveDifficultFt : scaling.moveFt;
+  return Math.max(0, Math.round(Number(value || 0)));
+}
+
+function renderParticipantAttributeScalingNote(participant = {}) {
+  const scaling = getParticipantAttributeScaling(participant);
+  return `
+    <p class="muted small-note">
+      STR melee ${formatSignedValue(scaling.meleeDamageBonus || 0)} damage ·
+      DEX move ${getParticipantMoveDistanceFt(participant)} ft (${getParticipantMoveDistanceFt(participant, { difficultTerrain: true })} ft difficult) ·
+      CON ${formatSignedValue(scaling.maxHpBonus || 0)} max HP ·
+      WIS ${formatSignedValue(scaling.maxShieldBonus || 0)} max Shield ·
+      INT magic ${formatSignedValue(scaling.magicDamageBonus || 0)} damage ·
+      CHA shield effects ${formatSignedValue(scaling.abilityShieldBonus || 0)}
+    </p>
+  `;
+}
+
+function getStandardActionSummary(action = {}, participant = {}) {
+  if (action.id === 'move') {
+    const moveFt = getParticipantMoveDistanceFt(participant);
+    return `1 AP -> ${moveFt} ft`;
+  }
+  if (action.id === 'guard') {
+    return `2 AP -> Restore ${Math.max(0, Math.round(Number(participant?.guardRestore ?? 3)))} Shield`;
+  }
+  return action.summary || '';
 }
 
 function getTierMasteryThresholdDefaults(tier = 'Common') {

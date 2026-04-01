@@ -5,6 +5,10 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { GAME_LIMITS } from './lib/game-config.js';
 import { getCardTierShieldBonus, getCardTierMasteryThresholds } from './lib/card-rules.js';
+import {
+  getAttributeScalingFromScores,
+  getContextualDamageBonusFromScaling
+} from './public/shared/stat-balance.js';
 import { startEncounterLifecycle, endEncounterLifecycle } from './lib/encounter-lifecycle.js';
 import { executeStandardActionForEncounter } from './lib/actions/standard.js';
 import { executeCustomActionForEncounter } from './lib/actions/custom.js';
@@ -137,18 +141,18 @@ const STANDARD_ACTIONS = {
   move: {
     id: 'move',
     label: 'Move',
-    summary: '1 AP → 10 ft (2 squares); repeat as needed.',
+    summary: '1 AP → base 10 ft, modified by DEX; repeat as needed.',
     apCost: 1,
-    detail: 'Move 10 ft (2 squares). May be repeated without limit.',
-    logText: 'moves 10 ft.'
+    detail: 'Move your current movement distance. DEX adds or subtracts 5 ft per modifier.',
+    logText: 'moves.'
   },
   move_difficult: {
     id: 'move_difficult',
     label: 'Move (Difficult Terrain)',
-    summary: '1 AP → 5 ft (1 square) in difficult terrain.',
+    summary: '1 AP → base 5 ft in difficult terrain, modified by DEX.',
     apCost: 1,
-    detail: 'When terrain is difficult, 1 AP moves only 5 ft (1 square).',
-    logText: 'pushes through difficult terrain (5 ft).'
+    detail: 'When terrain is difficult, use your difficult-terrain movement distance instead.',
+    logText: 'pushes through difficult terrain.'
   },
   disengage: {
     id: 'disengage',
@@ -174,7 +178,7 @@ const STANDARD_ACTIONS = {
   guard: {
     id: 'guard',
     label: 'Guard',
-    summary: '2 AP → Restore 3 Shield (repeatable, max shield limit).',
+    summary: '2 AP → Restore Shield based on Guard Restore (repeatable, max shield limit).',
     apCost: 2,
     logText: 'guards and restores shield.'
   },
@@ -198,6 +202,31 @@ const DEFAULT_GUARD_RESTORE = 3;
 const MAX_ACTIVE_CARDS = GAME_LIMITS.maxActiveCards;
 const MAX_ACTIVE_ZONES = GAME_LIMITS.maxActiveZones;
 const SET_NAME_LOOKUP = buildSetNameLookup(SET_LIBRARY);
+
+function getRuntimeStandardActionsForParticipant(participant = {}) {
+  const moveFt = getParticipantMoveDistanceFt(participant);
+  const difficultMoveFt = getParticipantMoveDistanceFt(participant, { difficultTerrain: true });
+  const guardRestore = Math.max(0, Math.round(Number(participant?.guardRestore ?? DEFAULT_GUARD_RESTORE)));
+  return {
+    ...STANDARD_ACTIONS,
+    move: {
+      ...STANDARD_ACTIONS.move,
+      summary: `1 AP → ${moveFt} ft${moveFt > 0 ? ` (${Math.max(1, Math.round(moveFt / 5))} squares)` : ''}; repeat as needed.`,
+      detail: `Move ${moveFt} ft. May be repeated without limit.`,
+      logText: `moves ${moveFt} ft.`
+    },
+    move_difficult: {
+      ...STANDARD_ACTIONS.move_difficult,
+      summary: `1 AP → ${difficultMoveFt} ft in difficult terrain.`,
+      detail: `When terrain is difficult, 1 AP moves ${difficultMoveFt} ft.`,
+      logText: `pushes through difficult terrain (${difficultMoveFt} ft).`
+    },
+    guard: {
+      ...STANDARD_ACTIONS.guard,
+      summary: `2 AP → Restore ${guardRestore} Shield (repeatable, max shield limit).`
+    }
+  };
+}
 
 const STATUS_LIBRARY = [
   {
@@ -486,6 +515,13 @@ const trackerState = {
 const cardActionHistory = [];
 
 const sseClients = new Map();
+
+function normalizeAbilityScoreValue(value, fallback = 10) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const rounded = Math.round(parsed);
+  return rounded === 0 ? fallback : rounded;
+}
 
 const server = createServer(async (req, res) => {
   const { method, url: reqUrl } = req;
@@ -971,7 +1007,7 @@ function executeStandardAction(body) {
     return { error: pauseError };
   }
   const result = executeStandardActionForEncounter(body, {
-    standardActions: STANDARD_ACTIONS,
+    standardActions: getRuntimeStandardActionsForParticipant(actor),
     defaultGuardRestore: DEFAULT_GUARD_RESTORE,
     resolveActor: () => actor,
     applyRecoverAction,
@@ -1006,9 +1042,11 @@ function executeStandardAction(body) {
   const actionId = String(result.action.id || '').toLowerCase();
   let changed = false;
   if (!constructRecord && actionId === 'move') {
-    changed = applyShadowMovementProgress(participant, 10) > 0 || changed;
+    changed = applyShadowMovementProgress(participant, getParticipantMoveDistanceFt(participant)) > 0 || changed;
   } else if (!constructRecord && actionId === 'move_difficult') {
-    changed = applyShadowMovementProgress(participant, 5) > 0 || changed;
+    changed =
+      applyShadowMovementProgress(participant, getParticipantMoveDistanceFt(participant, { difficultTerrain: true })) > 0 ||
+      changed;
   }
   if (!constructRecord && actionId === 'recover') {
     changed = maybeApplyDivineRecoverHealing(participant, participant, { triggeredBySelfRecover: true, silent: true }) > 0 || changed;
@@ -1256,6 +1294,7 @@ function executeCardAction(body) {
       getCardScaledEffectValue(card, 'constructShieldRestoreByLevel', masteryLevel, Number(card.constructShieldRestore || 0))
     )
   );
+  const constructShieldRestoreTotal = getEffectShieldRestoreAmount(participant, constructShieldRestore);
   const constructShieldRestoreAlliesOnly = card.constructShieldRestoreAlliesOnly === true;
   const constructHeal = Math.max(
     0,
@@ -1309,6 +1348,16 @@ function executeCardAction(body) {
   const attackStatusDamageModifier = !isConstruct && !zoneCard
     ? getParticipantAttackStatusDamageModifier(participant, card, masteryLevel)
     : 0;
+  const contextualPrimaryDamageBonus = !isConstruct && !zoneCard && baseDamage > 0
+    ? getParticipantCardDamageBonus(participant, card, { masteryLevel, isZone: zoneCard }).total
+    : 0;
+  const contextualSecondaryDamageBonus = !isConstruct && !zoneCard && secondaryBaseDamage > 0
+    ? getParticipantCardDamageBonus(participant, card, {
+        masteryLevel,
+        damageType: secondaryDamageType,
+        isZone: zoneCard
+      }).total
+    : 0;
   const zoneTickDamage = zoneCard
     ? (() => {
         // Zone damage bonuses should only scale existing damage zones.
@@ -1333,6 +1382,7 @@ function executeCardAction(body) {
           0,
           baseDamage +
             (participant.damageBonus || 0) +
+            contextualPrimaryDamageBonus +
             nextAttackBonus +
             (arcaneModifiedCard?.mode === 'damage' ? 2 : 0) +
             attackStatusDamageModifier
@@ -1341,11 +1391,10 @@ function executeCardAction(body) {
   const secondaryRawDamage = isConstruct
     ? 0
     : secondaryBaseDamage > 0
-      ? Math.max(0, secondaryBaseDamage + attackStatusDamageModifier)
+      ? Math.max(0, secondaryBaseDamage + contextualSecondaryDamageBonus + attackStatusDamageModifier)
       : 0;
   const shieldRestoreBase = getCardScaledEffectValue(card, 'shieldRestoreByLevel', masteryLevel, 0);
-  const shieldRestoreBonus = getGlobalShieldRestoreBonus(participant);
-  const shieldRestoreTotal = Math.max(0, shieldRestoreBase + (shieldRestoreBase > 0 ? shieldRestoreBonus : 0));
+  const shieldRestoreTotal = getCardShieldRestoreAmount(participant, shieldRestoreBase);
   let healTotal = Math.max(
     0,
     Math.round(getCardScaledEffectValue(card, 'healByLevel', masteryLevel, Number(card.heal || 0)))
@@ -1353,7 +1402,10 @@ function executeCardAction(body) {
   if (healTotal > 0 && hasNature3) {
     healTotal += 2;
   }
-  const moveDistance = getCardScaledEffectValue(card, 'movementByLevel', masteryLevel, 0);
+  const moveDistanceBase = getCardScaledEffectValue(card, 'movementByLevel', masteryLevel, 0);
+  const moveDistance = !isConstruct && moveDistanceBase > 0
+    ? Math.max(0, Math.round(moveDistanceBase + Number(getParticipantAttributeScaling(participant).moveFtBonus || 0)))
+    : moveDistanceBase;
   const pushDistance = getCardScaledEffectValue(card, 'pushDistanceByLevel', masteryLevel, 0);
   const pullDistance = getCardScaledEffectValue(card, 'pullDistanceByLevel', masteryLevel, 0);
   let statusApply = normalizeCardStatusApply(card, masteryLevel);
@@ -1380,9 +1432,12 @@ function executeCardAction(body) {
   const zoneTriggerOnTargetAdd = zoneCard ? (card.zoneTriggerOnTargetAdd === true || zoneEnterDamage > 0 || Boolean(zoneEnterStatusApply)) : false;
   const zoneConsumeOnTrigger = zoneCard && card.zoneConsumeOnTrigger === true;
   const zoneShieldRestore = zoneCard
-    ? Math.max(
-        0,
-        Math.round(getCardScaledEffectValue(card, 'zoneShieldRestoreByLevel', masteryLevel, Number(card.zoneShieldRestore || 0)))
+    ? getEffectShieldRestoreAmount(
+        participant,
+        Math.max(
+          0,
+          Math.round(getCardScaledEffectValue(card, 'zoneShieldRestoreByLevel', masteryLevel, Number(card.zoneShieldRestore || 0)))
+        )
       )
     : 0;
   const zoneHeal = zoneCard
@@ -2616,7 +2671,7 @@ function executeCardAction(body) {
       statusId: constructStatusId,
       statusName: constructStatusName,
       statusStacks: constructStatusStacks,
-      shieldRestore: constructShieldRestore,
+      shieldRestore: constructShieldRestoreTotal,
       shieldRestoreAlliesOnly: constructShieldRestoreAlliesOnly,
       heal: constructHeal,
       healAlliesOnly: constructHealAlliesOnly,
@@ -2858,10 +2913,11 @@ function executeCardAction(body) {
       }
     }
     if (healedAllies.length && hasDivine3) {
+      const divineShieldGain = getEffectShieldRestoreAmount(participant, 2);
       const shieldRecipients = [];
       for (const ally of healedAllies) {
         const beforeShield = ally.shield;
-        ally.shield = Math.min(ally.maxShield, ally.shield + 2);
+        ally.shield = Math.min(ally.maxShield, ally.shield + divineShieldGain);
         const granted = ally.shield - beforeShield;
         if (granted > 0) {
           shieldRecipients.push(`${ally.name} (+${granted})`);
@@ -3861,6 +3917,10 @@ function createParticipant(body = {}) {
   const apMax = typeof body.apMax === 'number' ? body.apMax : 6;
   const maxHp = typeof body.maxHp === 'number' ? body.maxHp : 20;
   const maxShield = typeof body.maxShield === 'number' ? body.maxShield : 0;
+  const normalizedStats = {};
+  for (const key of ABILITY_KEYS) {
+    normalizedStats[key] = normalizeAbilityScoreValue(body?.stats?.[key], 10);
+  }
   const baseStats = {
     apMax,
     maxHp,
@@ -3897,15 +3957,7 @@ function createParticipant(body = {}) {
     immunities: normalizeImmunities(body.immunities),
     notes: body.notes || '',
     setFocus: body.setFocus || '',
-    stats: {
-      strength: 0,
-      dexterity: 0,
-      constitution: 0,
-      intelligence: 0,
-      wisdom: 0,
-      charisma: 0,
-      ...(body.stats || {})
-    },
+    stats: normalizedStats,
     proficiencyBonus: typeof body.proficiencyBonus === 'number' ? body.proficiencyBonus : 2,
     savingThrows: normalizeSavingThrows(body.savingThrows),
     skills: normalizeSkills(body.skills),
@@ -3942,7 +3994,8 @@ function createParticipant(body = {}) {
       base: baseStats,
       totals: createZeroModifier(),
       abilityBonuses: createZeroAbilityBonuses(),
-      effectiveStats: buildEffectiveAbilityScores(body.stats || {}, createZeroAbilityBonuses()),
+      effectiveStats: buildEffectiveAbilityScores(normalizedStats, createZeroAbilityBonuses()),
+      attributeScaling: getAttributeScalingFromScores(buildEffectiveAbilityScores(normalizedStats, createZeroAbilityBonuses())),
       cardModifiers: [],
       cardLoadout: {
         maxActive: MAX_ACTIVE_CARDS,
@@ -3958,6 +4011,15 @@ function createParticipant(body = {}) {
     }
   };
   recalculateParticipant(participant);
+  if (typeof body.apCurrent !== 'number') {
+    participant.apCurrent = participant.apMax;
+  }
+  if (typeof body.hp !== 'number') {
+    participant.hp = participant.maxHp;
+  }
+  if (typeof body.shield !== 'number') {
+    participant.shield = participant.maxShield;
+  }
   return participant;
 }
 
@@ -3982,8 +4044,7 @@ function createParticipantPresetTemplate(source = {}, options = {}) {
     : [];
   const stats = {};
   for (const key of ABILITY_KEYS) {
-    const value = Number(body?.stats?.[key]);
-    stats[key] = Number.isFinite(value) ? Math.round(value) : 0;
+    stats[key] = normalizeAbilityScoreValue(body?.stats?.[key], 10);
   }
   return {
     name,
@@ -4959,8 +5020,9 @@ function triggerBeastBleedingRestore(victim) {
     if (!owner || owner.id === victim.id) continue;
     if (!hasSetBonus(owner, 'Beast', 7)) continue;
     if (!isParticipantEnemy(owner, victim)) continue;
+    const shieldGain = getEffectShieldRestoreAmount(owner, 2);
     const beforeShield = owner.shield;
-    owner.shield = Math.min(owner.maxShield, owner.shield + 2);
+    owner.shield = Math.min(owner.maxShield, owner.shield + shieldGain);
     const restored = owner.shield - beforeShield;
     if (restored > 0) {
       pushLog(`${owner.name} restores ${restored} Shield from Beast set as Bleeding damages ${victim.name}.`, owner.id, {
@@ -5545,8 +5607,9 @@ function applyZoneTurnEffects(participant, zone) {
       }
     }
     if (allied && nature7) {
+      const natureShieldGain = getEffectShieldRestoreAmount(participant, 4);
       const beforeShield = target.shield;
-      target.shield = Math.min(target.maxShield, target.shield + 4);
+      target.shield = Math.min(target.maxShield, target.shield + natureShieldGain);
       const restored = target.shield - beforeShield;
       if (restored > 0) {
         events.push(`${participant.name}'s Nature set restores ${restored} Shield to ${target.name} inside ${entry.name}.`);
@@ -5910,17 +5973,76 @@ function getEffectiveAbilityScore(participant = {}, ability = '') {
   if (Number.isFinite(derivedScore)) {
     return Math.round(derivedScore);
   }
-  const baseScore = Number(participant?.stats?.[key]);
-  const safeBase = Number.isFinite(baseScore) ? Math.round(baseScore) : 0;
+  const safeBase = normalizeAbilityScoreValue(participant?.stats?.[key], 10);
   const bonus = Number(participant?.derivedBonuses?.abilityBonuses?.[key] || 0);
   return safeBase + (Number.isFinite(bonus) ? Math.round(bonus) : 0);
+}
+
+function getParticipantEffectiveAbilityScores(participant = {}) {
+  const derived = participant?.derivedBonuses?.effectiveStats;
+  if (derived && typeof derived === 'object') {
+    return buildEffectiveAbilityScores(derived, createZeroAbilityBonuses());
+  }
+  return buildEffectiveAbilityScores(participant?.stats, participant?.derivedBonuses?.abilityBonuses);
+}
+
+function getParticipantAttributeScaling(participant = {}) {
+  const derived = participant?.derivedBonuses?.attributeScaling;
+  if (derived && typeof derived === 'object') {
+    return {
+      ...derived,
+      modifiers: {
+        ...(derived.modifiers || {})
+      }
+    };
+  }
+  return getAttributeScalingFromScores(getParticipantEffectiveAbilityScores(participant));
+}
+
+function getParticipantMoveDistanceFt(participant = {}, options = {}) {
+  const scaling = getParticipantAttributeScaling(participant);
+  return options.difficultTerrain === true
+    ? Math.max(0, Math.round(Number(scaling.moveDifficultFt || 0)))
+    : Math.max(0, Math.round(Number(scaling.moveFt || 0)));
+}
+
+function getCardShieldRestoreAmount(participant = {}, baseAmount = 0) {
+  const base = Math.round(Number(baseAmount || 0));
+  if (!Number.isFinite(base) || base <= 0) return 0;
+  const scaling = getParticipantAttributeScaling(participant);
+  return Math.max(
+    0,
+    base + getGlobalShieldRestoreBonus(participant) + Math.round(Number(scaling.abilityShieldBonus || 0))
+  );
+}
+
+function getEffectShieldRestoreAmount(participant = {}, baseAmount = 0) {
+  const base = Math.round(Number(baseAmount || 0));
+  if (!Number.isFinite(base) || base <= 0) return 0;
+  const scaling = getParticipantAttributeScaling(participant);
+  return Math.max(0, base + Math.round(Number(scaling.abilityShieldBonus || 0)));
+}
+
+function getParticipantCardDamageBonus(participant = {}, card = {}, options = {}) {
+  const scaling = getParticipantAttributeScaling(participant);
+  const damageType = String(options.damageType ?? card.damageType ?? '').trim();
+  const rangeFallback = Number(card?.range || 0);
+  const range = Number.isFinite(Number(options.range))
+    ? Number(options.range)
+    : getCardScaledEffectValue(card, 'rangeByLevel', options.masteryLevel || card.masteryLevel || 1, rangeFallback);
+  return getContextualDamageBonusFromScaling(scaling, {
+    damageType,
+    range,
+    rangeText: card?.rangeText || '',
+    isZone: options.isZone === true,
+    isConstruct: options.isConstruct === true
+  });
 }
 
 function buildEffectiveAbilityScores(stats = {}, abilityBonuses = {}) {
   const totals = {};
   for (const key of ABILITY_KEYS) {
-    const baseScore = Number(stats?.[key]);
-    const safeBase = Number.isFinite(baseScore) ? Math.round(baseScore) : 0;
+    const safeBase = normalizeAbilityScoreValue(stats?.[key], 10);
     const bonus = Number(abilityBonuses?.[key] || 0);
     totals[key] = safeBase + (Number.isFinite(bonus) ? Math.round(bonus) : 0);
   }
@@ -8190,8 +8312,7 @@ function recalculateParticipant(participant) {
   sanitizeSetAllyTargets(participant);
   const normalizedStats = {};
   for (const key of ABILITY_KEYS) {
-    const value = Number(participant?.stats?.[key]);
-    normalizedStats[key] = Number.isFinite(value) ? Math.round(value) : 0;
+    normalizedStats[key] = normalizeAbilityScoreValue(participant?.stats?.[key], 10);
   }
   participant.stats = normalizedStats;
   participant.cards = normalizeCards(participant.cards);
@@ -8279,11 +8400,19 @@ function recalculateParticipant(participant) {
   }
 
   const overchargeMultiplier = Math.max(1, Number(setRuntime.divine.overchargeMultiplier || 1));
+  const effectiveStats = buildEffectiveAbilityScores(participant.stats, abilityBonuses);
+  const attributeScaling = getAttributeScalingFromScores(effectiveStats);
   participant.apMax = Math.max(1, Math.round(((base.apMax ?? 0) + totals.apMax) * overchargeMultiplier));
   participant.apCurrent = normalizeCurrentAp(participant.apCurrent ?? participant.apMax, participant.apMax);
-  participant.maxHp = Math.max(1, Math.round(((base.maxHp ?? 0) + totals.maxHp) * overchargeMultiplier));
+  participant.maxHp = Math.max(
+    1,
+    Math.round(((base.maxHp ?? 0) + totals.maxHp + attributeScaling.maxHpBonus) * overchargeMultiplier)
+  );
   participant.hp = clampNumber(participant.hp ?? participant.maxHp, 0, participant.maxHp);
-  participant.maxShield = Math.max(0, Math.round(((base.maxShield ?? 0) + totals.maxShield) * overchargeMultiplier));
+  participant.maxShield = Math.max(
+    0,
+    Math.round(((base.maxShield ?? 0) + totals.maxShield + attributeScaling.maxShieldBonus) * overchargeMultiplier)
+  );
   participant.shield = clampNumber(
     participant.shield ?? participant.maxShield,
     0,
@@ -8309,13 +8438,13 @@ function recalculateParticipant(participant) {
   if (participant.guardActionBonusTurns <= 0) {
     participant.guardActionBonus = 0;
   }
-  const effectiveStats = buildEffectiveAbilityScores(participant.stats, abilityBonuses);
   participant.initiative = Math.round(Number(effectiveStats.dexterity || 0));
   participant.derivedBonuses = {
     base,
     totals,
     abilityBonuses,
     effectiveStats,
+    attributeScaling,
     cardModifiers,
     cardLoadout: {
       maxActive: MAX_ACTIVE_CARDS,

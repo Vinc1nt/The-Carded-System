@@ -1,5 +1,6 @@
 import { UI_LIMITS } from './shared/game-config.js';
 import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
+import { getAttributeScalingFromScores } from './shared/stat-balance.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -294,7 +295,7 @@ function renderStats() {
         ${renderPlayerVital('Damage Bonus', participant.damageBonus || 0)}
         ${renderPlayerConstructVital(participant)}
       </div>
-      ${renderPlayerStandardActionsSection()}
+      ${renderPlayerStandardActionsSection(participant)}
       ${renderPlayerStatusSection(participant)}
       ${showZoneSection ? renderPlayerZoneSection() : ''}
       ${renderPlayerCardsSection(participant)}
@@ -307,6 +308,7 @@ function renderStats() {
             <input type="number" data-proficiency-input value="${participant.proficiencyBonus ?? 2}" />
           </label>
           ${renderAbilityTable(participant)}
+          ${renderPlayerAttributeScalingNote(participant)}
         </div>
       </details>
       <details class="player-collapsible" data-player-section="saves">
@@ -586,11 +588,8 @@ function buildParticipantFromCreateForm(formData) {
     team: formData.get('team') || '',
     setFocus: formData.get('setFocus') || '',
     maxHp,
-    hp: maxHp,
     maxShield,
-    shield: maxShield,
     apMax,
-    apCurrent: apMax,
     proficiencyBonus,
     stats,
     notes: formData.get('notes') || '',
@@ -600,24 +599,24 @@ function buildParticipantFromCreateForm(formData) {
   };
 }
 
-function renderPlayerStandardActionsSection() {
+function renderPlayerStandardActionsSection(participant) {
   return `
     <details class="player-collapsible" data-player-section="standardActions">
       <summary><strong>Standard Actions</strong></summary>
       <div class="collapsible-body">
         <label class="checkbox-row">
           <input type="checkbox" data-player-difficult />
-          <span>Difficult terrain (Move = 5 ft)</span>
+          <span>Difficult terrain (Move = ${getPlayerMoveDistanceFt(participant, { difficultTerrain: true })} ft)</span>
         </label>
         <div class="standard-actions-grid">
-          ${renderPlayerStandardActionButtons()}
+          ${renderPlayerStandardActionButtons(participant)}
         </div>
       </div>
     </details>
   `;
 }
 
-function renderPlayerStandardActionButtons() {
+function renderPlayerStandardActionButtons(participant) {
   const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
   const order = ['move', 'disengage', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
   const actions = order.map((id) => actionsById.get(id)).filter(Boolean);
@@ -629,7 +628,7 @@ function renderPlayerStandardActionButtons() {
       (action) => `
       <div class="standard-action-item">
         <button type="button" data-player-standard="${action.id}">${action.label} (${action.apCost} AP)</button>
-        <small class="muted small-note">${action.summary || ''}</small>
+        <small class="muted small-note">${escapeHtml(getPlayerStandardActionSummary(action, participant))}</small>
       </div>`
     )
     .join('');
@@ -1751,8 +1750,54 @@ function getPlayerEffectiveAbilityScore(participant = {}, ability = '') {
     return Math.round(derived);
   }
   const base = Number(participant?.stats?.[ability] ?? 0);
-  const safeBase = Number.isFinite(base) ? Math.round(base) : 0;
+  const safeBase = Number.isFinite(base) && Math.round(base) !== 0 ? Math.round(base) : 10;
   return safeBase + getPlayerAbilityBonus(participant, ability);
+}
+
+function getPlayerAttributeScaling(participant = {}) {
+  const derived = participant?.derivedBonuses?.attributeScaling;
+  if (derived && typeof derived === 'object') {
+    return derived;
+  }
+  const scores = {
+    strength: getPlayerEffectiveAbilityScore(participant, 'strength'),
+    dexterity: getPlayerEffectiveAbilityScore(participant, 'dexterity'),
+    constitution: getPlayerEffectiveAbilityScore(participant, 'constitution'),
+    intelligence: getPlayerEffectiveAbilityScore(participant, 'intelligence'),
+    wisdom: getPlayerEffectiveAbilityScore(participant, 'wisdom'),
+    charisma: getPlayerEffectiveAbilityScore(participant, 'charisma')
+  };
+  return getAttributeScalingFromScores(scores);
+}
+
+function getPlayerMoveDistanceFt(participant = {}, options = {}) {
+  const scaling = getPlayerAttributeScaling(participant);
+  const value = options.difficultTerrain === true ? scaling.moveDifficultFt : scaling.moveFt;
+  return Math.max(0, Math.round(Number(value || 0)));
+}
+
+function renderPlayerAttributeScalingNote(participant = {}) {
+  const scaling = getPlayerAttributeScaling(participant);
+  return `
+    <p class="muted small-note">
+      STR melee ${formatSignedValue(scaling.meleeDamageBonus || 0)} damage ·
+      DEX move ${getPlayerMoveDistanceFt(participant)} ft (${getPlayerMoveDistanceFt(participant, { difficultTerrain: true })} ft difficult) ·
+      CON ${formatSignedValue(scaling.maxHpBonus || 0)} max HP ·
+      WIS ${formatSignedValue(scaling.maxShieldBonus || 0)} max Shield ·
+      INT magic ${formatSignedValue(scaling.magicDamageBonus || 0)} damage ·
+      CHA shield effects ${formatSignedValue(scaling.abilityShieldBonus || 0)}
+    </p>
+  `;
+}
+
+function getPlayerStandardActionSummary(action = {}, participant = {}) {
+  if (action.id === 'move') {
+    return `1 AP -> ${getPlayerMoveDistanceFt(participant)} ft`;
+  }
+  if (action.id === 'guard') {
+    return `2 AP -> Restore ${Math.max(0, Math.round(Number(participant?.guardRestore ?? 3)))} Shield`;
+  }
+  return action.summary || '';
 }
 
 function getTierMasteryThresholdDefaults(tier = 'Common') {
