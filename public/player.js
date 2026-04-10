@@ -1,6 +1,6 @@
 import { UI_LIMITS } from './shared/game-config.js';
 import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
-import { getAttributeScalingFromScores } from './shared/stat-balance.js';
+import { ATTRIBUTE_BALANCE, getAttributeScalingFromScores } from './shared/stat-balance.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -28,6 +28,7 @@ const state = {
 const params = new URLSearchParams(window.location.search);
 let focusId = params.get('id');
 let createMode = params.get('create') === '1';
+let activeHelpTopic = 'combat';
 let eventSource;
 const playerSectionState = new Map();
 const playerJournalState = new Map();
@@ -36,6 +37,15 @@ const playerCardOpenState = new Map();
 const playerDashboardTabState = new Map();
 const playerCompactTableState = new Map();
 const PLAYER_DASHBOARD_TABS = ['standardActions', 'cards', 'inventory', 'journal', 'notes'];
+const HELP_TOPIC_TITLES = {
+  statuses: 'Statuses',
+  combat: 'Combat Rules',
+  stats: 'Stat Rules',
+  constructs: 'Constructs',
+  standard_actions: 'Standard Actions',
+  out_of_combat: 'Out of Combat',
+  cards: 'Cards'
+};
 
 const els = {
   select: document.getElementById('playerSelect'),
@@ -50,6 +60,13 @@ const els = {
   cardDrawer: document.getElementById('playerCardDrawer'),
   menuToggle: document.getElementById('playerMenuToggle'),
   menuPanel: document.getElementById('playerMenuPanel'),
+  helpMenuToggle: document.getElementById('playerHelpMenuToggle'),
+  helpMenuPanel: document.getElementById('playerHelpMenuPanel'),
+  helpModal: document.getElementById('playerHelpModal'),
+  helpModalClose: document.getElementById('playerHelpModalClose'),
+  helpModalTitle: document.getElementById('playerHelpModalTitle'),
+  helpModalBody: document.getElementById('playerHelpModalBody'),
+  helpModalTabs: document.getElementById('playerHelpModalTabs'),
   nextTurn: document.getElementById('playerNextTurn'),
   playerShortRest: document.getElementById('playerShortRest'),
   playerLongRest: document.getElementById('playerLongRest'),
@@ -71,6 +88,7 @@ const STAT_FIELD_MAP = {
 document.addEventListener('DOMContentLoaded', () => {
   wireSelect();
   wirePlayerMenu();
+  wirePlayerHelp();
   wireTopButtons();
   subscribe();
   fetchState();
@@ -134,6 +152,7 @@ function wirePlayerMenu() {
   if (!els.menuToggle || !els.menuPanel) return;
   els.menuToggle.addEventListener('click', (event) => {
     event.stopPropagation();
+    els.helpMenuPanel?.classList.remove('is-open');
     els.menuPanel.classList.toggle('is-open');
   });
   document.addEventListener('click', (event) => {
@@ -156,6 +175,38 @@ function wirePlayerMenu() {
   els.baseForm?.addEventListener('submit', handlePlayerBaseSubmit);
 }
 
+function wirePlayerHelp() {
+  els.helpMenuToggle?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    els.menuPanel?.classList.remove('is-open');
+    els.helpMenuPanel?.classList.toggle('is-open');
+  });
+  els.helpMenuPanel?.querySelectorAll('[data-player-help-open]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openPlayerHelpModal(button.dataset.playerHelpOpen || 'combat');
+    });
+  });
+  els.helpModalClose?.addEventListener('click', closePlayerHelpModal);
+  els.helpModalTabs?.querySelectorAll('[data-player-help-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openPlayerHelpModal(button.dataset.playerHelpTab || 'combat');
+    });
+  });
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.player-help-menu')) {
+      els.helpMenuPanel?.classList.remove('is-open');
+    }
+    if (event.target === els.helpModal) {
+      closePlayerHelpModal();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !els.helpModal?.classList.contains('hidden')) {
+      closePlayerHelpModal();
+    }
+  });
+}
+
 function wireTopButtons() {
   els.nextTurn?.addEventListener('click', async () => {
     try {
@@ -166,6 +217,355 @@ function wireTopButtons() {
   });
   els.playerShortRest?.addEventListener('click', () => handlePlayerRest('short'));
   els.playerLongRest?.addEventListener('click', () => handlePlayerRest('long'));
+}
+
+function openPlayerHelpModal(topic = 'combat') {
+  activeHelpTopic = HELP_TOPIC_TITLES[topic] ? topic : 'combat';
+  renderPlayerHelpModal();
+  els.helpMenuPanel?.classList.remove('is-open');
+  els.helpModal?.classList.remove('hidden');
+}
+
+function closePlayerHelpModal() {
+  els.helpModal?.classList.add('hidden');
+}
+
+function renderPlayerHelpModal() {
+  if (!els.helpModalBody || !els.helpModalTabs) return;
+  const title = HELP_TOPIC_TITLES[activeHelpTopic] || 'Help';
+  if (els.helpModalTitle) {
+    els.helpModalTitle.textContent = title;
+  }
+  els.helpModalTabs.querySelectorAll('[data-player-help-tab]').forEach((button) => {
+    const isActive = button.dataset.playerHelpTab === activeHelpTopic;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+  els.helpModalBody.innerHTML = getPlayerHelpTopicContent(activeHelpTopic);
+}
+
+function getPlayerHelpTopicContent(topic) {
+  if (topic === 'statuses') return renderPlayerStatusHelpContent();
+  if (topic === 'stats') return renderPlayerStatRulesHelpContent();
+  if (topic === 'standard_actions') return renderPlayerStandardActionHelpContent();
+  if (topic === 'constructs') return renderPlayerConstructHelpContent();
+  if (topic === 'combat') {
+    return `
+      <section class="help-section">
+        <h3>Damage Types</h3>
+        <div class="form-row">
+          <div>
+            <h4>Physical</h4>
+            <ul class="help-list">
+              <li>Bludgeoning</li>
+              <li>Piercing</li>
+              <li>Slashing</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Magical / Elemental</h4>
+            <ul class="help-list">
+              <li>Acid</li>
+              <li>Cold</li>
+              <li>Fire</li>
+              <li>Force</li>
+              <li>Lightning</li>
+              <li>Necrotic</li>
+              <li>Poison</li>
+              <li>Psychic</li>
+              <li>Radiant</li>
+              <li>Thunder</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+      <section class="help-section">
+        <h3>Core Combat Rules</h3>
+        <ul class="help-list">
+          <li>6 AP system by default.</li>
+          <li>Auto-hit attacks.</li>
+          <li>Damage goes to Shield first, then HP.</li>
+          <li>Persistent Shield during combat.</li>
+          <li>Movement starts at 10 ft per AP, plus or minus 5 ft per DEX modifier. Difficult terrain starts at 5 ft per AP.</li>
+          <li>Guard can restore Shield but cannot exceed Max Shield.</li>
+          <li>Recover action reduces damaging status stacks.</li>
+        </ul>
+      </section>
+      <section class="help-section">
+        <h3>Combat Flow</h3>
+        <ul class="help-list">
+          <li>Start of combat: set Shield to Max Shield.</li>
+          <li>Start of turn: resolve status effects and escalation first.</li>
+          <li>Take actions by spending AP.</li>
+          <li>End of turn: resolve end-of-turn effects.</li>
+          <li>End of combat: restore Shield to Max Shield.</li>
+        </ul>
+      </section>
+    `;
+  }
+  if (topic === 'out_of_combat') {
+    return `
+      <section class="help-section">
+        <h3>Character Foundation</h3>
+        <ul class="help-list">
+          <li>No classes. Character role grows from cards, mastery, and fusion choices.</li>
+          <li>Uses the six standard abilities: STR, DEX, CON, INT, WIS, CHA.</li>
+          <li>Creation baseline: +2 to one ability and +1 to a different ability.</li>
+          <li>Choose 2 saving throw proficiencies and 5 skill proficiencies.</li>
+        </ul>
+      </section>
+      <section class="help-section">
+        <h3>Resting Outside Combat</h3>
+        <ul class="help-list">
+          <li>Short Rest: heal 5 + CON mod (minimum 1), recover short-rest resources, restore table-defined Shield.</li>
+          <li>Long Rest: restore HP, Shield, and long-rest resources.</li>
+          <li>Long Rest is the main loadout swap window for cards, relics, and passives.</li>
+          <li>If rest is interrupted by combat or hazards, no rest benefits unless at least 50% of duration was completed.</li>
+        </ul>
+      </section>
+    `;
+  }
+  return `
+    <section class="help-section">
+      <h3>Core System Philosophy</h3>
+      <p>Characters are defined by the cards they collect, master, and fuse. There are no classes.</p>
+    </section>
+    <section class="help-section">
+      <h3>Card Hand</h3>
+      <ul class="help-list">
+        <li>Up to 10 cards can be active at one time.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Card Mastery</h3>
+      <table class="help-table">
+        <thead>
+          <tr><th>Level</th><th>Name</th><th>Effect</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Basic</td><td>Card functions normally.</td></tr>
+          <tr><td>2</td><td>Mastered</td><td>Card gains a small improvement.</td></tr>
+          <tr><td>3</td><td>Refined</td><td>Card gains a stronger improvement.</td></tr>
+          <tr><td>4</td><td>Fusion-Ready</td><td>Card becomes Fusion-eligible and may gain a minor perk.</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section class="help-section">
+      <h3>Auto-Hit and Range</h3>
+      <ul class="help-list">
+        <li>Attacks auto-hit unless prevented by positioning or cover.</li>
+        <li>Cards use flat damage modifiers and clear range values.</li>
+      </ul>
+    </section>
+  `;
+}
+
+function renderPlayerStatRulesHelpContent() {
+  const physicalTypes = ATTRIBUTE_BALANCE.meleeDamageTypes.map((type) => `<li>${escapeHtml(type)}</li>`).join('');
+  const magicTypes = ATTRIBUTE_BALANCE.directMagicDamageTypes.map((type) => `<li>${escapeHtml(type)}</li>`).join('');
+  return `
+    <section class="help-section">
+      <h3>Ability Modifier Rule</h3>
+      <ul class="help-list">
+        <li>Ability modifiers use the standard formula: floor((score - 10) / 2).</li>
+        <li>A score of 10 is neutral (+0 modifier).</li>
+        <li>Legacy or blank 0 ability scores are treated as 10 for derived stat recalculation and fallback display.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Current Stat Scaling</h3>
+      <ul class="help-list">
+        <li>STR: +${ATTRIBUTE_BALANCE.strengthMeleeDamagePerModifier} melee damage per modifier.</li>
+        <li>DEX: +${ATTRIBUTE_BALANCE.dexterityMoveFtPerModifier} ft movement per modifier. Base move is ${ATTRIBUTE_BALANCE.baseMoveFt} ft per AP and difficult terrain starts at ${ATTRIBUTE_BALANCE.difficultMoveFt} ft per AP.</li>
+        <li>CON: +${ATTRIBUTE_BALANCE.constitutionMaxHpPerModifier} max HP per modifier.</li>
+        <li>WIS: +${ATTRIBUTE_BALANCE.wisdomMaxShieldPerModifier} max Shield per modifier.</li>
+        <li>INT: +${ATTRIBUTE_BALANCE.intelligenceMagicDamagePerModifier} direct magic damage per modifier.</li>
+        <li>CHA: +${ATTRIBUTE_BALANCE.charismaAbilityShieldPerModifier} Shield restored from abilities and effects per modifier.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Where Scaling Applies</h3>
+      <ul class="help-list">
+        <li>Movement scaling applies to standard movement, difficult-terrain movement, and card-based movement.</li>
+        <li>Melee damage scaling applies to melee physical attacks within ${ATTRIBUTE_BALANCE.meleeRangeFt} ft.</li>
+        <li>Direct magic damage scaling applies to non-zone, non-construct attacks that use one of the listed magic damage types.</li>
+        <li>Shield restoration scaling applies to Guard and other shield-restoring cards or effects.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Damage Types Used For Scaling</h3>
+      <div class="form-row">
+        <div>
+          <h4>Melee Physical</h4>
+          <ul class="help-list">${physicalTypes}</ul>
+        </div>
+        <div>
+          <h4>Direct Magic</h4>
+          <ul class="help-list">${magicTypes}</ul>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderPlayerConstructHelpContent() {
+  return `
+    <section class="help-section">
+      <h3>Core Rules</h3>
+      <ul class="help-list">
+        <li>Constructs are controlled by their owner and use the owner's team.</li>
+        <li>They appear in the owner's active effects and construct sections.</li>
+        <li>Constructs are separate combat entities with their own HP, AP, and statuses.</li>
+        <li>Construct AP refreshes each time the construct acts.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Turn Timing</h3>
+      <ul class="help-list">
+        <li>Constructs do not act on the turn they are summoned.</li>
+        <li>Their duration starts from their first later turn after the summon turn.</li>
+        <li>A 2-turn construct summoned this turn gets 2 full later turns before expiring.</li>
+        <li>Construct timing is suspended during Pause Button extra turns.</li>
+      </ul>
+    </section>
+    <section class="help-section">
+      <h3>Cards and Limits</h3>
+      <ul class="help-list">
+        <li>If a construct is given cards, it only has the cards explicitly listed on its summon card.</li>
+        <li>Construct cards default to Mastery 1 unless the summon card says otherwise.</li>
+        <li>Multiple copies of the same construct can be active at once if the owner's cap allows it.</li>
+        <li>If a new summon exceeds the owner's construct cap, the oldest active construct is replaced.</li>
+      </ul>
+    </section>
+  `;
+}
+
+function renderPlayerStandardActionHelpContent() {
+  const actionsById = new Map((state.reference?.standardActions || []).map((action) => [action.id, action]));
+  const orderedIds = ['move', 'move_difficult', 'disengage', 'half_cover', 'interact', 'recover', 'cleanse', 'guard'];
+  const actions = [];
+  orderedIds.forEach((id) => {
+    const action = actionsById.get(id);
+    if (action) actions.push(action);
+  });
+  for (const action of state.reference?.standardActions || []) {
+    if (!orderedIds.includes(action.id)) actions.push(action);
+  }
+  if (!actions.length) {
+    return `
+      <section class="help-section">
+        <h3>Standard Actions</h3>
+        <p>Standard action rules will appear once the server boots.</p>
+      </section>
+    `;
+  }
+  const rows = actions
+    .map(
+      (action) => `
+        <tr>
+          <td>${escapeHtml(action.label || action.id || 'Action')}</td>
+          <td>${Number(action.apCost || 0)}</td>
+          <td>${escapeHtml(action.detail || action.summary || '')}</td>
+        </tr>
+      `
+    )
+    .join('');
+  return `
+    <section class="help-section">
+      <h3>Standard Actions</h3>
+      <table class="help-table">
+        <thead>
+          <tr><th>Action</th><th>AP</th><th>Rule</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+    <section class="help-section">
+      <h3>Notes</h3>
+      <ul class="help-list">
+        <li>Move scales with DEX. Difficult terrain uses the reduced difficult-terrain distance.</li>
+        <li>Guard restores Shield but cannot exceed Max Shield.</li>
+        <li>Recover reduces one stack of Bleeding, Poisoned, or Burning.</li>
+        <li>Cleanse removes one eligible control or debuff status for 4 AP.</li>
+      </ul>
+    </section>
+  `;
+}
+
+function renderPlayerStatusHelpContent() {
+  const statuses = state.reference?.statuses || [];
+  if (!statuses.length) {
+    return '<p class="muted">Status reference is not loaded yet.</p>';
+  }
+  const uniqueStatusIds = new Set([
+    'infernal_brand',
+    'blood_curse',
+    'curse_of_weakness',
+    'mind_shield',
+    'enlarge',
+    'reduce',
+    'two_step',
+    'haste_matrix',
+    'haste_crash',
+    'polymorphed'
+  ]);
+  const normalizeTags = (status) =>
+    (Array.isArray(status?.tags) ? status.tags : []).map((tag) => String(tag || '').trim().toLowerCase());
+  const classifyStatusGroup = (status) => {
+    const tags = normalizeTags(status);
+    const statusId = String(status?.id || '').trim().toLowerCase();
+    if (uniqueStatusIds.has(statusId) || tags.includes('custom')) return 'unique';
+    if (tags.includes('damaging')) return 'damage';
+    if (tags.includes('control')) return 'control';
+    if (tags.includes('debuff')) return 'debuff';
+    if (tags.includes('buff')) return 'buff';
+    return 'other';
+  };
+  const renderStatusEntry = (status) => {
+    const tags = Array.isArray(status.tags) && status.tags.length ? status.tags.join(', ') : 'None';
+    const stacks = Number.isFinite(Number(status.defaultStacks)) ? Number(status.defaultStacks) : 1;
+    return `
+      <article class="help-status-item">
+        <h4>${escapeHtml(status.name || 'Status')}</h4>
+        <p><strong>Default Stacks:</strong> ${stacks}</p>
+        <p><strong>Tags:</strong> ${escapeHtml(tags)}</p>
+        <p>${escapeHtml(status.description || 'No description available.')}</p>
+      </article>
+    `;
+  };
+  const grouped = { damage: [], control: [], debuff: [], buff: [], unique: [], other: [] };
+  statuses.forEach((status) => {
+    grouped[classifyStatusGroup(status)].push(status);
+  });
+  const sectionConfigs = [
+    { id: 'damage', title: 'Damaging' },
+    { id: 'control', title: 'Control' },
+    { id: 'debuff', title: 'Debuff' },
+    { id: 'buff', title: 'Buff / Other Rules Effects' },
+    { id: 'unique', title: 'Unique To A Card' },
+    { id: 'other', title: 'Other' }
+  ];
+  const entries = sectionConfigs
+    .map(({ id, title }) => {
+      const items = grouped[id]
+        .slice()
+        .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
+      if (!items.length) return '';
+      return `
+        <section class="help-section">
+          <h4>${escapeHtml(title)}</h4>
+          <div class="help-status-grid">${items.map(renderStatusEntry).join('')}</div>
+        </section>
+      `;
+    })
+    .join('');
+  return `
+    <section class="help-section">
+      <h3>Status Reference</h3>
+      <p>These are the active status definitions used by the tracker, grouped by status type.</p>
+      ${entries}
+    </section>
+  `;
 }
 
 function subscribe() {
@@ -376,7 +776,6 @@ function renderStats() {
             </div>
             ${renderSkillsTable(participant, { expanded: skillsExpanded })}
           </section>
-          ${renderPlayerAbilitiesPanel(participant, manageState.abilities)}
         </div>
         <section class="player-dashboard-card player-tab-card">
           <div class="player-tab-bar" role="tablist" aria-label="Player dashboard sections">
@@ -405,6 +804,9 @@ function renderStats() {
             ${renderPlayerDashboardTabPanel('notes', activeTab, renderPlayerNotesTab(participant))}
           </div>
         </section>
+        <div class="player-abilities-bridge">
+          ${renderPlayerAbilitiesPanel(participant, manageState.abilities)}
+        </div>
       </div>
     </div>
   `;
@@ -2181,7 +2583,6 @@ function renderSkillsTable(participant, options = {}) {
     return `
       <tr>
         <th>${skill}</th>
-        <td>${abilityLabel(ability)}</td>
         ${expanded ? `<td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="proficient" ${entry.proficient ? 'checked' : ''} /></td>` : ''}
         ${expanded ? `<td><input type="checkbox" data-skill-toggle="${key}" data-toggle-type="expert" ${entry.expert ? 'checked' : ''} /></td>` : ''}
         <td>${formatMod(total)}</td>
@@ -2190,7 +2591,7 @@ function renderSkillsTable(participant, options = {}) {
   return `
     <table class="player-table">
       <thead>
-        <tr><th>Skill</th><th>Ability</th>${expanded ? '<th>Prof</th><th>Expert</th>' : ''}<th>Total</th></tr>
+        <tr><th>Skill</th>${expanded ? '<th>Prof</th><th>Expert</th>' : ''}<th>Total</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
