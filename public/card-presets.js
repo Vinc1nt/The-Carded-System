@@ -2792,6 +2792,550 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'demonic_abyssal_rift',
+    card: {
+      id: 'demonic_abyssal_rift',
+      name: 'Abyssal Rift',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Void'],
+      effect: 'Create Abyss Zone (Radius 10 ft). Enemies inside take 6 Necrotic damage each turn. Duration: 2 turns.',
+      utilityNote: 'Manually select enemies inside the zone to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      damage: 6,
+      damageType: 'Necrotic',
+      zoneRadiusByLevel: {
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Radius increases to 15 ft.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_crown_of_madness',
+    card: {
+      id: 'demonic_crown_of_madness',
+      name: 'Crown of Madness',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Psychic'],
+      effect:
+        'Target must attack the nearest creature on their next turn. Creatures may attempt to resist with contested WIS vs WIS.',
+      utilityNote: 'Track the compelled nearest-creature attack manually while the effect is active.',
+      targetMode: 'single',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      targetEntityKinds: ['participant'],
+      contestedEffect: {
+        hostileOnly: true,
+        options: [
+          {
+            id: 'crown_of_madness',
+            label: 'Crown of Madness',
+            statusId: 'crown_of_madness',
+            statusName: 'Crown of Madness',
+            statusNotes: 'Must attack the nearest creature on its turn. GM resolves targeting.',
+            statusStacksByLevel: {
+              1: 1,
+              2: 1,
+              3: 1,
+              4: 1
+            },
+            durationTurnsByLevel: {
+              1: 1,
+              2: 2,
+              3: 2,
+              4: 2
+            }
+          }
+        ]
+      },
+      abilityBonusesByLevel: {
+        3: { charisma: 2 },
+        4: { charisma: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Duration increases to 2 turns.',
+        'Level 3: CHA +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_dengue_fever',
+    card: {
+      id: 'demonic_dengue_fever',
+      name: 'Dengue Fever',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 2,
+      range: 25,
+      healthBonus: 3,
+      shieldBonus: 1,
+      tags: ['Poison'],
+      damage: 8,
+      damageType: 'Poison',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 8 Poison damage and apply Poisoned 2.',
+      masteryDamageByLevel: {
+        1: 8,
+        2: 10,
+        3: 10,
+        4: 10
+      },
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 2,
+          2: 2,
+          3: 2,
+          4: 2
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 10.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_from_beyond_the_grave',
+    card: {
+      id: 'demonic_from_beyond_the_grave',
+      name: 'From Beyond the Grave',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 25,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Psychic'],
+      damage: 7,
+      damageType: 'Psychic',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 7 Psychic damage and apply Frightened 1.',
+      masteryDamageByLevel: {
+        1: 7,
+        2: 9,
+        3: 9,
+        4: 9
+      },
+      statusApply: {
+        id: 'frightened',
+        stacksByLevel: {
+          1: 1,
+          2: 1,
+          3: 1,
+          4: 1
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 9 Psychic.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_hunger_of_the_void',
+    card: {
+      id: 'demonic_hunger_of_the_void',
+      name: 'Hunger of the Void',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Void'],
+      effect: 'Create Void Zone (Radius 10 ft). Enemies inside take 5 Necrotic damage each turn. Duration: 2 turns.',
+      utilityNote: 'Manually select enemies inside the zone to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      damage: 5,
+      damageType: 'Necrotic',
+      masteryDamageByLevel: {
+        1: 5,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 6.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_summon_hellhound',
+    card: {
+      id: 'demonic_summon_hellhound',
+      name: 'Summon Hellhound',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 10,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Construct'],
+      effect:
+        'Summon Hellhound with 4 AP and 14 HP that lasts for 2 turns. It has the Flame Bite card. It takes its turn directly after yours and attacks the nearest enemy.',
+      utilityNote: 'The Hellhound acts on its own construct turn. Nearest-enemy targeting remains manual until battlefield positions are tracked.',
+      isConstruct: true,
+      constructMode: 'utility',
+      constructManualTurns: true,
+      constructDurationTurns: 2,
+      constructAp: 4,
+      constructMaxHp: 14,
+      constructMaxHpByLevel: {
+        1: 14,
+        2: 20,
+        3: 20,
+        4: 20
+      },
+      constructMoveFt: 10,
+      constructCards: ['demonic_flame_bite'],
+      constructCardMasteryLevel: 1,
+      abilityBonusesByLevel: {
+        3: { charisma: 2 },
+        4: { charisma: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Hellhound HP increases to 20.',
+        'Level 3: CHA +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_summon_void_demon',
+    card: {
+      id: 'demonic_summon_void_demon',
+      name: 'Summon Void Demon',
+      set: 'Demonic',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 5,
+      range: 10,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Construct'],
+      effect:
+        'Summon Void Demon with 5 AP and 18 HP that lasts 2 turns. It has the Void Slash card. It acts after your turn and attacks the enemy closest to death.',
+      utilityNote: 'The Void Demon acts on its own construct turn. Lowest-HP enemy targeting is the intended default.',
+      isConstruct: true,
+      constructMode: 'utility',
+      constructManualTurns: true,
+      constructDurationTurns: 2,
+      constructAp: 5,
+      constructMaxHp: 18,
+      constructMaxHpByLevel: {
+        1: 18,
+        2: 24,
+        3: 24,
+        4: 24
+      },
+      constructMoveFt: 10,
+      constructCards: ['demonic_void_slash'],
+      constructCardMasteryLevel: 1,
+      abilityBonusesByLevel: {
+        3: { charisma: 2 },
+        4: { charisma: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Void Demon HP increases to 24.',
+        'Level 3: CHA +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_toiling_flames',
+    card: {
+      id: 'demonic_toiling_flames',
+      name: 'Toiling Flames',
+      set: 'Demonic',
+      type: 'Defense',
+      tier: 'Rare',
+      apCost: 4,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 2,
+      shieldBonus: 3,
+      tags: ['Necrotic'],
+      effect: 'Dark flames surround you. Melee attackers take 5 Necrotic damage while this is active. Duration: 2 turns.',
+      customCardEffect: 'demonic_toiling_flames',
+      durationTurnsByLevel: {
+        1: 2,
+        2: 2,
+        3: 2,
+        4: 2
+      },
+      retaliationDamageByLevel: {
+        1: 5,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_ebola',
+    card: {
+      id: 'demonic_ebola',
+      name: 'Ebola',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Very Rare',
+      apCost: 3,
+      range: 25,
+      healthBonus: 4,
+      shieldBonus: 1,
+      tags: ['Poison'],
+      damage: 10,
+      damageType: 'Poison',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 10 Poison damage and apply Poisoned 3.',
+      masteryDamageByLevel: {
+        1: 10,
+        2: 13,
+        3: 13,
+        4: 13
+      },
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 3,
+          2: 3,
+          3: 3,
+          4: 3
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 13.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_anthrax',
+    card: {
+      id: 'demonic_anthrax',
+      name: 'Anthrax',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 25,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Poison'],
+      damage: 10,
+      damageType: 'Poison',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 10 Poison damage and apply Poisoned 5.',
+      masteryDamageByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 5,
+          2: 5,
+          3: 5,
+          4: 5
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 15.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_flame_bite',
+    card: {
+      id: 'demonic_flame_bite',
+      name: 'Flame Bite',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 2,
+      range: 5,
+      rangeText: 'Melee (5 ft)',
+      healthBonus: 2,
+      shieldBonus: 0,
+      tags: ['Attack', 'Fire'],
+      damage: 5,
+      damageType: 'Fire',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 5 Fire damage and apply 1 Burning.',
+      masteryDamageByLevel: {
+        1: 5,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 1,
+          2: 1,
+          3: 1,
+          4: 1
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'demonic_void_slash',
+    card: {
+      id: 'demonic_void_slash',
+      name: 'Void Slash',
+      set: 'Demonic',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 2,
+      range: 5,
+      rangeText: 'Melee (5 ft)',
+      healthBonus: 2,
+      shieldBonus: 0,
+      tags: ['Attack', 'Void'],
+      damage: 6,
+      damageType: 'Necrotic',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 6 Necrotic damage to a target. If the target is below 50% HP, deal +2 additional damage.',
+      masteryDamageByLevel: {
+        1: 6,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      bonusDamageIfTargetBelowHalfHpByLevel: {
+        1: 2,
+        2: 2,
+        3: 2,
+        4: 2
+      },
+      abilityBonusesByLevel: {
+        3: { charisma: 2 },
+        4: { charisma: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 8.',
+        'Level 3: CHA +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'nature_poison_dart',
     card: {
       id: 'nature_poison_dart',

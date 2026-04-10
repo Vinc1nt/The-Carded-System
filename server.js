@@ -1621,6 +1621,9 @@ function executeWeaponAttackAction(body = {}) {
     sourceEntityId: participant.id
   });
   const notes = [];
+  const retaliation = applyToilingFlamesRetaliation(participant, target, fauxCard, {
+    masteryLevel: 1
+  });
   if (nextAttackBonus > 0) {
     participant.nextAttackDamageBonus = 0;
     notes.push(`Consumes +${nextAttackBonus} next-attack damage bonus.`);
@@ -1630,6 +1633,17 @@ function executeWeaponAttackAction(body = {}) {
   }
   if (equipmentSummary.weaponApPenalty > 0) {
     notes.push(`Equipment penalty adds +${equipmentSummary.weaponApPenalty} AP.`);
+  }
+  if (retaliation) {
+    const retaliationMitigation =
+      retaliation.result.resisted && !retaliation.result.vulnerable
+        ? ' [Resisted]'
+        : retaliation.result.vulnerable && !retaliation.result.resisted
+          ? ' [Vulnerable]'
+          : '';
+    notes.push(
+      `${target.name}'s Toiling Flames deals ${retaliation.result.finalDamage} ${retaliation.retaliationDamageType} to ${participant.name} (${retaliation.result.shieldDamage} Shield, ${retaliation.result.hpDamage} HP).${retaliationMitigation}`
+    );
   }
   const mitigation =
     result.resisted && !result.vulnerable
@@ -3105,6 +3119,80 @@ function executeCardAction(body) {
     };
   }
 
+  if (customCardEffect === 'demonic_toiling_flames') {
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      1,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, 2))
+    );
+    const retaliationDamage = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'retaliationDamageByLevel', masteryLevel, Number(card.retaliationDamage || 5)))
+    );
+    upsertTimedStatus(participant, {
+      presetId: 'toiling_flames',
+      name: 'Toiling Flames',
+      stacks: 1,
+      notes: `Melee attackers take ${retaliationDamage} Necrotic damage while active.`,
+      remainingTurns: durationTurns,
+      retaliationDamage,
+      retaliationDamageType: 'Necrotic',
+      retaliationMeleeOnly: true
+    });
+    notes.push(
+      `${participant.name} is wreathed in Toiling Flames for ${durationTurns} turn${durationTurns === 1 ? '' : 's'} (melee attackers take ${retaliationDamage} Necrotic).`
+    );
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: participant.id,
+      targetIds: [participant.id],
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: 'self',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      customStatus: 'toiling_flames',
+      toilingFlames: {
+        durationTurns,
+        retaliationDamage
+      }
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: participant,
+      targets: [participant],
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   if (!isConstruct && selfHpLossTotal > 0) {
@@ -3394,6 +3482,32 @@ function executeCardAction(body) {
   if (!isConstruct && nextAttackBonus > 0 && damageResults.length) {
     participant.nextAttackDamageBonus = 0;
     notes.push(`Consumes +${nextAttackBonus} next-attack damage bonus.`);
+  }
+
+  if (!isConstruct && !zoneCard && damageResults.length) {
+    const retaliationTargets = Array.from(
+      new Map(
+        damageResults
+          .map((entry) => entry?.target)
+          .filter((entry) => entry?.id)
+          .map((entry) => [String(entry.id || ''), entry])
+      ).values()
+    );
+    retaliationTargets.forEach((retaliationTarget) => {
+      const retaliation = applyToilingFlamesRetaliation(participant, retaliationTarget, card, {
+        masteryLevel
+      });
+      if (!retaliation) return;
+      const retaliationMitigation =
+        retaliation.result.resisted && !retaliation.result.vulnerable
+          ? ' [Resisted]'
+          : retaliation.result.vulnerable && !retaliation.result.resisted
+            ? ' [Vulnerable]'
+            : '';
+      notes.push(
+        `${retaliationTarget.name}'s Toiling Flames deals ${retaliation.result.finalDamage} ${retaliation.retaliationDamageType} to ${participant.name} (${retaliation.result.shieldDamage} Shield, ${retaliation.result.hpDamage} HP).${retaliationMitigation}`
+      );
+    });
   }
 
   if (shadowBleedTargets.length) {
@@ -5314,6 +5428,7 @@ function detectCustomStatusEffect(status) {
   if (token === 'twostep') return 'two_step';
   if (token === 'hastematrix') return 'haste_matrix';
   if (token === 'hastecrash') return 'haste_crash';
+  if (token === 'toilingflames') return 'toiling_flames';
   if (token === 'polymorphed' || token === 'polymorph') return 'polymorphed';
   return null;
 }
@@ -5511,7 +5626,12 @@ function normalizeStatuses(statuses = []) {
           : 0,
         hpLossPerTurn: Number.isFinite(Number(rawStatus.hpLossPerTurn))
           ? Math.max(0, Math.round(Number(rawStatus.hpLossPerTurn)))
-          : 0
+          : 0,
+        retaliationDamage: Number.isFinite(Number(rawStatus.retaliationDamage))
+          ? Math.max(0, Math.round(Number(rawStatus.retaliationDamage)))
+          : 0,
+        retaliationDamageType: String(rawStatus.retaliationDamageType || '').trim(),
+        retaliationMeleeOnly: rawStatus.retaliationMeleeOnly === true
       });
       return;
     }
@@ -5542,6 +5662,14 @@ function normalizeStatuses(statuses = []) {
       Number(existing.hpLossPerTurn || 0),
       Number.isFinite(Number(rawStatus.hpLossPerTurn)) ? Math.max(0, Math.round(Number(rawStatus.hpLossPerTurn))) : 0
     );
+    existing.retaliationDamage = Math.max(
+      Number(existing.retaliationDamage || 0),
+      Number.isFinite(Number(rawStatus.retaliationDamage)) ? Math.max(0, Math.round(Number(rawStatus.retaliationDamage))) : 0
+    );
+    if (!existing.retaliationDamageType && rawStatus.retaliationDamageType) {
+      existing.retaliationDamageType = String(rawStatus.retaliationDamageType || '').trim();
+    }
+    existing.retaliationMeleeOnly = existing.retaliationMeleeOnly || rawStatus.retaliationMeleeOnly === true;
     existing.remainingTurns = Math.max(existing.remainingTurns || 0, remainingTurns);
   });
   return Array.from(merged.values());
@@ -5981,9 +6109,30 @@ function performConstructCardAction(owner, construct, body = {}, options = {}) {
   if (target?.id) {
     normalizedConstruct.targetId = target.id;
   }
-  const damage = Math.max(0, Number(getCardDamageAtCurrentMastery(card) || 0));
+  const masteryLevel = Math.max(1, Number(card.masteryLevel || 1));
+  let damage = Math.max(0, Number(getCardDamageAtCurrentMastery(card) || 0));
+  const belowHalfHpBonus = Math.max(
+    0,
+    Math.round(
+      getCardScaledEffectValue(
+        card,
+        'bonusDamageIfTargetBelowHalfHpByLevel',
+        masteryLevel,
+        Number(card.bonusDamageIfTargetBelowHalfHp || 0)
+      )
+    )
+  );
   const damageType = String(card.damageType || '').trim() || 'damage';
+  const statusApply = normalizeCardStatusApply(card, masteryLevel);
   const events = [];
+  if (
+    target &&
+    belowHalfHpBonus > 0 &&
+    Number(target.maxHp || 0) > 0 &&
+    Number(target.hp || 0) * 2 < Number(target.maxHp || 0)
+  ) {
+    damage += belowHalfHpBonus;
+  }
   if (target && damage > 0) {
     const result = applyCardDamageWithType(target, damage, damageType, {
       sourceEntityId: normalizedConstruct.id
@@ -6001,10 +6150,42 @@ function performConstructCardAction(owner, construct, body = {}, options = {}) {
     if (destroyedConstruct) {
       events.push(`${destroyedConstruct.construct.name} is destroyed.`);
     }
+    const retaliation = applyToilingFlamesRetaliation(normalizedConstruct, target, card, {
+      masteryLevel
+    });
+    if (retaliation) {
+      const retaliationMitigation =
+        retaliation.result.resisted && !retaliation.result.vulnerable
+          ? ' [Resisted]'
+          : retaliation.result.vulnerable && !retaliation.result.resisted
+            ? ' [Vulnerable]'
+            : '';
+      events.push(
+        `${target.name}'s Toiling Flames deals ${retaliation.result.finalDamage} ${retaliation.retaliationDamageType} to ${normalizedConstruct.name} (${retaliation.result.shieldDamage} Shield, ${retaliation.result.hpDamage} HP).${retaliationMitigation}`
+      );
+      if (retaliation.destroyedConstruct) {
+        events.push(`${retaliation.destroyedConstruct.construct.name} is destroyed.`);
+      }
+    }
   } else if (target) {
     events.push(`${normalizedConstruct.name} uses ${card.name} on ${target.name}.`);
   } else {
     events.push(`${normalizedConstruct.name} uses ${card.name}.`);
+  }
+  if (target && statusApply) {
+    if (statusApply.isCustom) {
+      addCustomStatus(target, {
+        name: statusApply.name,
+        stacks: statusApply.stacks,
+        notes: statusApply.notes
+      });
+    } else {
+      addStatusStacks(target, statusApply.id, statusApply.stacks);
+    }
+    enforceControlHierarchy(target);
+    events.push(
+      `${normalizedConstruct.name} applies ${statusApply.name || statusDisplayName(statusApply.id)} ${statusApply.stacks} to ${target.name}.`
+    );
   }
 
   normalizedConstruct.cardObjects = cards.map((entry) =>
@@ -7684,6 +7865,37 @@ function getInfernalBrandDamageBonus(target, sourceParticipantId = '') {
   }, 0);
 }
 
+function getToilingFlamesStatus(target) {
+  if (!target) return null;
+  return findCustomStatus(target, 'toiling_flames');
+}
+
+function applyToilingFlamesRetaliation(attacker, defender, attackCard = {}, options = {}) {
+  if (!attacker || !defender) return null;
+  if (String(attacker.id || '').trim() === String(defender.id || '').trim()) return null;
+  const status = getToilingFlamesStatus(defender);
+  if (!status) return null;
+  const masteryLevel = Math.max(1, Number(options.masteryLevel || attackCard?.masteryLevel || 1));
+  const meleeOnly = status.retaliationMeleeOnly !== false;
+  if (meleeOnly && !isMeleeAttackCard(attackCard, masteryLevel)) return null;
+  const retaliationDamage = Number.isFinite(Number(status.retaliationDamage))
+    ? Math.max(0, Math.round(Number(status.retaliationDamage)))
+    : 0;
+  if (retaliationDamage <= 0) return null;
+  const retaliationDamageType = String(status.retaliationDamageType || 'Necrotic').trim() || 'Necrotic';
+  const result = applyCardDamageWithType(attacker, retaliationDamage, retaliationDamageType, {
+    sourceEntityId: defender.id
+  });
+  const destroyedConstruct = removeDefeatedConstructByEntity(attacker);
+  return {
+    status,
+    result,
+    retaliationDamage,
+    retaliationDamageType,
+    destroyedConstruct
+  };
+}
+
 function normalizeDamageTypes(list = []) {
   if (!Array.isArray(list)) return [];
   const normalized = [];
@@ -8172,7 +8384,13 @@ function addCustomStatus(participant, status = {}) {
       : 0,
     hpLossPerTurn: Number.isFinite(Number(status.hpLossPerTurn ?? current[existingIndex]?.hpLossPerTurn))
       ? Math.max(0, Math.round(Number(status.hpLossPerTurn ?? current[existingIndex]?.hpLossPerTurn)))
-      : 0
+      : 0,
+    retaliationDamage: Number.isFinite(Number(status.retaliationDamage ?? current[existingIndex]?.retaliationDamage))
+      ? Math.max(0, Math.round(Number(status.retaliationDamage ?? current[existingIndex]?.retaliationDamage)))
+      : 0,
+    retaliationDamageType: String(status.retaliationDamageType || current[existingIndex]?.retaliationDamageType || '').trim(),
+    retaliationMeleeOnly:
+      status.retaliationMeleeOnly === true || current[existingIndex]?.retaliationMeleeOnly === true
   };
   if (existingIndex >= 0) {
     current[existingIndex] = nextStatus;
@@ -8235,7 +8453,12 @@ function upsertTimedStatus(participant, status = {}) {
       : 0,
     hpLossPerTurn: Number.isFinite(Number(status.hpLossPerTurn ?? existing?.hpLossPerTurn))
       ? Math.max(0, Math.round(Number(status.hpLossPerTurn ?? existing?.hpLossPerTurn)))
-      : 0
+      : 0,
+    retaliationDamage: Number.isFinite(Number(status.retaliationDamage ?? existing?.retaliationDamage))
+      ? Math.max(0, Math.round(Number(status.retaliationDamage ?? existing?.retaliationDamage)))
+      : 0,
+    retaliationDamageType: String(status.retaliationDamageType || existing?.retaliationDamageType || '').trim(),
+    retaliationMeleeOnly: status.retaliationMeleeOnly === true || existing?.retaliationMeleeOnly === true
   };
   if (existingIndex >= 0) {
     current[existingIndex] = nextStatus;
