@@ -10,9 +10,14 @@ import {
   getContextualDamageBonusFromScaling
 } from './public/shared/stat-balance.js';
 import {
+  findArmorCatalogEntryByName,
+  findShieldCatalogEntryByName,
   EQUIPMENT_DAMAGE_TYPES,
   findWeaponCatalogEntryByName,
   getDefaultArmorProperties,
+  getArmorCatalogEntry,
+  getDefaultShieldProperties,
+  getShieldCatalogEntry,
   getDefaultWeaponCardBonus,
   getDefaultWeaponHands,
   getWeaponAffectedCardLabel,
@@ -229,7 +234,7 @@ function getRuntimeStandardActionsForParticipant(participant = {}) {
   const guardRestore = Math.max(0, Math.round(Number(participant?.guardRestore ?? DEFAULT_GUARD_RESTORE)));
   const moveApCost = Math.max(1, Number(participant?.derivedBonuses?.equipment?.moveApCost || 1));
   const movePenaltyNote =
-    moveApCost > 1 ? ' Armour requirement unmet: movement costs extra AP.' : '';
+    moveApCost > 1 ? ' Armour STR requirement unmet: movement costs 2 AP per 10 ft.' : '';
   return {
     ...STANDARD_ACTIONS,
     move: {
@@ -723,13 +728,25 @@ function normalizeWeaponEquipmentSlot(raw = {}) {
 
 function normalizeArmorEquipmentSlot(raw = {}) {
   if (!raw || typeof raw !== 'object') return null;
-  const name = normalizeEquipmentText(raw.name || raw.title);
+  const catalogEntry =
+    getArmorCatalogEntry(raw.catalogId) ||
+    findArmorCatalogEntryByName(raw.name || raw.title) ||
+    findArmorCatalogEntryByName(raw.armorType || raw.type || raw.category || raw.subcategory);
+  const name = normalizeEquipmentText(raw.name || raw.title || catalogEntry?.name);
   if (!name) return null;
-  const armorType = normalizeArmorType(raw.armorType || raw.type || raw.category || raw.subcategory);
+  const armorType = normalizeArmorType(raw.armorType || raw.type || raw.category || raw.subcategory || catalogEntry?.armorType);
   if (!armorType) return null;
-  const defaults = getDefaultArmorProperties(armorType);
+  const defaults = catalogEntry || getDefaultArmorProperties(armorType);
+  const tags = [
+    ...new Set(
+      (Array.isArray(raw.tags) ? raw.tags : Array.isArray(defaults.tags) ? defaults.tags : [])
+        .map((entry) => normalizeEquipmentText(entry))
+        .filter(Boolean)
+    )
+  ];
   return {
     id: raw.id || randomUUID(),
+    catalogId: String(raw.catalogId || catalogEntry?.id || '').trim(),
     kind: 'armor',
     name,
     armorType,
@@ -744,22 +761,47 @@ function normalizeArmorEquipmentSlot(raw = {}) {
       min: 0,
       max: 99
     }),
-    notes: normalizeEquipmentText(raw.notes || raw.description)
+    stealthDisadvantage: raw.stealthDisadvantage === true || defaults.stealthDisadvantage === true,
+    tags,
+    notes: normalizeEquipmentText(raw.notes || raw.description || defaults.notes)
   };
 }
 
 function normalizeShieldEquipmentSlot(raw = {}) {
   if (!raw || typeof raw !== 'object') return null;
-  const name = normalizeEquipmentText(raw.name || raw.title);
+  const hasDefinition = [
+    raw.catalogId,
+    raw.name,
+    raw.title,
+    raw.kind,
+    raw.type,
+    raw.category
+  ].some((value) => String(value || '').trim());
+  if (!hasDefinition) return null;
+  const catalogEntry =
+    getShieldCatalogEntry(raw.catalogId) ||
+    findShieldCatalogEntryByName(raw.name || raw.title) ||
+    findShieldCatalogEntryByName('shield');
+  const name = normalizeEquipmentText(raw.name || raw.title || catalogEntry?.name);
   if (!name) return null;
+  const defaults = catalogEntry || getDefaultShieldProperties();
+  const tags = [
+    ...new Set(
+      (Array.isArray(raw.tags) ? raw.tags : Array.isArray(defaults.tags) ? defaults.tags : [])
+        .map((entry) => normalizeEquipmentText(entry))
+        .filter(Boolean)
+    )
+  ];
   return {
     id: raw.id || randomUUID(),
+    catalogId: String(raw.catalogId || catalogEntry?.id || '').trim(),
     kind: 'shield',
     name,
-    hands: 1,
-    maxShieldBonus: normalizeEquipmentInteger(raw.maxShieldBonus ?? raw.shieldBonus, 3, { min: 0, max: 999 }),
-    shieldRegen: normalizeEquipmentInteger(raw.shieldRegen ?? raw.shieldRegenPerTurn, 1, { min: 0, max: 999 }),
-    notes: normalizeEquipmentText(raw.notes || raw.description)
+    hands: normalizeEquipmentInteger(raw.hands, defaults.hands, { min: 1, max: 2 }),
+    maxShieldBonus: normalizeEquipmentInteger(raw.maxShieldBonus ?? raw.shieldBonus, defaults.maxShieldBonus, { min: 0, max: 999 }),
+    shieldRegen: normalizeEquipmentInteger(raw.shieldRegen ?? raw.shieldRegenPerTurn, defaults.shieldRegen, { min: 0, max: 999 }),
+    tags,
+    notes: normalizeEquipmentText(raw.notes || raw.description || defaults.notes)
   };
 }
 
@@ -874,11 +916,14 @@ function getParticipantEquipmentSummary(participant = {}, effectiveStats = {}, o
     handsExceeded,
     armorStrengthRequirement,
     armorStrengthMet,
+    armorRequirementMet: armorStrengthMet,
     moveApCost,
+    armorMovePenaltyActive: moveApCost > 1,
     maxShieldBonus,
     shieldRegen,
-    canHide: armorType !== 'heavy',
+    canHide: true,
     dexterityPenalty: Math.max(0, Number(armor?.dexterityPenalty || 0)),
+    stealthDisadvantage: armor?.stealthDisadvantage === true,
     weaponStyle: weapon ? normalizeWeaponStyle(weapon.weaponStyle) : '',
     weaponMatchType: weapon ? getWeaponCardMatchType(weapon) : '',
     weaponAffectsLabel: weapon ? getWeaponAffectedCardLabel(weapon) : '',

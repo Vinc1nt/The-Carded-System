@@ -2111,6 +2111,9 @@ function getEquipmentSummary(participant = {}) {
     weapon: participant?.equipment?.weapon || null,
     armor: participant?.equipment?.armor || null,
     shield: participant?.equipment?.shield || null,
+    armorStrengthRequirement: 0,
+    armorRequirementMet: true,
+    armorMovePenaltyActive: false,
     moveApCost: 1,
     shieldRegen: 0,
     weaponAffectsLabel: '',
@@ -2120,7 +2123,8 @@ function getEquipmentSummary(participant = {}) {
     weaponRequirementMet: true,
     weaponAmmoRequired: false,
     weaponHasAmmo: true,
-    canHide: true
+    canHide: true,
+    stealthDisadvantage: participant?.equipment?.armor?.stealthDisadvantage === true
   };
 }
 
@@ -2147,6 +2151,12 @@ function formatWeaponRequirementLine(weapon = {}) {
   if (!score || ability === 'none') return '';
   if (ability === 'either') return `Req STR or DEX ${score}`;
   if (ability === 'dexterity') return `Req DEX ${score}`;
+  return `Req STR ${score}`;
+}
+
+function formatArmorRequirementLine(summary = {}) {
+  const score = Math.max(0, Number(summary?.armorStrengthRequirement || 0));
+  if (!score) return 'Req STR none';
   return `Req STR ${score}`;
 }
 
@@ -2180,10 +2190,10 @@ function renderEquipmentSection(participant) {
     `Shield Regen ${Number(summary.shieldRegen || 0)}/turn`
   ];
   if (Number(summary.moveApCost || 1) > 1) {
-    notes.push(`Move actions cost ${Number(summary.moveApCost || 1)} AP`);
+    notes.push(`Movement costs ${Number(summary.moveApCost || 1)} AP per 10 ft`);
   }
-  if (summary.canHide === false) {
-    notes.push('Cannot become Hidden');
+  if (summary.stealthDisadvantage) {
+    notes.push('Stealth disadvantage');
   }
   return `
     <details class="collapsible-block" data-section="equipment">
@@ -2219,7 +2229,12 @@ function renderEquipmentSection(participant) {
               ? [
                   `${String(armor.armorType || '').replace(/^./, (char) => char.toUpperCase())} Armour`,
                   `Shield +${Number(armor.maxShieldBonus || 0)} · Regen +${Number(armor.shieldRegen || 0)}/turn`,
-                  Number(armor.dexterityPenalty || 0) > 0 ? `DEX ${formatSignedValue(-Number(armor.dexterityPenalty || 0))}` : 'DEX unchanged'
+                  formatArmorRequirementLine(summary),
+                  `Requirement: ${summary.armorRequirementMet === false ? 'Unmet' : 'Met'}`,
+                  summary.armorMovePenaltyActive ? 'Movement: 2 AP per 10 ft' : 'Movement: normal cost',
+                  Number(armor.dexterityPenalty || 0) > 0 ? `DEX ${formatSignedValue(-Number(armor.dexterityPenalty || 0))}` : 'DEX unchanged',
+                  summary.stealthDisadvantage ? 'Stealth: disadvantage' : '',
+                  Array.isArray(armor.tags) && armor.tags.length ? `Tags: ${armor.tags.join(', ')}` : ''
                 ]
               : []
           )}
@@ -2229,7 +2244,8 @@ function renderEquipmentSection(participant) {
             shield
               ? [
                   `Shield +${Number(shield.maxShieldBonus || 0)} · Regen +${Number(shield.shieldRegen || 0)}/turn`,
-                  'Uses 1 hand'
+                  `Uses ${Number(shield.hands || 1)} hand`,
+                  Array.isArray(shield.tags) && shield.tags.length ? `Tags: ${shield.tags.join(', ')}` : ''
                 ]
               : []
           )}

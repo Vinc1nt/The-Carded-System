@@ -2,10 +2,12 @@ import { UI_LIMITS } from './shared/game-config.js';
 import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
 import { ATTRIBUTE_BALANCE, getAttributeScalingFromScores } from './shared/stat-balance.js';
 import {
+  ARMOR_CATALOG,
   ARMOR_TYPE_OPTIONS,
   getWeaponAffectedCardLabel,
   getWeaponCardInteraction,
   REQUIREMENT_ABILITY_OPTIONS,
+  SHIELD_CATALOG,
   WEAPON_CATALOG,
   WEAPON_STYLE_OPTIONS,
   hasWeaponBasicAttack
@@ -1437,6 +1439,11 @@ function renderCharacterCreator() {
               <div class="damage-group-header">
                 <h4>Armour</h4>
               </div>
+              <label>Armour Preset
+                <select name="armorCatalogId" data-player-armor-catalog-select>
+                  ${renderPlayerArmorCatalogOptions()}
+                </select>
+              </label>
               <div class="form-row">
                 <label>Name
                   <input type="text" name="armorName" placeholder="Chain Shirt" />
@@ -1450,6 +1457,11 @@ function renderCharacterCreator() {
               <div class="damage-group-header">
                 <h4>Shield</h4>
               </div>
+              <label>Shield Preset
+                <select name="shieldCatalogId" data-player-shield-catalog-select>
+                  ${renderPlayerShieldCatalogOptions()}
+                </select>
+              </label>
               <label>Name
                 <input type="text" name="shieldName" placeholder="Tower Shield" />
               </label>
@@ -1598,6 +1610,8 @@ function wireCharacterCreator() {
   const form = document.getElementById('playerCreateForm');
   if (!form) return;
   wirePlayerWeaponCatalogSelects(form);
+  wirePlayerArmorCatalogSelects(form);
+  wirePlayerShieldCatalogSelects(form);
   form.querySelector('[data-player-create-from-preset]')?.addEventListener('click', async () => {
     const presetId = String(form.querySelector('[data-player-character-preset]')?.value || '').trim();
     if (!presetId) {
@@ -1716,8 +1730,12 @@ function getPlayerEquipmentSummary(participant = {}) {
     weapon: participant?.equipment?.weapon || null,
     armor: participant?.equipment?.armor || null,
     shield: participant?.equipment?.shield || null,
+    armorStrengthRequirement: 0,
+    armorRequirementMet: true,
+    armorMovePenaltyActive: false,
     moveApCost: 1,
     shieldRegen: 0,
+    dexterityPenalty: Math.max(0, Number(participant?.equipment?.armor?.dexterityPenalty || 0)),
     weaponAffectsLabel: '',
     weaponApPenalty: 0,
     weaponPenaltyReasons: [],
@@ -1725,7 +1743,8 @@ function getPlayerEquipmentSummary(participant = {}) {
     weaponRequirementMet: true,
     weaponAmmoRequired: false,
     weaponHasAmmo: true,
-    canHide: true
+    canHide: true,
+    stealthDisadvantage: participant?.equipment?.armor?.stealthDisadvantage === true
   };
 }
 
@@ -1754,17 +1773,20 @@ function buildEquipmentSlotPayloadFromFormData(formData, slot = '') {
     };
   }
   if (slot === 'armor') {
+    const catalogId = String(formData.get('armorCatalogId') || '').trim();
     const name = String(formData.get('armorName') || '').trim();
-    if (!name) return null;
+    if (!name && !catalogId) return null;
     return {
+      catalogId,
       name,
       armorType: String(formData.get('armorType') || 'light')
     };
   }
   if (slot === 'shield') {
+    const catalogId = String(formData.get('shieldCatalogId') || '').trim();
     const name = String(formData.get('shieldName') || '').trim();
-    if (!name) return null;
-    return { name };
+    if (!name && !catalogId) return null;
+    return { catalogId, name };
   }
   return null;
 }
@@ -1817,23 +1839,29 @@ function renderPlayerEquipmentSummary(participant = {}) {
     ? [
         `${String(armor.armorType || '').replace(/^./, (char) => char.toUpperCase())} Armour`,
         `Shield +${Number(armor.maxShieldBonus || 0)} · Regen +${Number(armor.shieldRegen || 0)}/turn`,
-        Number(armor.dexterityPenalty || 0) > 0 ? `DEX ${formatSignedValue(-Number(armor.dexterityPenalty || 0))}` : 'DEX unchanged'
+        formatPlayerArmorRequirementLine(summary),
+        `Requirement: ${summary.armorRequirementMet === false ? 'Unmet' : 'Met'}`,
+        summary.armorMovePenaltyActive ? 'Movement: 2 AP per 10 ft' : 'Movement: normal cost',
+        Number(armor.dexterityPenalty || 0) > 0 ? `DEX ${formatSignedValue(-Number(armor.dexterityPenalty || 0))}` : 'DEX unchanged',
+        summary.stealthDisadvantage ? 'Stealth: disadvantage' : '',
+        Array.isArray(armor.tags) && armor.tags.length ? `Tags: ${armor.tags.join(', ')}` : ''
       ]
     : [];
   const shieldLines = shield
     ? [
         `Shield +${Number(shield.maxShieldBonus || 0)} · Regen +${Number(shield.shieldRegen || 0)}/turn`,
-        'Uses 1 hand'
+        `Uses ${Number(shield.hands || 1)} hand`,
+        Array.isArray(shield.tags) && shield.tags.length ? `Tags: ${shield.tags.join(', ')}` : ''
       ]
     : [];
   const notes = [];
   notes.push(`Hands ${Number(summary.handsUsed || 0)}/${Number(summary.handsAvailable || 2)}`);
   notes.push(`Shield Regen ${Number(summary.shieldRegen || 0)}/turn`);
   if (Number(summary.moveApCost || 1) > 1) {
-    notes.push(`Move actions cost ${Number(summary.moveApCost || 1)} AP`);
+    notes.push(`Movement costs ${Number(summary.moveApCost || 1)} AP per 10 ft`);
   }
-  if (summary.canHide === false) {
-    notes.push('Cannot become Hidden');
+  if (summary.stealthDisadvantage) {
+    notes.push('Stealth disadvantage');
   }
   return `
     <div class="cards-grid player-card-grid">
@@ -1853,6 +1881,8 @@ function renderPlayerEquipmentEditor(participant = {}) {
   const armor = summary.armor || {};
   const shield = summary.shield || {};
   const selectedWeaponCatalogId = resolvePlayerWeaponCatalogSelectionId(weapon);
+  const selectedArmorCatalogId = resolvePlayerArmorCatalogSelectionId(armor);
+  const selectedShieldCatalogId = resolvePlayerShieldCatalogSelectionId(shield);
   return `
     <div class="stacked-form">
       <form data-player-equipment-form="weapon" class="stacked-form">
@@ -1922,6 +1952,11 @@ function renderPlayerEquipmentEditor(participant = {}) {
         <div class="damage-group-header">
           <h4>Armour</h4>
         </div>
+        <label>Armour Preset
+          <select name="armorCatalogId" data-player-armor-catalog-select>
+            ${renderPlayerArmorCatalogOptions(selectedArmorCatalogId)}
+          </select>
+        </label>
         <div class="form-row">
           <label>Name
             <input type="text" name="armorName" value="${escapeHtml(armor.name || '')}" placeholder="Chain Shirt" />
@@ -1941,6 +1976,11 @@ function renderPlayerEquipmentEditor(participant = {}) {
         <div class="damage-group-header">
           <h4>Shield</h4>
         </div>
+        <label>Shield Preset
+          <select name="shieldCatalogId" data-player-shield-catalog-select>
+            ${renderPlayerShieldCatalogOptions(selectedShieldCatalogId)}
+          </select>
+        </label>
         <label>Name
           <input type="text" name="shieldName" value="${escapeHtml(shield.name || '')}" placeholder="Tower Shield" />
         </label>
@@ -5866,6 +5906,8 @@ function renderInventory(participant) {
   if (equipmentEditorEl) {
     equipmentEditorEl.innerHTML = renderPlayerEquipmentEditor(participant);
     wirePlayerWeaponCatalogSelects(equipmentEditorEl);
+    wirePlayerArmorCatalogSelects(equipmentEditorEl);
+    wirePlayerShieldCatalogSelects(equipmentEditorEl);
   }
   if (!currencies.length) {
     currencyListEl.classList.add('empty-state');
@@ -7334,6 +7376,14 @@ function getPlayerWeaponCatalog() {
   return referenceCatalog.length ? referenceCatalog : WEAPON_CATALOG;
 }
 
+function getPlayerArmorCatalog() {
+  return ARMOR_CATALOG;
+}
+
+function getPlayerShieldCatalog() {
+  return SHIELD_CATALOG;
+}
+
 function getPlayerWeaponCatalogEntry(id = '') {
   const target = String(id || '').trim();
   if (!target) return null;
@@ -7368,6 +7418,59 @@ function renderPlayerWeaponCatalogOptions(selectedId = '') {
   return sections.join('');
 }
 
+function getPlayerArmorCatalogEntry(id = '') {
+  const target = String(id || '').trim();
+  if (!target) return null;
+  return getPlayerArmorCatalog().find((entry) => String(entry?.id || '') === target) || null;
+}
+
+function resolvePlayerArmorCatalogSelectionId(armor = {}) {
+  const currentId = String(armor?.catalogId || '').trim();
+  if (currentId && getPlayerArmorCatalogEntry(currentId)) return currentId;
+  const normalizedType = String(armor?.armorType || '').trim();
+  if (normalizedType) {
+    const byType = getPlayerArmorCatalog().find((entry) => String(entry?.armorType || '') === normalizedType);
+    if (byType) return byType.id || '';
+  }
+  const name = String(armor?.name || '').trim().toLowerCase();
+  if (!name) return '';
+  const match = getPlayerArmorCatalog().find((entry) => String(entry?.name || '').trim().toLowerCase() === name);
+  return match?.id || '';
+}
+
+function renderPlayerArmorCatalogOptions(selectedId = '') {
+  const sections = ['<option value="">Custom</option>'];
+  for (const entry of getPlayerArmorCatalog()) {
+    const selected = String(selectedId || '') === String(entry?.id || '') ? 'selected' : '';
+    sections.push(`<option value="${escapeHtml(entry.id || '')}" ${selected}>${escapeHtml(entry.name || 'Armour')}</option>`);
+  }
+  return sections.join('');
+}
+
+function getPlayerShieldCatalogEntry(id = '') {
+  const target = String(id || '').trim();
+  if (!target) return null;
+  return getPlayerShieldCatalog().find((entry) => String(entry?.id || '') === target) || null;
+}
+
+function resolvePlayerShieldCatalogSelectionId(shield = {}) {
+  const currentId = String(shield?.catalogId || '').trim();
+  if (currentId && getPlayerShieldCatalogEntry(currentId)) return currentId;
+  const name = String(shield?.name || '').trim().toLowerCase();
+  if (!name) return '';
+  const match = getPlayerShieldCatalog().find((entry) => String(entry?.name || '').trim().toLowerCase() === name);
+  return match?.id || '';
+}
+
+function renderPlayerShieldCatalogOptions(selectedId = '') {
+  const sections = ['<option value="">Custom</option>'];
+  for (const entry of getPlayerShieldCatalog()) {
+    const selected = String(selectedId || '') === String(entry?.id || '') ? 'selected' : '';
+    sections.push(`<option value="${escapeHtml(entry.id || '')}" ${selected}>${escapeHtml(entry.name || 'Shield')}</option>`);
+  }
+  return sections.join('');
+}
+
 function populatePlayerWeaponFormFromCatalog(form, entry = null) {
   if (!form || !entry) return;
   const setFieldValue = (name, value) => {
@@ -7395,6 +7498,24 @@ function populatePlayerWeaponFormFromCatalog(form, entry = null) {
   setFieldChecked('weaponHasAmmo', entry.weaponStyle !== 'ranged' ? true : true);
 }
 
+function populatePlayerArmorFormFromCatalog(form, entry = null) {
+  if (!form || !entry) return;
+  const setFieldValue = (name, value) => {
+    const field = form.querySelector(`[name="${name}"]`);
+    if (!field) return;
+    field.value = value == null ? '' : String(value);
+  };
+  setFieldValue('armorName', entry.name || '');
+  setFieldValue('armorType', entry.armorType || 'light');
+}
+
+function populatePlayerShieldFormFromCatalog(form, entry = null) {
+  if (!form || !entry) return;
+  const field = form.querySelector('[name="shieldName"]');
+  if (!field) return;
+  field.value = entry.name || '';
+}
+
 function wirePlayerWeaponCatalogSelects(container) {
   container?.querySelectorAll?.('[data-player-weapon-catalog-select]').forEach((select) => {
     if (select.dataset.weaponCatalogBound === '1') return;
@@ -7408,12 +7529,44 @@ function wirePlayerWeaponCatalogSelects(container) {
   });
 }
 
+function wirePlayerArmorCatalogSelects(container) {
+  container?.querySelectorAll?.('[data-player-armor-catalog-select]').forEach((select) => {
+    if (select.dataset.armorCatalogBound === '1') return;
+    select.addEventListener('change', () => {
+      const form = select.closest('form') || select.closest('section') || select.closest('.stacked-form');
+      const entry = getPlayerArmorCatalogEntry(select.value);
+      if (!form || !entry) return;
+      populatePlayerArmorFormFromCatalog(form, entry);
+    });
+    select.dataset.armorCatalogBound = '1';
+  });
+}
+
+function wirePlayerShieldCatalogSelects(container) {
+  container?.querySelectorAll?.('[data-player-shield-catalog-select]').forEach((select) => {
+    if (select.dataset.shieldCatalogBound === '1') return;
+    select.addEventListener('change', () => {
+      const form = select.closest('form') || select.closest('section') || select.closest('.stacked-form');
+      const entry = getPlayerShieldCatalogEntry(select.value);
+      if (!form || !entry) return;
+      populatePlayerShieldFormFromCatalog(form, entry);
+    });
+    select.dataset.shieldCatalogBound = '1';
+  });
+}
+
 function formatPlayerWeaponRequirementLine(weapon = {}) {
   const score = Math.max(0, Number(weapon?.requirementScore || 0));
   const ability = String(weapon?.requirementAbility || 'none').trim().toLowerCase();
   if (!score || ability === 'none') return '';
   if (ability === 'either') return `Req STR or DEX ${score}`;
   if (ability === 'dexterity') return `Req DEX ${score}`;
+  return `Req STR ${score}`;
+}
+
+function formatPlayerArmorRequirementLine(summary = {}) {
+  const score = Math.max(0, Number(summary?.armorStrengthRequirement || 0));
+  if (!score) return 'Req STR none';
   return `Req STR ${score}`;
 }
 

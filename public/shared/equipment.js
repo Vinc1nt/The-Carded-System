@@ -84,6 +84,57 @@ function createWeaponCatalogEntry({
   });
 }
 
+function createArmorCatalogEntry({
+  id,
+  name,
+  armorType,
+  maxShieldBonus = 0,
+  shieldRegen = 0,
+  strengthRequirement = 0,
+  dexterityPenalty = 0,
+  stealthDisadvantage = false,
+  tags = [],
+  notes = ''
+}) {
+  const normalizedType = normalizeArmorType(armorType);
+  return Object.freeze({
+    id,
+    name,
+    category: 'Armour',
+    kind: 'armor',
+    armorType: normalizedType,
+    maxShieldBonus: Math.max(0, Math.round(Number(maxShieldBonus || 0))),
+    shieldRegen: Math.max(0, Math.round(Number(shieldRegen || 0))),
+    strengthRequirement: Math.max(0, Math.round(Number(strengthRequirement || 0))),
+    dexterityPenalty: Math.max(0, Math.round(Number(dexterityPenalty || 0))),
+    stealthDisadvantage: stealthDisadvantage === true,
+    tags: Object.freeze((Array.isArray(tags) ? tags : []).map((entry) => String(entry || '').trim()).filter(Boolean)),
+    notes: String(notes || '').trim()
+  });
+}
+
+function createShieldCatalogEntry({
+  id,
+  name,
+  hands = 1,
+  maxShieldBonus = 0,
+  shieldRegen = 0,
+  tags = [],
+  notes = ''
+}) {
+  return Object.freeze({
+    id,
+    name,
+    category: 'Shield',
+    kind: 'shield',
+    hands: Number.isFinite(Number(hands)) ? Math.max(1, Math.min(2, Math.round(Number(hands)))) : 1,
+    maxShieldBonus: Math.max(0, Math.round(Number(maxShieldBonus || 0))),
+    shieldRegen: Math.max(0, Math.round(Number(shieldRegen || 0))),
+    tags: Object.freeze((Array.isArray(tags) ? tags : []).map((entry) => String(entry || '').trim()).filter(Boolean)),
+    notes: String(notes || '').trim()
+  });
+}
+
 export const WEAPON_CATALOG = Object.freeze([
   createWeaponCatalogEntry({
     id: 'dagger',
@@ -448,9 +499,63 @@ export const WEAPON_CATALOG = Object.freeze([
   })
 ]);
 
+export const ARMOR_CATALOG = Object.freeze([
+  createArmorCatalogEntry({
+    id: 'light_armor',
+    name: 'Light Armour',
+    armorType: 'light',
+    maxShieldBonus: 2,
+    shieldRegen: 1,
+    tags: ['Light Armour'],
+    notes: 'No Strength requirement or armour drawbacks.'
+  }),
+  createArmorCatalogEntry({
+    id: 'medium_armor',
+    name: 'Medium Armour',
+    armorType: 'medium',
+    maxShieldBonus: 4,
+    shieldRegen: 2,
+    strengthRequirement: 12,
+    dexterityPenalty: 1,
+    tags: ['Medium Armour'],
+    notes: 'If STR requirement is unmet, movement costs 2 AP per 10 ft.'
+  }),
+  createArmorCatalogEntry({
+    id: 'heavy_armor',
+    name: 'Heavy Armour',
+    armorType: 'heavy',
+    maxShieldBonus: 6,
+    shieldRegen: 3,
+    strengthRequirement: 14,
+    dexterityPenalty: 2,
+    stealthDisadvantage: true,
+    tags: ['Heavy Armour'],
+    notes: 'If STR requirement is unmet, movement costs 2 AP per 10 ft and Stealth checks are at disadvantage.'
+  })
+]);
+
+export const SHIELD_CATALOG = Object.freeze([
+  createShieldCatalogEntry({
+    id: 'shield',
+    name: 'Shield',
+    hands: 1,
+    maxShieldBonus: 3,
+    shieldRegen: 1,
+    tags: ['Shield', 'One-Handed']
+  })
+]);
+
 const WEAPON_CATALOG_BY_ID = new Map(WEAPON_CATALOG.map((entry) => [entry.id, entry]));
 const WEAPON_CATALOG_BY_NAME = new Map(
   WEAPON_CATALOG.map((entry) => [normalizeEquipmentToken(entry.name), entry])
+);
+const ARMOR_CATALOG_BY_ID = new Map(ARMOR_CATALOG.map((entry) => [entry.id, entry]));
+const ARMOR_CATALOG_BY_NAME = new Map(
+  ARMOR_CATALOG.map((entry) => [normalizeEquipmentToken(entry.name), entry])
+);
+const SHIELD_CATALOG_BY_ID = new Map(SHIELD_CATALOG.map((entry) => [entry.id, entry]));
+const SHIELD_CATALOG_BY_NAME = new Map(
+  SHIELD_CATALOG.map((entry) => [normalizeEquipmentToken(entry.name), entry])
 );
 
 const PHYSICAL_DAMAGE_TOKENS = new Set(PHYSICAL_DAMAGE_TYPES.map((entry) => normalizeEquipmentToken(entry)));
@@ -556,27 +661,46 @@ export function getDefaultWeaponProficiencyGroup(style = '') {
 
 export function getDefaultArmorProperties(type = '') {
   const normalized = normalizeArmorType(type);
-  if (normalized === 'medium') {
+  const entry = ARMOR_CATALOG.find((item) => item.armorType === normalized) || ARMOR_CATALOG[0];
+  if (entry) {
     return {
-      maxShieldBonus: 4,
-      shieldRegen: 2,
-      strengthRequirement: 12,
-      dexterityPenalty: 1
-    };
-  }
-  if (normalized === 'heavy') {
-    return {
-      maxShieldBonus: 6,
-      shieldRegen: 3,
-      strengthRequirement: 14,
-      dexterityPenalty: 2
+      maxShieldBonus: entry.maxShieldBonus,
+      shieldRegen: entry.shieldRegen,
+      strengthRequirement: entry.strengthRequirement,
+      dexterityPenalty: entry.dexterityPenalty,
+      stealthDisadvantage: entry.stealthDisadvantage === true,
+      tags: [...(entry.tags || [])],
+      notes: entry.notes || ''
     };
   }
   return {
     maxShieldBonus: 2,
     shieldRegen: 1,
     strengthRequirement: 0,
-    dexterityPenalty: 0
+    dexterityPenalty: 0,
+    stealthDisadvantage: false,
+    tags: [],
+    notes: ''
+  };
+}
+
+export function getDefaultShieldProperties() {
+  const entry = SHIELD_CATALOG[0];
+  if (entry) {
+    return {
+      hands: entry.hands,
+      maxShieldBonus: entry.maxShieldBonus,
+      shieldRegen: entry.shieldRegen,
+      tags: [...(entry.tags || [])],
+      notes: entry.notes || ''
+    };
+  }
+  return {
+    hands: 1,
+    maxShieldBonus: 3,
+    shieldRegen: 1,
+    tags: [],
+    notes: ''
   };
 }
 
@@ -586,6 +710,22 @@ export function getWeaponCatalogEntry(id = '') {
 
 export function findWeaponCatalogEntryByName(name = '') {
   return WEAPON_CATALOG_BY_NAME.get(normalizeEquipmentToken(name)) || null;
+}
+
+export function getArmorCatalogEntry(id = '') {
+  return ARMOR_CATALOG_BY_ID.get(String(id || '').trim()) || null;
+}
+
+export function findArmorCatalogEntryByName(name = '') {
+  return ARMOR_CATALOG_BY_NAME.get(normalizeEquipmentToken(name)) || null;
+}
+
+export function getShieldCatalogEntry(id = '') {
+  return SHIELD_CATALOG_BY_ID.get(String(id || '').trim()) || null;
+}
+
+export function findShieldCatalogEntryByName(name = '') {
+  return SHIELD_CATALOG_BY_NAME.get(normalizeEquipmentToken(name)) || null;
 }
 
 export function isMagicDamageType(value = '') {
