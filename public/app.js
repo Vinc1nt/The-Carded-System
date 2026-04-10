@@ -1,7 +1,7 @@
 import { UI_LIMITS } from './shared/game-config.js';
 import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
 import { ATTRIBUTE_BALANCE, getAttributeScalingFromScores } from './shared/stat-balance.js';
-import { hasWeaponBasicAttack } from './shared/equipment.js';
+import { getWeaponAffectedCardLabel, getWeaponCardInteraction, hasWeaponBasicAttack } from './shared/equipment.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -114,7 +114,7 @@ const JOURNAL_IMPORT_SAMPLE = Object.freeze({
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
-  reference: { standardActions: [], sets: [], statuses: [], teams: [], characterPresets: [] },
+  reference: { standardActions: [], sets: [], statuses: [], teams: [], languageOptions: [], toolOptions: [], weaponCatalog: [], characterPresets: [] },
   updatedAt: null
 };
 
@@ -714,6 +714,26 @@ function renderCharacterPresetOptions(includePlaceholder = false) {
       .map((preset) => `<option value="${preset.id}">${escapeHtml(preset.name || 'Character Preset')}</option>`)
       .join('')
   );
+}
+
+function getReferenceTextOptions(kind = '') {
+  if (kind === 'language') {
+    return Array.isArray(state.reference?.languageOptions) ? state.reference.languageOptions : [];
+  }
+  if (kind === 'proficiency') {
+    return Array.isArray(state.reference?.toolOptions) ? state.reference.toolOptions : [];
+  }
+  return [];
+}
+
+function renderReferenceOptionsDatalist(id, values = []) {
+  const unique = [...new Set((values || []).map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!id || !unique.length) return '';
+  return `
+    <datalist id="${id}">
+      ${unique.map((value) => `<option value="${escapeHtml(value)}"></option>`).join('')}
+    </datalist>
+  `;
 }
 
 function syncAddParticipantPresetControls() {
@@ -2040,6 +2060,8 @@ function renderAbilitiesSection(participant) {
           </label>
           <button type="submit">Add Ability</button>
         </form>
+        ${renderReferenceOptionsDatalist('gmProficiencyOptions', getReferenceTextOptions('proficiency'))}
+        ${renderReferenceOptionsDatalist('gmLanguageOptions', getReferenceTextOptions('language'))}
       </div>
     </details>
   `;
@@ -2091,8 +2113,13 @@ function getEquipmentSummary(participant = {}) {
     shield: participant?.equipment?.shield || null,
     moveApCost: 1,
     shieldRegen: 0,
+    weaponAffectsLabel: '',
     weaponApPenalty: 0,
     weaponPenaltyReasons: [],
+    weaponProficient: true,
+    weaponRequirementMet: true,
+    weaponAmmoRequired: false,
+    weaponHasAmmo: true,
     canHide: true
   };
 }
@@ -2112,6 +2139,35 @@ function renderEquipmentCard(title, item = null, lines = []) {
       ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
     </article>
   `;
+}
+
+function formatWeaponRequirementLine(weapon = {}) {
+  const score = Math.max(0, Number(weapon?.requirementScore || 0));
+  const ability = String(weapon?.requirementAbility || 'none').trim().toLowerCase();
+  if (!score || ability === 'none') return '';
+  if (ability === 'either') return `Req STR or DEX ${score}`;
+  if (ability === 'dexterity') return `Req DEX ${score}`;
+  return `Req STR ${score}`;
+}
+
+function getCardWeaponEffect(card = {}, participant = {}) {
+  const summary = getEquipmentSummary(participant);
+  const weapon = summary.weapon;
+  if (!weapon) return '';
+  const level = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
+  const interaction = getWeaponCardInteraction(weapon, card, {
+    range: getCardScaledEffectValue(card, 'rangeByLevel', level, Number(card.range || 0)),
+    damage: getCardDisplayDamage(card),
+    secondaryDamage: getCardSecondaryDamage(card),
+    damageType: card.damageType || '',
+    secondaryDamageType: card.secondaryDamageType || card.damageType || ''
+  });
+  if (!interaction.matches) return '';
+  const parts = [`${weapon.name || 'Weapon'} +${Number(weapon.cardBonusDamage || 0)} damage`];
+  if (summary.weaponPenaltyReasons?.length) {
+    parts.push(`+${Number(summary.weaponApPenalty || 0)} AP (${summary.weaponPenaltyReasons.join(', ')})`);
+  }
+  return parts.join(' · ');
 }
 
 function renderEquipmentSection(participant) {
@@ -2145,9 +2201,15 @@ function renderEquipmentSection(participant) {
             weapon
               ? [
                   `${String(weapon.weaponStyle || '').replace(/^./, (char) => char.toUpperCase()) || 'Weapon'}${hasWeaponBasicAttack(weapon) ? ` · ${Number(weapon.basicAttackApCost || 0)} AP / ${Number(weapon.basicAttackDamage || 0)} ${weapon.basicAttackDamageType || 'damage'}` : ' · No basic attack'}`,
+                  formatWeaponRequirementLine(weapon),
                   `Card Bonus +${Number(weapon.cardBonusDamage || 0)} · ${weapon.proficiencyGroup || 'No proficiency group'}`,
+                  `Affects: ${summary.weaponAffectsLabel || getWeaponAffectedCardLabel(weapon)}`,
+                  `Proficiency: ${summary.weaponProficient === false ? 'Not proficient' : 'Proficient'}`,
+                  `Requirement: ${summary.weaponRequirementMet === false ? 'Unmet' : 'Met'}`,
+                  summary.weaponAmmoRequired ? `Ammo: ${summary.weaponHasAmmo === false ? 'Missing' : 'Ready'}` : '',
+                  Array.isArray(weapon.tags) && weapon.tags.length ? `Tags: ${weapon.tags.join(', ')}` : '',
                   summary.weaponPenaltyReasons?.length ? `Penalty: +${Number(summary.weaponApPenalty || 0)} AP (${summary.weaponPenaltyReasons.join(', ')})` : 'Penalty: none'
-                ]
+                ].filter(Boolean)
               : []
           )}
           ${renderEquipmentCard(
@@ -2186,6 +2248,17 @@ function renderWeaponAttackControls(participant) {
   if (!hasWeaponBasicAttack(weapon)) {
     return `<p class="muted small-note">${escapeHtml(weapon.name || 'Equipped implement')} has no basic attack. Matching Spell cards still gain its card bonus.</p>`;
   }
+  if (summary.weaponAmmoRequired && summary.weaponHasAmmo === false) {
+    return `
+      <p class="muted small-note">
+        ${escapeHtml(weapon.name || 'Equipped ranged weapon')} is missing ammo. Basic attacks are unavailable until ammo is supplied.
+      </p>
+      <p class="muted small-note">
+        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on ${escapeHtml(summary.weaponAffectsLabel || getWeaponAffectedCardLabel(weapon))}
+        ${summary.weaponPenaltyReasons?.length ? ` · Penalty +${Number(summary.weaponApPenalty || 0)} AP (${escapeHtml(summary.weaponPenaltyReasons.join(', '))})` : ''}
+      </p>
+    `;
+  }
   const targetOptions = getEncounterTargetablesForUi()
     .filter((entry) => entry.id !== participant.id)
     .filter((entry) => isParticipantEnemyForUi(participant, entry))
@@ -2208,7 +2281,7 @@ function renderWeaponAttackControls(participant) {
         <button type="button" data-weapon-attack>Basic Attack (${apCost} AP)</button>
       </div>
       <p class="muted small-note">
-        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on matching ${escapeHtml(summary.weaponMatchType || 'weapon')} cards
+        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on ${escapeHtml(summary.weaponAffectsLabel || getWeaponAffectedCardLabel(weapon))}
         ${summary.weaponPenaltyReasons?.length ? ` · Penalty +${Number(summary.weaponApPenalty || 0)} AP (${escapeHtml(summary.weaponPenaltyReasons.join(', '))})` : ''}
       </p>
     </div>
@@ -2216,6 +2289,7 @@ function renderWeaponAttackControls(participant) {
 }
 
 function renderAbilityTextListEditor(label, values = [], key = 'entry', derivedValues = []) {
+  const listId = key === 'proficiency' ? 'gmProficiencyOptions' : key === 'language' ? 'gmLanguageOptions' : '';
   const pills = (values || [])
     .map(
       (value, index) => `
@@ -2239,7 +2313,7 @@ function renderAbilityTextListEditor(label, values = [], key = 'entry', derivedV
       ${derived ? `<p class="muted small-note">From sets</p><div class="tag-list">${derived}</div>` : ''}
       <form data-form="${key}">
         <label class="compact-label">Add ${label.slice(0, -1)}
-          <input type="text" name="${key}" placeholder="Add ${label.slice(0, -1).toLowerCase()}" />
+          <input type="text" name="${key}" placeholder="Add ${label.slice(0, -1).toLowerCase()}" ${listId ? `list="${listId}"` : ''} />
         </label>
         <button type="submit">Add</button>
       </form>
@@ -5236,6 +5310,10 @@ function renderCardAttributeTable(card = {}, participant = {}) {
     rows.push(['Charges', `${chargesCurrent}/${chargesMax}`]);
   }
   rows.push(['Effect', formatCardEffectAtMastery(card, participant)]);
+  const weaponEffect = getCardWeaponEffect(card, participant);
+  if (weaponEffect) {
+    rows.push(['Weapon Effect', weaponEffect]);
+  }
   const body = rows
     .map(
       ([label, value]) => `

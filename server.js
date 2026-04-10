@@ -11,10 +11,13 @@ import {
 } from './public/shared/stat-balance.js';
 import {
   EQUIPMENT_DAMAGE_TYPES,
-  classifyCardEquipmentMatch,
+  findWeaponCatalogEntryByName,
   getDefaultArmorProperties,
   getDefaultWeaponCardBonus,
   getDefaultWeaponHands,
+  getWeaponAffectedCardLabel,
+  getWeaponCardInteraction,
+  getWeaponCatalogEntry,
   getDefaultWeaponProficiencyGroup,
   getDefaultWeaponRequirementAbility,
   getWeaponCardMatchType,
@@ -23,7 +26,8 @@ import {
   normalizeEquipmentCategory,
   normalizeEquipmentToken,
   normalizeRequirementAbility,
-  normalizeWeaponStyle
+  normalizeWeaponStyle,
+  WEAPON_CATALOG
 } from './public/shared/equipment.js';
 import { startEncounterLifecycle, endEncounterLifecycle } from './lib/encounter-lifecycle.js';
 import { executeStandardActionForEncounter } from './lib/actions/standard.js';
@@ -473,6 +477,64 @@ const SHADOW_FINISHER_STATUS_TYPES = new Set([
 ]);
 
 const TEAM_OPTIONS = Object.freeze(['Team 1', 'Team 2', 'Team 3', 'Team 4']);
+const LANGUAGE_OPTIONS = Object.freeze([
+  'Abyssal',
+  'Celestial',
+  'Common',
+  'Deep Speech',
+  'Draconic',
+  'Dwarvish',
+  'Elvish',
+  'Giant',
+  'Gnomish',
+  'Goblin',
+  'Halfling',
+  'Infernal',
+  'Orc',
+  'Primordial',
+  'Sylvan',
+  'Undercommon'
+]);
+const TOOL_OPTIONS = Object.freeze([
+  "Alchemist's Supplies",
+  'Bagpipes',
+  "Brewer's Supplies",
+  "Calligrapher's Supplies",
+  "Carpenter's Tools",
+  "Cartographer's Tools",
+  "Cobbler's Tools",
+  "Cook's Utensils",
+  'Dice Set',
+  'Disguise Kit',
+  'Dragonchess Set',
+  'Drum',
+  'Dulcimer',
+  'Flute',
+  'Forgery Kit',
+  "Glassblower's Tools",
+  "Gunsmith's Tools",
+  'Herbalism Kit',
+  'Horn',
+  "Jeweler's Tools",
+  "Leatherworker's Tools",
+  'Lute',
+  'Lyre',
+  "Mason's Tools",
+  "Navigator's Tools",
+  "Painter's Supplies",
+  'Pan Flute',
+  'Playing Card Set',
+  "Poisoner's Kit",
+  "Potter's Tools",
+  'Shawm',
+  "Smith's Tools",
+  "Thieves' Tools",
+  'Three-Dragon Ante Set',
+  "Tinker's Tools",
+  'Viol',
+  "Weaver's Tools",
+  "Woodcarver's Tools"
+]);
 let characterPresetLibrary = [];
 
 const JOURNAL_FIELD_BY_CATEGORY = {
@@ -489,6 +551,9 @@ function buildReferenceData() {
     })),
     statuses: STATUS_LIBRARY,
     teams: TEAM_OPTIONS,
+    languageOptions: LANGUAGE_OPTIONS,
+    toolOptions: TOOL_OPTIONS,
+    weaponCatalog: structuredClone(WEAPON_CATALOG),
     characterPresets: characterPresetLibrary.map((preset) => structuredClone(preset))
   };
 }
@@ -556,6 +621,16 @@ function normalizeEquipmentInteger(value, fallback = 0, options = {}) {
   return Math.max(min, Math.min(max, normalized));
 }
 
+function normalizeEquipmentBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (value == null) return Boolean(fallback);
+  const token = String(value).trim().toLowerCase();
+  if (!token) return Boolean(fallback);
+  if (['false', '0', 'no', 'off'].includes(token)) return false;
+  if (['true', '1', 'yes', 'on'].includes(token)) return true;
+  return Boolean(fallback);
+}
+
 function normalizeSupportedEquipmentDamageType(value = '', fallback = '') {
   const token = String(value || '').trim();
   if (!token) return String(fallback || '').trim();
@@ -573,9 +648,12 @@ function createEmptyParticipantEquipment() {
 
 function normalizeWeaponEquipmentSlot(raw = {}) {
   if (!raw || typeof raw !== 'object') return null;
-  const name = normalizeEquipmentText(raw.name || raw.title);
+  const catalogEntry = getWeaponCatalogEntry(raw.catalogId) || findWeaponCatalogEntryByName(raw.name || raw.title);
+  const name = normalizeEquipmentText(raw.name || raw.title || catalogEntry?.name);
   if (!name) return null;
-  const weaponStyle = normalizeWeaponStyle(raw.weaponStyle || raw.style || raw.subcategory || raw.category);
+  const weaponStyle = normalizeWeaponStyle(
+    raw.weaponStyle || raw.style || raw.subcategory || raw.category || catalogEntry?.weaponStyle
+  );
   if (!weaponStyle) return null;
   const hasBasicAttack = hasWeaponBasicAttack({ kind: 'weapon', weaponStyle });
   const fallbackDamageType =
@@ -584,32 +662,62 @@ function normalizeWeaponEquipmentSlot(raw = {}) {
       : weaponStyle === 'melee'
         ? 'Slashing'
         : '';
+  const tags = normalizeTextList(
+    Array.isArray(raw.tags)
+      ? raw.tags
+      : Array.isArray(catalogEntry?.tags)
+        ? catalogEntry.tags
+        : []
+  );
   return {
     id: raw.id || randomUUID(),
+    catalogId: catalogEntry?.id || '',
     kind: 'weapon',
     name,
     weaponStyle,
-    hands: normalizeEquipmentInteger(raw.hands, getDefaultWeaponHands(weaponStyle), { min: 1, max: 2 }),
-    rangeFt: normalizeEquipmentInteger(raw.rangeFt ?? raw.range, weaponStyle === 'ranged' ? 30 : 5, { min: 0, max: 999 }),
+    hands: normalizeEquipmentInteger(raw.hands, catalogEntry?.hands ?? getDefaultWeaponHands(weaponStyle), { min: 1, max: 2 }),
+    rangeFt: normalizeEquipmentInteger(
+      raw.rangeFt ?? raw.range,
+      catalogEntry?.rangeFt ?? (weaponStyle === 'ranged' ? 30 : 5),
+      { min: 0, max: 999 }
+    ),
     basicAttackApCost: hasBasicAttack
-      ? normalizeEquipmentInteger(raw.basicAttackApCost ?? raw.apCost, 2, { min: 1, max: 99 })
+      ? normalizeEquipmentInteger(raw.basicAttackApCost ?? raw.apCost, catalogEntry?.basicAttackApCost ?? 2, { min: 1, max: 99 })
       : 0,
     basicAttackDamage: hasBasicAttack
-      ? normalizeEquipmentInteger(raw.basicAttackDamage ?? raw.damage, 0, { min: 0, max: 999 })
+      ? normalizeEquipmentInteger(raw.basicAttackDamage ?? raw.damage, catalogEntry?.basicAttackDamage ?? 0, { min: 0, max: 999 })
       : 0,
     basicAttackDamageType: hasBasicAttack
-      ? normalizeSupportedEquipmentDamageType(raw.basicAttackDamageType ?? raw.damageType, fallbackDamageType)
+      ? normalizeSupportedEquipmentDamageType(
+          raw.basicAttackDamageType ?? raw.damageType,
+          catalogEntry?.basicAttackDamageType || fallbackDamageType
+        )
       : '',
-    cardBonusDamage: normalizeEquipmentInteger(raw.cardBonusDamage ?? raw.bonusDamage, getDefaultWeaponCardBonus(weaponStyle), {
-      min: 0,
-      max: 999
-    }),
-    requirementAbility: normalizeRequirementAbility(
-      raw.requirementAbility ?? raw.requirementStat ?? raw.requirement ?? getDefaultWeaponRequirementAbility(weaponStyle)
+    cardBonusDamage: normalizeEquipmentInteger(
+      raw.cardBonusDamage ?? raw.bonusDamage,
+      catalogEntry?.cardBonusDamage ?? getDefaultWeaponCardBonus(weaponStyle),
+      {
+        min: 0,
+        max: 999
+      }
     ),
-    requirementScore: normalizeEquipmentInteger(raw.requirementScore ?? raw.requiredScore, 0, { min: 0, max: 99 }),
-    proficiencyGroup: normalizeEquipmentText(raw.proficiencyGroup || getDefaultWeaponProficiencyGroup(weaponStyle)),
-    notes: normalizeEquipmentText(raw.notes || raw.description)
+    requirementAbility: normalizeRequirementAbility(
+      raw.requirementAbility ??
+        raw.requirementStat ??
+        raw.requirement ??
+        catalogEntry?.requirementAbility ??
+        getDefaultWeaponRequirementAbility(weaponStyle)
+    ),
+    requirementScore: normalizeEquipmentInteger(raw.requirementScore ?? raw.requiredScore, catalogEntry?.requirementScore ?? 0, {
+      min: 0,
+      max: 99
+    }),
+    proficiencyGroup: normalizeEquipmentText(
+      raw.proficiencyGroup || catalogEntry?.proficiencyGroup || getDefaultWeaponProficiencyGroup(weaponStyle)
+    ),
+    hasAmmo: weaponStyle === 'ranged' ? normalizeEquipmentBoolean(raw.hasAmmo, true) : true,
+    tags,
+    notes: normalizeEquipmentText(raw.notes || raw.description || catalogEntry?.notes)
   };
 }
 
@@ -679,12 +787,18 @@ function getParticipantEquipmentProficiencyTokens(participant = {}, extraProfici
 function hasParticipantEquipmentProficiency(participant = {}, group = '', options = {}) {
   const target = normalizeEquipmentProficiencyToken(group);
   if (!target) return true;
+  const weaponStyle = normalizeWeaponStyle(options?.weaponStyle);
   const extraProficiencies = Array.isArray(options?.setProficiencies)
     ? options.setProficiencies
     : participant?.derivedBonuses?.setGrants?.proficiencies || [];
   const tokens = getParticipantEquipmentProficiencyTokens(participant, extraProficiencies);
   if (tokens.has(target)) return true;
   if (tokens.has('equipment') || tokens.has('allequipment')) return true;
+  if (tokens.has('weapon') || tokens.has('weapons') || tokens.has('allweapons')) return true;
+  if (weaponStyle === 'melee' && tokens.has('meleeweapons')) return true;
+  if (weaponStyle === 'ranged' && tokens.has('rangedweapons')) return true;
+  if (weaponStyle === 'arcane' && tokens.has('arcaneimplements')) return true;
+  if (weaponStyle === 'staff' && tokens.has('staff')) return true;
   if (['meleeweapons', 'rangedweapons', 'arcaneimplements', 'staff'].includes(target)) {
     return tokens.has('weapon') || tokens.has('weapons') || tokens.has('allweapons');
   }
@@ -733,12 +847,14 @@ function getParticipantEquipmentSummary(participant = {}, effectiveStats = {}, o
   );
   const weaponProficient = weapon
     ? hasParticipantEquipmentProficiency(participant, weapon.proficiencyGroup, {
-        setProficiencies: options?.setProficiencies
+        setProficiencies: options?.setProficiencies,
+        weaponStyle: weapon.weaponStyle
       })
     : true;
   const weaponStatPenalty = weapon && !weaponRequirementMet ? 2 : 0;
   const weaponProficiencyPenalty = weapon && !weaponProficient ? 2 : 0;
   const weaponApPenalty = Math.min(3, weaponStatPenalty + weaponProficiencyPenalty);
+  const weaponHasAmmo = !weapon || weapon.weaponStyle !== 'ranged' || weapon.hasAmmo === true;
   const moveApCost = armor && (armorType === 'medium' || armorType === 'heavy') && !armorStrengthMet ? 2 : 1;
   const maxShieldBonus = Math.max(0, Number(armor?.maxShieldBonus || 0)) + Math.max(0, Number(shield?.maxShieldBonus || 0));
   const shieldRegen = Math.max(0, Number(armor?.shieldRegen || 0)) + Math.max(0, Number(shield?.shieldRegen || 0));
@@ -765,8 +881,11 @@ function getParticipantEquipmentSummary(participant = {}, effectiveStats = {}, o
     dexterityPenalty: Math.max(0, Number(armor?.dexterityPenalty || 0)),
     weaponStyle: weapon ? normalizeWeaponStyle(weapon.weaponStyle) : '',
     weaponMatchType: weapon ? getWeaponCardMatchType(weapon) : '',
+    weaponAffectsLabel: weapon ? getWeaponAffectedCardLabel(weapon) : '',
     weaponProficient,
     weaponRequirementMet,
+    weaponHasAmmo,
+    weaponAmmoRequired: Boolean(weapon && weapon.weaponStyle === 'ranged' && hasWeaponBasicAttack(weapon)),
     weaponStatPenalty,
     weaponProficiencyPenalty,
     weaponApPenalty,
@@ -780,13 +899,14 @@ function getParticipantWeaponContextForCard(participant = {}, card = {}, options
       ? participant.derivedBonuses.equipment
       : getParticipantEquipmentSummary(participant);
   const weapon = equipmentSummary.weapon;
-  const cardMatchType = classifyCardEquipmentMatch(card, options);
-  const matches = Boolean(weapon && equipmentSummary.weaponMatchType && equipmentSummary.weaponMatchType === cardMatchType);
+  const interaction = weapon ? getWeaponCardInteraction(weapon, card, options) : { matches: false, cardType: '', matchLabel: '' };
+  const matches = Boolean(weapon && interaction.matches);
   return {
     weapon,
-    cardMatchType,
+    cardMatchType: interaction.cardType || '',
     weaponMatchType: equipmentSummary.weaponMatchType || '',
     matches,
+    matchLabel: interaction.matchLabel || '',
     damageBonus: matches ? Math.max(0, Number(weapon?.cardBonusDamage || 0)) : 0,
     apPenalty: matches ? Math.max(0, Number(equipmentSummary.weaponApPenalty || 0)) : 0,
     proficiencyPenalty: matches ? Math.max(0, Number(equipmentSummary.weaponProficiencyPenalty || 0)) : 0,
@@ -1396,6 +1516,9 @@ function executeWeaponAttackAction(body = {}) {
   const weapon = equipmentSummary.weapon;
   if (!weapon || !hasWeaponBasicAttack(weapon)) {
     return { error: 'No equipped weapon basic attack available.' };
+  }
+  if (equipmentSummary.weaponAmmoRequired && !equipmentSummary.weaponHasAmmo) {
+    return { error: `${weapon.name} requires ammo for basic attacks.` };
   }
   if (equipmentSummary.handsExceeded) {
     return { error: 'Your equipped loadout exceeds available hands.' };

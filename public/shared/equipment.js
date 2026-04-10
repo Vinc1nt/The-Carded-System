@@ -15,6 +15,18 @@ export const EQUIPMENT_DAMAGE_TYPES = Object.freeze([
 ]);
 
 export const PHYSICAL_DAMAGE_TYPES = Object.freeze(['Bludgeoning', 'Piercing', 'Slashing']);
+export const MAGIC_DAMAGE_TYPES = Object.freeze([
+  'Acid',
+  'Cold',
+  'Fire',
+  'Force',
+  'Lightning',
+  'Necrotic',
+  'Poison',
+  'Psychic',
+  'Radiant',
+  'Thunder'
+]);
 
 export const WEAPON_STYLE_OPTIONS = Object.freeze([
   { value: 'melee', label: 'Melee Weapon' },
@@ -36,7 +48,413 @@ export const REQUIREMENT_ABILITY_OPTIONS = Object.freeze([
   { value: 'either', label: 'STR or DEX (Finesse)' }
 ]);
 
+function createWeaponCatalogEntry({
+  id,
+  name,
+  category,
+  weaponStyle,
+  hands,
+  basicAttackDamage = 0,
+  basicAttackApCost = 0,
+  basicAttackDamageType = '',
+  cardBonusDamage = 0,
+  requirementAbility = 'none',
+  requirementScore = 0,
+  proficiencyGroup = '',
+  tags = [],
+  notes = ''
+}) {
+  const normalizedStyle = normalizeWeaponStyle(weaponStyle);
+  return Object.freeze({
+    id,
+    name,
+    category,
+    kind: 'weapon',
+    weaponStyle: normalizedStyle,
+    hands: Number.isFinite(Number(hands)) ? Math.max(1, Math.min(2, Math.round(Number(hands)))) : getDefaultWeaponHands(normalizedStyle),
+    basicAttackDamage: Math.max(0, Math.round(Number(basicAttackDamage || 0))),
+    basicAttackApCost: Math.max(0, Math.round(Number(basicAttackApCost || 0))),
+    basicAttackDamageType: String(basicAttackDamageType || '').trim(),
+    cardBonusDamage: Math.max(0, Math.round(Number(cardBonusDamage || 0))),
+    requirementAbility: normalizeRequirementAbility(requirementAbility),
+    requirementScore: Math.max(0, Math.round(Number(requirementScore || 0))),
+    proficiencyGroup: String(proficiencyGroup || name || '').trim(),
+    tags: Object.freeze((Array.isArray(tags) ? tags : []).map((entry) => String(entry || '').trim()).filter(Boolean)),
+    notes: String(notes || '').trim()
+  });
+}
+
+export const WEAPON_CATALOG = Object.freeze([
+  createWeaponCatalogEntry({
+    id: 'dagger',
+    name: 'Dagger',
+    category: 'Light Weapons',
+    weaponStyle: 'melee',
+    hands: 1,
+    basicAttackDamage: 2,
+    basicAttackApCost: 1,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 1,
+    requirementAbility: 'either',
+    requirementScore: 10,
+    proficiencyGroup: 'Dagger',
+    tags: ['Light', 'Finesse', 'Off-Hand']
+  }),
+  createWeaponCatalogEntry({
+    id: 'club',
+    name: 'Club',
+    category: 'Light Weapons',
+    weaponStyle: 'melee',
+    hands: 1,
+    basicAttackDamage: 2,
+    basicAttackApCost: 1,
+    basicAttackDamageType: 'Bludgeoning',
+    cardBonusDamage: 1,
+    requirementAbility: 'strength',
+    requirementScore: 10,
+    proficiencyGroup: 'Club',
+    tags: ['Light']
+  }),
+  createWeaponCatalogEntry({
+    id: 'shortsword',
+    name: 'Shortsword',
+    category: 'Standard Melee Weapons',
+    weaponStyle: 'melee',
+    hands: 1,
+    basicAttackDamage: 3,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'either',
+    requirementScore: 12,
+    proficiencyGroup: 'Shortsword',
+    tags: ['Finesse']
+  }),
+  createWeaponCatalogEntry({
+    id: 'longsword',
+    name: 'Longsword',
+    category: 'Standard Melee Weapons',
+    weaponStyle: 'melee',
+    hands: 1,
+    basicAttackDamage: 4,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Slashing',
+    cardBonusDamage: 2,
+    requirementAbility: 'strength',
+    requirementScore: 12,
+    proficiencyGroup: 'Longsword',
+    tags: ['Versatile']
+  }),
+  createWeaponCatalogEntry({
+    id: 'spear',
+    name: 'Spear',
+    category: 'Standard Melee Weapons',
+    weaponStyle: 'melee',
+    hands: 1,
+    basicAttackDamage: 3,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'strength',
+    requirementScore: 12,
+    proficiencyGroup: 'Spear',
+    tags: ['Reach']
+  }),
+  createWeaponCatalogEntry({
+    id: 'battleaxe',
+    name: 'Battleaxe',
+    category: 'Standard Melee Weapons',
+    weaponStyle: 'melee',
+    hands: 1,
+    basicAttackDamage: 5,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Slashing',
+    cardBonusDamage: 2,
+    requirementAbility: 'strength',
+    requirementScore: 14,
+    proficiencyGroup: 'Battleaxe',
+    tags: ['Heavy']
+  }),
+  createWeaponCatalogEntry({
+    id: 'greatsword',
+    name: 'Greatsword',
+    category: 'Heavy Melee Weapons',
+    weaponStyle: 'melee',
+    hands: 2,
+    basicAttackDamage: 6,
+    basicAttackApCost: 3,
+    basicAttackDamageType: 'Slashing',
+    cardBonusDamage: 3,
+    requirementAbility: 'strength',
+    requirementScore: 16,
+    proficiencyGroup: 'Greatsword',
+    tags: ['Heavy', 'Two-Handed']
+  }),
+  createWeaponCatalogEntry({
+    id: 'greataxe',
+    name: 'Greataxe',
+    category: 'Heavy Melee Weapons',
+    weaponStyle: 'melee',
+    hands: 2,
+    basicAttackDamage: 7,
+    basicAttackApCost: 3,
+    basicAttackDamageType: 'Slashing',
+    cardBonusDamage: 3,
+    requirementAbility: 'strength',
+    requirementScore: 16,
+    proficiencyGroup: 'Greataxe',
+    tags: ['Heavy', 'Two-Handed']
+  }),
+  createWeaponCatalogEntry({
+    id: 'glaive_halberd',
+    name: 'Glaive / Halberd',
+    category: 'Heavy Melee Weapons',
+    weaponStyle: 'melee',
+    hands: 2,
+    basicAttackDamage: 5,
+    basicAttackApCost: 3,
+    basicAttackDamageType: 'Slashing',
+    cardBonusDamage: 3,
+    requirementAbility: 'strength',
+    requirementScore: 16,
+    proficiencyGroup: 'Glaive / Halberd',
+    tags: ['Heavy', 'Reach', 'Two-Handed']
+  }),
+  createWeaponCatalogEntry({
+    id: 'sling',
+    name: 'Sling',
+    category: 'Ranged Weapons (DEX-Based)',
+    weaponStyle: 'ranged',
+    hands: 1,
+    basicAttackDamage: 2,
+    basicAttackApCost: 1,
+    basicAttackDamageType: 'Bludgeoning',
+    cardBonusDamage: 1,
+    requirementAbility: 'dexterity',
+    requirementScore: 10,
+    proficiencyGroup: 'Sling'
+  }),
+  createWeaponCatalogEntry({
+    id: 'shortbow',
+    name: 'Shortbow',
+    category: 'Ranged Weapons (DEX-Based)',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 3,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 12,
+    proficiencyGroup: 'Shortbow'
+  }),
+  createWeaponCatalogEntry({
+    id: 'longbow',
+    name: 'Longbow',
+    category: 'Ranged Weapons (DEX-Based)',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 4,
+    basicAttackApCost: 3,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 14,
+    proficiencyGroup: 'Longbow',
+    tags: ['Two-Handed']
+  }),
+  createWeaponCatalogEntry({
+    id: 'hand_crossbow',
+    name: 'Hand Crossbow',
+    category: 'Crossbows',
+    weaponStyle: 'ranged',
+    hands: 1,
+    basicAttackDamage: 3,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 12,
+    proficiencyGroup: 'Hand Crossbow',
+    tags: ['One-Handed']
+  }),
+  createWeaponCatalogEntry({
+    id: 'light_crossbow',
+    name: 'Light Crossbow',
+    category: 'Crossbows',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 4,
+    basicAttackApCost: 3,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 14,
+    proficiencyGroup: 'Light Crossbow'
+  }),
+  createWeaponCatalogEntry({
+    id: 'heavy_crossbow',
+    name: 'Heavy Crossbow',
+    category: 'Crossbows',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 6,
+    basicAttackApCost: 4,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 16,
+    proficiencyGroup: 'Heavy Crossbow',
+    tags: ['Heavy']
+  }),
+  createWeaponCatalogEntry({
+    id: 'pistol',
+    name: 'Pistol',
+    category: 'Modern Weapons',
+    weaponStyle: 'ranged',
+    hands: 1,
+    basicAttackDamage: 3,
+    basicAttackApCost: 1,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 1,
+    requirementAbility: 'dexterity',
+    requirementScore: 12,
+    proficiencyGroup: 'Pistol',
+    tags: ['Light']
+  }),
+  createWeaponCatalogEntry({
+    id: 'smg',
+    name: 'SMG',
+    category: 'Modern Weapons',
+    weaponStyle: 'ranged',
+    hands: 1,
+    basicAttackDamage: 4,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 14,
+    proficiencyGroup: 'SMG'
+  }),
+  createWeaponCatalogEntry({
+    id: 'assault_rifle',
+    name: 'Assault Rifle',
+    category: 'Modern Weapons',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 5,
+    basicAttackApCost: 2,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 14,
+    proficiencyGroup: 'Assault Rifle',
+    tags: ['Two-Handed']
+  }),
+  createWeaponCatalogEntry({
+    id: 'shotgun',
+    name: 'Shotgun',
+    category: 'Modern Weapons',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 6,
+    basicAttackApCost: 3,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'strength',
+    requirementScore: 16,
+    proficiencyGroup: 'Shotgun',
+    tags: ['Two-Handed', 'Heavy']
+  }),
+  createWeaponCatalogEntry({
+    id: 'bolt_action_rifle',
+    name: 'Bolt-Action Rifle',
+    category: 'Modern Weapons',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 7,
+    basicAttackApCost: 4,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 16,
+    proficiencyGroup: 'Bolt-Action Rifle',
+    tags: ['Two-Handed', 'Heavy']
+  }),
+  createWeaponCatalogEntry({
+    id: 'sniper_rifle',
+    name: 'Sniper Rifle',
+    category: 'Modern Weapons',
+    weaponStyle: 'ranged',
+    hands: 2,
+    basicAttackDamage: 8,
+    basicAttackApCost: 6,
+    basicAttackDamageType: 'Piercing',
+    cardBonusDamage: 2,
+    requirementAbility: 'dexterity',
+    requirementScore: 18,
+    proficiencyGroup: 'Sniper Rifle',
+    tags: ['Heavy']
+  }),
+  createWeaponCatalogEntry({
+    id: 'wand',
+    name: 'Wand',
+    category: 'Magic Implements',
+    weaponStyle: 'arcane',
+    hands: 1,
+    cardBonusDamage: 1,
+    proficiencyGroup: 'Arcane Implements',
+    notes: 'No basic attack.'
+  }),
+  createWeaponCatalogEntry({
+    id: 'orb',
+    name: 'Orb',
+    category: 'Magic Implements',
+    weaponStyle: 'arcane',
+    hands: 1,
+    cardBonusDamage: 1,
+    proficiencyGroup: 'Arcane Implements',
+    notes: 'No basic attack.'
+  }),
+  createWeaponCatalogEntry({
+    id: 'book',
+    name: 'Book',
+    category: 'Magic Implements',
+    weaponStyle: 'arcane',
+    hands: 1,
+    cardBonusDamage: 1,
+    proficiencyGroup: 'Arcane Implements',
+    notes: 'No basic attack.'
+  }),
+  createWeaponCatalogEntry({
+    id: 'ring',
+    name: 'Ring',
+    category: 'Magic Implements',
+    weaponStyle: 'arcane',
+    hands: 1,
+    cardBonusDamage: 1,
+    proficiencyGroup: 'Arcane Implements',
+    notes: 'No basic attack.'
+  }),
+  createWeaponCatalogEntry({
+    id: 'staff',
+    name: 'Staff',
+    category: 'Magic Implements',
+    weaponStyle: 'staff',
+    hands: 2,
+    cardBonusDamage: 2,
+    proficiencyGroup: 'Staff',
+    notes: 'No basic attack.'
+  })
+]);
+
+const WEAPON_CATALOG_BY_ID = new Map(WEAPON_CATALOG.map((entry) => [entry.id, entry]));
+const WEAPON_CATALOG_BY_NAME = new Map(
+  WEAPON_CATALOG.map((entry) => [normalizeEquipmentToken(entry.name), entry])
+);
+
 const PHYSICAL_DAMAGE_TOKENS = new Set(PHYSICAL_DAMAGE_TYPES.map((entry) => normalizeEquipmentToken(entry)));
+const MAGIC_DAMAGE_TOKENS = new Set(MAGIC_DAMAGE_TYPES.map((entry) => normalizeEquipmentToken(entry)));
 const MAGICAL_CARD_HINT_TOKENS = new Set([
   'acid',
   'cold',
@@ -162,6 +580,98 @@ export function getDefaultArmorProperties(type = '') {
   };
 }
 
+export function getWeaponCatalogEntry(id = '') {
+  return WEAPON_CATALOG_BY_ID.get(String(id || '').trim()) || null;
+}
+
+export function findWeaponCatalogEntryByName(name = '') {
+  return WEAPON_CATALOG_BY_NAME.get(normalizeEquipmentToken(name)) || null;
+}
+
+export function isMagicDamageType(value = '') {
+  return MAGIC_DAMAGE_TOKENS.has(normalizeEquipmentToken(value));
+}
+
+export function cardInflictsStatus(card = {}) {
+  if (card?.statusApply && typeof card.statusApply === 'object') return true;
+  if (Array.isArray(card?.contestedEffect?.options) && card.contestedEffect.options.length) return true;
+  return false;
+}
+
+export function isMagicCard(card = {}, options = {}) {
+  const tags = new Set(
+    (Array.isArray(card?.tags) ? card.tags : [])
+      .map((entry) => normalizeEquipmentToken(entry))
+      .filter(Boolean)
+  );
+  const damageTypeToken = normalizeEquipmentToken(options.damageType ?? card?.damageType ?? '');
+  const secondaryDamageTypeToken = normalizeEquipmentToken(options.secondaryDamageType ?? card?.secondaryDamageType ?? '');
+  const baseDamage = Number(options.damage ?? card?.damage ?? 0);
+  const secondaryDamage = Number(options.secondaryDamage ?? card?.secondaryDamage ?? 0);
+  const hasDamage =
+    (Number.isFinite(baseDamage) && baseDamage > 0) ||
+    (Number.isFinite(secondaryDamage) && secondaryDamage > 0);
+  if (!hasDamage) return false;
+  return (
+    isMagicDamageType(damageTypeToken) ||
+    isMagicDamageType(secondaryDamageTypeToken) ||
+    tags.has('spell') ||
+    tags.has('magic') ||
+    cardInflictsStatus(card)
+  );
+}
+
+export function getWeaponAffectedCardLabel(item = {}) {
+  const style = normalizeWeaponStyle(item?.weaponStyle || item?.style || item?.subcategory);
+  if (style === 'melee') return '5 ft damage cards, including 5 ft magic cards';
+  if (style === 'ranged') return 'ranged cards and damaging magic cards';
+  if (style === 'arcane' || style === 'staff') return 'damaging magic cards';
+  return 'matching cards';
+}
+
+export function getWeaponCardInteraction(weapon = {}, card = {}, options = {}) {
+  const style = normalizeWeaponStyle(weapon?.weaponStyle || weapon?.style || weapon?.subcategory);
+  const range = Number.isFinite(Number(options.range)) ? Number(options.range) : Number(card?.range || 0);
+  const baseDamage = Number(options.damage ?? card?.damage ?? 0);
+  const secondaryDamage = Number(options.secondaryDamage ?? card?.secondaryDamage ?? 0);
+  const hasDamage =
+    (Number.isFinite(baseDamage) && baseDamage > 0) ||
+    (Number.isFinite(secondaryDamage) && secondaryDamage > 0);
+  const magic = isMagicCard(card, options);
+  let matches = false;
+  let cardType = '';
+  let matchLabel = '';
+
+  if (style === 'melee') {
+    matches = hasDamage && range > 0 && range <= 5;
+    if (matches) {
+      cardType = magic ? 'magic_melee' : 'melee';
+      matchLabel = magic ? '5 ft magic damage card' : 'melee damage card';
+    }
+  } else if (style === 'ranged') {
+    matches = hasDamage && (range > 10 || magic);
+    if (matches) {
+      cardType = magic ? 'magic' : 'ranged';
+      matchLabel = magic ? 'damaging magic card' : 'ranged damage card';
+    }
+  } else if (style === 'arcane' || style === 'staff') {
+    matches = hasDamage && magic;
+    if (matches) {
+      cardType = 'magic';
+      matchLabel = 'damaging magic card';
+    }
+  }
+
+  return {
+    matches,
+    cardType,
+    matchLabel,
+    hasDamage,
+    isMagic: magic,
+    range
+  };
+}
+
 export function getWeaponCardMatchType(item = {}) {
   const style = normalizeWeaponStyle(item?.weaponStyle || item?.style || item?.subcategory);
   if (style === 'melee') return 'melee';
@@ -177,37 +687,14 @@ export function hasWeaponBasicAttack(item = {}) {
 }
 
 export function classifyCardEquipmentMatch(card = {}, options = {}) {
-  const typeToken = normalizeEquipmentToken(card?.type);
-  const tags = new Set(
-    (Array.isArray(card?.tags) ? card.tags : [])
-      .map((entry) => normalizeEquipmentToken(entry))
-      .filter(Boolean)
-  );
   const range = Number.isFinite(Number(options.range)) ? Number(options.range) : Number(card?.range || 0);
-  const damageTypeToken = normalizeEquipmentToken(options.damageType ?? card?.damageType ?? '');
   const baseDamage = Number(options.damage ?? card?.damage ?? 0);
   const secondaryDamage = Number(options.secondaryDamage ?? card?.secondaryDamage ?? 0);
-  const isAttackLike =
-    typeToken.includes('attack') ||
-    tags.has('attack') ||
-    Number.isFinite(baseDamage) && baseDamage > 0 ||
-    Number.isFinite(secondaryDamage) && secondaryDamage > 0;
-
-  if (tags.has('melee') || typeToken.includes('melee')) return 'melee';
-  if (tags.has('ranged') || typeToken.includes('ranged')) return 'ranged';
-  if (tags.has('spell') || typeToken.includes('spell')) return 'spell';
-
-  if (damageTypeToken && PHYSICAL_DAMAGE_TOKENS.has(damageTypeToken)) {
-    return range > 5 ? 'ranged' : 'melee';
-  }
-
-  if (damageTypeToken && isAttackLike) {
-    return 'spell';
-  }
-
-  if ([...tags].some((entry) => MAGICAL_CARD_HINT_TOKENS.has(entry))) {
-    return 'spell';
-  }
-
+  const hasDamage =
+    (Number.isFinite(baseDamage) && baseDamage > 0) ||
+    (Number.isFinite(secondaryDamage) && secondaryDamage > 0);
+  if (hasDamage && range > 0 && range <= 5) return 'melee';
+  if (hasDamage && range > 10) return 'ranged';
+  if (isMagicCard(card, options)) return 'spell';
   return '';
 }

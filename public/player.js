@@ -3,7 +3,10 @@ import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/c
 import { ATTRIBUTE_BALANCE, getAttributeScalingFromScores } from './shared/stat-balance.js';
 import {
   ARMOR_TYPE_OPTIONS,
+  getWeaponAffectedCardLabel,
+  getWeaponCardInteraction,
   REQUIREMENT_ABILITY_OPTIONS,
+  WEAPON_CATALOG,
   WEAPON_STYLE_OPTIONS,
   hasWeaponBasicAttack
 } from './shared/equipment.js';
@@ -27,7 +30,7 @@ const MAX_ACTIVE_CARDS = UI_LIMITS.maxActiveCards;
 
 const state = {
   encounter: { participants: [], log: [], round: 1, currentIndex: -1, currentTurnKey: '' },
-  reference: { standardActions: [], sets: [], statuses: [], teams: [], characterPresets: [] },
+  reference: { standardActions: [], sets: [], statuses: [], teams: [], languageOptions: [], toolOptions: [], weaponCatalog: [], characterPresets: [] },
   updatedAt: null
 };
 
@@ -1361,10 +1364,10 @@ function renderCharacterCreator() {
         </div>
         <div class="form-row">
           <label>Proficiencies
-            <input type="text" name="proficiencies" placeholder="Light Armour, Herbalism Kit, Smith's Tools" />
+            <input type="text" name="proficiencies" list="playerCreateToolOptions" placeholder="Light Armour, Herbalism Kit, Smith's Tools" />
           </label>
           <label>Languages
-            <input type="text" name="languages" placeholder="Common, Elvish" />
+            <input type="text" name="languages" list="playerCreateLanguageOptions" placeholder="Common, Elvish" />
           </label>
         </div>
         <div class="player-create-grid">
@@ -1377,6 +1380,11 @@ function renderCharacterCreator() {
               <div class="damage-group-header">
                 <h4>Weapon</h4>
               </div>
+              <label>Weapon Preset
+                <select name="weaponCatalogId" data-player-weapon-catalog-select>
+                  ${renderPlayerWeaponCatalogOptions()}
+                </select>
+              </label>
               <div class="form-row">
                 <label>Name
                   <input type="text" name="weaponName" placeholder="Iron Sword" />
@@ -1402,7 +1410,7 @@ function renderCharacterCreator() {
                 </label>
                 <label>Damage Type
                   <select name="weaponDamageType">
-                    ${renderEquipmentDamageTypeOptions('Slashing')}
+                    ${renderEquipmentDamageTypeOptions('Slashing', true)}
                   </select>
                 </label>
               </div>
@@ -1421,6 +1429,10 @@ function renderCharacterCreator() {
               </div>
               <label>Proficiency Group
                 <input type="text" name="weaponProficiencyGroup" placeholder="Melee Weapons, Arcane Implements (wands, orbs, grimoires)..." />
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" name="weaponHasAmmo" checked />
+                <span>Has Ammo (ranged basic attacks only)</span>
               </label>
               <div class="damage-group-header">
                 <h4>Armour</h4>
@@ -1465,6 +1477,8 @@ function renderCharacterCreator() {
         <label>Notes
           <textarea name="notes" rows="2" placeholder="Backstory, reminders, etc."></textarea>
         </label>
+        ${renderReferenceOptionsDatalist('playerCreateToolOptions', getPlayerReferenceTextOptions('proficiency'))}
+        ${renderReferenceOptionsDatalist('playerCreateLanguageOptions', getPlayerReferenceTextOptions('language'))}
         <button type="submit" class="primary">Create Character</button>
       </form>
     </div>
@@ -1583,6 +1597,7 @@ function getPlayerTurnEntries() {
 function wireCharacterCreator() {
   const form = document.getElementById('playerCreateForm');
   if (!form) return;
+  wirePlayerWeaponCatalogSelects(form);
   form.querySelector('[data-player-create-from-preset]')?.addEventListener('click', async () => {
     const presetId = String(form.querySelector('[data-player-character-preset]')?.value || '').trim();
     if (!presetId) {
@@ -1703,8 +1718,13 @@ function getPlayerEquipmentSummary(participant = {}) {
     shield: participant?.equipment?.shield || null,
     moveApCost: 1,
     shieldRegen: 0,
+    weaponAffectsLabel: '',
     weaponApPenalty: 0,
     weaponPenaltyReasons: [],
+    weaponProficient: true,
+    weaponRequirementMet: true,
+    weaponAmmoRequired: false,
+    weaponHasAmmo: true,
     canHide: true
   };
 }
@@ -1715,9 +1735,11 @@ function buildEquipmentSlotPayloadFromFormData(formData, slot = '') {
     return raw ? Number(raw) : undefined;
   };
   if (slot === 'weapon') {
+    const catalogId = String(formData.get('weaponCatalogId') || '').trim();
     const name = String(formData.get('weaponName') || '').trim();
-    if (!name) return null;
+    if (!name && !catalogId) return null;
     return {
+      catalogId,
       name,
       weaponStyle: String(formData.get('weaponStyle') || 'melee'),
       basicAttackDamage: readOptionalNumber('weaponBasicAttackDamage'),
@@ -1727,7 +1749,8 @@ function buildEquipmentSlotPayloadFromFormData(formData, slot = '') {
       requirementAbility: String(formData.get('weaponRequirementAbility') || 'none'),
       requirementScore: readOptionalNumber('weaponRequirementScore'),
       hands: readOptionalNumber('weaponHands'),
-      proficiencyGroup: String(formData.get('weaponProficiencyGroup') || '').trim()
+      proficiencyGroup: String(formData.get('weaponProficiencyGroup') || '').trim(),
+      hasAmmo: formData.get('weaponHasAmmo') === 'on'
     };
   }
   if (slot === 'armor') {
@@ -1780,9 +1803,15 @@ function renderPlayerEquipmentSummary(participant = {}) {
   const weaponLines = weapon
     ? [
         `${String(weapon.weaponStyle || '').replace(/^./, (char) => char.toUpperCase()) || 'Weapon'}${hasWeaponBasicAttack(weapon) ? ` · ${Number(weapon.basicAttackApCost || 0)} AP / ${Number(weapon.basicAttackDamage || 0)} ${weapon.basicAttackDamageType || 'damage'}` : ' · No basic attack'}`,
+        formatPlayerWeaponRequirementLine(weapon),
         `Card Bonus +${Number(weapon.cardBonusDamage || 0)} · ${weapon.proficiencyGroup || 'No proficiency group'}`,
+        `Affects: ${summary.weaponAffectsLabel || getWeaponAffectedCardLabel(weapon)}`,
+        `Proficiency: ${summary.weaponProficient === false ? 'Not proficient' : 'Proficient'}`,
+        `Requirement: ${summary.weaponRequirementMet === false ? 'Unmet' : 'Met'}`,
+        summary.weaponAmmoRequired ? `Ammo: ${summary.weaponHasAmmo === false ? 'Missing' : 'Ready'}` : '',
+        Array.isArray(weapon.tags) && weapon.tags.length ? `Tags: ${weapon.tags.join(', ')}` : '',
         summary.weaponPenaltyReasons?.length ? `Penalty: +${Number(summary.weaponApPenalty || 0)} AP (${summary.weaponPenaltyReasons.join(', ')})` : 'Penalty: none'
-      ]
+      ].filter(Boolean)
     : [];
   const armorLines = armor
     ? [
@@ -1823,12 +1852,18 @@ function renderPlayerEquipmentEditor(participant = {}) {
   const weapon = summary.weapon || {};
   const armor = summary.armor || {};
   const shield = summary.shield || {};
+  const selectedWeaponCatalogId = resolvePlayerWeaponCatalogSelectionId(weapon);
   return `
     <div class="stacked-form">
       <form data-player-equipment-form="weapon" class="stacked-form">
         <div class="damage-group-header">
           <h4>Weapon</h4>
         </div>
+        <label>Weapon Preset
+          <select name="weaponCatalogId" data-player-weapon-catalog-select>
+            ${renderPlayerWeaponCatalogOptions(selectedWeaponCatalogId)}
+          </select>
+        </label>
         <div class="form-row">
           <label>Name
             <input type="text" name="weaponName" value="${escapeHtml(weapon.name || '')}" placeholder="Iron Sword" />
@@ -1854,7 +1889,7 @@ function renderPlayerEquipmentEditor(participant = {}) {
           </label>
           <label>Damage Type
             <select name="weaponDamageType">
-              ${renderEquipmentDamageTypeOptions(weapon.basicAttackDamageType || 'Slashing')}
+              ${renderEquipmentDamageTypeOptions(weapon.basicAttackDamageType || '', true)}
             </select>
           </label>
         </div>
@@ -1873,6 +1908,10 @@ function renderPlayerEquipmentEditor(participant = {}) {
         </div>
         <label>Proficiency Group
           <input type="text" name="weaponProficiencyGroup" value="${escapeHtml(weapon.proficiencyGroup || '')}" placeholder="Melee Weapons, Arcane Implements (wands, orbs, grimoires)..." />
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" name="weaponHasAmmo" ${weapon.hasAmmo !== false ? 'checked' : ''} />
+          <span>Has Ammo (ranged basic attacks only)</span>
         </label>
         <div class="card-actions">
           <button type="submit">Save Weapon</button>
@@ -1923,6 +1962,17 @@ function renderPlayerWeaponAttackPanel(participant = {}) {
   if (!hasWeaponBasicAttack(weapon)) {
     return `<p class="muted small-note">${escapeHtml(weapon.name || 'Equipped implement')} has no basic attack. Matching Spell cards still gain its card bonus.</p>`;
   }
+  if (summary.weaponAmmoRequired && summary.weaponHasAmmo === false) {
+    return `
+      <p class="muted small-note">
+        ${escapeHtml(weapon.name || 'Equipped ranged weapon')} is missing ammo. Basic attacks are unavailable until ammo is supplied.
+      </p>
+      <p class="muted small-note">
+        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on ${escapeHtml(summary.weaponAffectsLabel || getWeaponAffectedCardLabel(weapon))}
+        ${summary.weaponPenaltyReasons?.length ? ` · Penalty +${Number(summary.weaponApPenalty || 0)} AP (${escapeHtml(summary.weaponPenaltyReasons.join(', '))})` : ''}
+      </p>
+    `;
+  }
   const targets = getPlayerEncounterTargetables()
     .filter((entry) => entry.id !== participant.id)
     .filter((entry) => isPlayerEnemyForUi(participant, entry))
@@ -1945,7 +1995,7 @@ function renderPlayerWeaponAttackPanel(participant = {}) {
         <button type="button" data-player-weapon-attack>Basic Attack (${apCost} AP)</button>
       </div>
       <p class="muted small-note">
-        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on matching ${escapeHtml(summary.weaponMatchType || 'weapon')} cards
+        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on ${escapeHtml(summary.weaponAffectsLabel || getWeaponAffectedCardLabel(weapon))}
         ${summary.weaponPenaltyReasons?.length ? ` · Penalty +${Number(summary.weaponApPenalty || 0)} AP (${escapeHtml(summary.weaponPenaltyReasons.join(', '))})` : ''}
       </p>
     </div>
@@ -2264,12 +2314,15 @@ function renderPlayerAbilitiesSection(participant, manageMode = false) {
           `
             : ''
         }
+        ${renderReferenceOptionsDatalist('playerProficiencyOptions', getPlayerReferenceTextOptions('proficiency'))}
+        ${renderReferenceOptionsDatalist('playerLanguageOptions', getPlayerReferenceTextOptions('language'))}
       </div>
     </details>
   `;
 }
 
 function renderPlayerTextListEditor(label, values = [], key = 'entry', manageMode = false, derivedValues = []) {
+  const listId = key === 'proficiency' ? 'playerProficiencyOptions' : key === 'language' ? 'playerLanguageOptions' : '';
   const pills = (values || [])
     .map(
       (value, index) => `
@@ -2300,7 +2353,7 @@ function renderPlayerTextListEditor(label, values = [], key = 'entry', manageMod
           ? `
           <form data-player-${key}-form>
             <label class="compact-label">Add ${label.slice(0, -1)}
-              <input type="text" name="${key}" placeholder="Add ${label.slice(0, -1).toLowerCase()}" />
+              <input type="text" name="${key}" placeholder="Add ${label.slice(0, -1).toLowerCase()}" ${listId ? `list="${listId}"` : ''} />
             </label>
             <button type="submit">Add</button>
           </form>
@@ -4389,6 +4442,10 @@ function renderPlayerCardAttributeTable(card = {}, participant = {}) {
     rows.push(['Charges', `${chargesCurrent}/${chargesMax}`]);
   }
   rows.push(['Effect', formatCardEffectAtMastery(card, participant)]);
+  const weaponEffect = getPlayerCardWeaponEffect(card, participant);
+  if (weaponEffect) {
+    rows.push(['Weapon Effect', weaponEffect]);
+  }
   const body = rows
     .map(
       ([label, value]) => `
@@ -5808,6 +5865,7 @@ function renderInventory(participant) {
   equipmentListEl.innerHTML = renderPlayerEquipmentSummary(participant);
   if (equipmentEditorEl) {
     equipmentEditorEl.innerHTML = renderPlayerEquipmentEditor(participant);
+    wirePlayerWeaponCatalogSelects(equipmentEditorEl);
   }
   if (!currencies.length) {
     currencyListEl.classList.add('empty-state');
@@ -7269,6 +7327,133 @@ function renderCharacterPresetOptions(includePlaceholder = false) {
   );
   const options = includePlaceholder ? '<option value="">Select preset…</option>' : '';
   return options + presets.map((preset) => `<option value="${preset.id}">${escapeHtml(preset.name || 'Character Preset')}</option>`).join('');
+}
+
+function getPlayerWeaponCatalog() {
+  const referenceCatalog = Array.isArray(state.reference?.weaponCatalog) ? state.reference.weaponCatalog : [];
+  return referenceCatalog.length ? referenceCatalog : WEAPON_CATALOG;
+}
+
+function getPlayerWeaponCatalogEntry(id = '') {
+  const target = String(id || '').trim();
+  if (!target) return null;
+  return getPlayerWeaponCatalog().find((entry) => String(entry?.id || '') === target) || null;
+}
+
+function resolvePlayerWeaponCatalogSelectionId(weapon = {}) {
+  const currentId = String(weapon?.catalogId || '').trim();
+  if (currentId && getPlayerWeaponCatalogEntry(currentId)) return currentId;
+  const name = String(weapon?.name || '').trim().toLowerCase();
+  if (!name) return '';
+  const match = getPlayerWeaponCatalog().find((entry) => String(entry?.name || '').trim().toLowerCase() === name);
+  return match?.id || '';
+}
+
+function renderPlayerWeaponCatalogOptions(selectedId = '') {
+  const grouped = new Map();
+  for (const entry of getPlayerWeaponCatalog()) {
+    const category = String(entry?.category || 'Weapons').trim() || 'Weapons';
+    if (!grouped.has(category)) grouped.set(category, []);
+    grouped.get(category).push(entry);
+  }
+  const sections = ['<option value="">Custom</option>'];
+  for (const [category, entries] of grouped.entries()) {
+    sections.push(`<optgroup label="${escapeHtml(category)}">`);
+    for (const entry of entries) {
+      const selected = String(selectedId || '') === String(entry?.id || '') ? 'selected' : '';
+      sections.push(`<option value="${escapeHtml(entry.id || '')}" ${selected}>${escapeHtml(entry.name || 'Weapon')}</option>`);
+    }
+    sections.push('</optgroup>');
+  }
+  return sections.join('');
+}
+
+function populatePlayerWeaponFormFromCatalog(form, entry = null) {
+  if (!form || !entry) return;
+  const setFieldValue = (name, value) => {
+    const field = form.querySelector(`[name="${name}"]`);
+    if (!field) return;
+    field.value = value == null ? '' : String(value);
+  };
+  const setFieldChecked = (name, checked) => {
+    const field = form.querySelector(`[name="${name}"]`);
+    if (!field) return;
+    field.checked = checked === true;
+  };
+  setFieldValue('weaponName', entry.name || '');
+  setFieldValue('weaponStyle', entry.weaponStyle || 'melee');
+  setFieldValue('weaponHands', Number(entry.hands || 1));
+  setFieldValue('weaponBasicAttackApCost', entry.basicAttackApCost > 0 ? entry.basicAttackApCost : '');
+  setFieldValue('weaponBasicAttackDamage', entry.basicAttackDamage > 0 ? entry.basicAttackDamage : '');
+  if (entry.basicAttackDamageType) {
+    setFieldValue('weaponDamageType', entry.basicAttackDamageType);
+  }
+  setFieldValue('weaponCardBonusDamage', Number(entry.cardBonusDamage || 0));
+  setFieldValue('weaponRequirementAbility', entry.requirementAbility || 'none');
+  setFieldValue('weaponRequirementScore', entry.requirementScore > 0 ? entry.requirementScore : '');
+  setFieldValue('weaponProficiencyGroup', entry.proficiencyGroup || '');
+  setFieldChecked('weaponHasAmmo', entry.weaponStyle !== 'ranged' ? true : true);
+}
+
+function wirePlayerWeaponCatalogSelects(container) {
+  container?.querySelectorAll?.('[data-player-weapon-catalog-select]').forEach((select) => {
+    if (select.dataset.weaponCatalogBound === '1') return;
+    select.addEventListener('change', () => {
+      const form = select.closest('form');
+      const entry = getPlayerWeaponCatalogEntry(select.value);
+      if (!form || !entry) return;
+      populatePlayerWeaponFormFromCatalog(form, entry);
+    });
+    select.dataset.weaponCatalogBound = '1';
+  });
+}
+
+function formatPlayerWeaponRequirementLine(weapon = {}) {
+  const score = Math.max(0, Number(weapon?.requirementScore || 0));
+  const ability = String(weapon?.requirementAbility || 'none').trim().toLowerCase();
+  if (!score || ability === 'none') return '';
+  if (ability === 'either') return `Req STR or DEX ${score}`;
+  if (ability === 'dexterity') return `Req DEX ${score}`;
+  return `Req STR ${score}`;
+}
+
+function getPlayerCardWeaponEffect(card = {}, participant = {}) {
+  const summary = getPlayerEquipmentSummary(participant);
+  const weapon = summary.weapon;
+  if (!weapon) return '';
+  const interaction = getWeaponCardInteraction(weapon, card, {
+    range: getCardScaledEffectValue(card, 'rangeByLevel', Math.max(1, Math.min(4, Number(card.masteryLevel || 1))), Number(card.range || 0)),
+    damage: getCardDisplayDamage(card),
+    secondaryDamage: getCardSecondaryDamage(card),
+    damageType: card.damageType || '',
+    secondaryDamageType: card.secondaryDamageType || card.damageType || ''
+  });
+  if (!interaction.matches) return '';
+  const parts = [`${weapon.name || 'Weapon'} +${Number(weapon.cardBonusDamage || 0)} damage`];
+  if (summary.weaponPenaltyReasons?.length) {
+    parts.push(`+${Number(summary.weaponApPenalty || 0)} AP (${summary.weaponPenaltyReasons.join(', ')})`);
+  }
+  return parts.join(' · ');
+}
+
+function getPlayerReferenceTextOptions(kind = '') {
+  if (kind === 'language') {
+    return Array.isArray(state.reference?.languageOptions) ? state.reference.languageOptions : [];
+  }
+  if (kind === 'proficiency') {
+    return Array.isArray(state.reference?.toolOptions) ? state.reference.toolOptions : [];
+  }
+  return [];
+}
+
+function renderReferenceOptionsDatalist(id, values = []) {
+  const unique = [...new Set((values || []).map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!id || !unique.length) return '';
+  return `
+    <datalist id="${id}">
+      ${unique.map((value) => `<option value="${escapeHtml(value)}"></option>`).join('')}
+    </datalist>
+  `;
 }
 
 function renderImmunityOptions(includePlaceholder = false) {
