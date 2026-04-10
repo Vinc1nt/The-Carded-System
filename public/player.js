@@ -1420,7 +1420,7 @@ function renderCharacterCreator() {
                 </label>
               </div>
               <label>Proficiency Group
-                <input type="text" name="weaponProficiencyGroup" placeholder="Melee Weapons, Arcane Implements..." />
+                <input type="text" name="weaponProficiencyGroup" placeholder="Melee Weapons, Arcane Implements (wands, orbs, grimoires)..." />
               </label>
               <div class="damage-group-header">
                 <h4>Armour</h4>
@@ -1872,7 +1872,7 @@ function renderPlayerEquipmentEditor(participant = {}) {
           </label>
         </div>
         <label>Proficiency Group
-          <input type="text" name="weaponProficiencyGroup" value="${escapeHtml(weapon.proficiencyGroup || '')}" placeholder="Melee Weapons, Arcane Implements..." />
+          <input type="text" name="weaponProficiencyGroup" value="${escapeHtml(weapon.proficiencyGroup || '')}" placeholder="Melee Weapons, Arcane Implements (wands, orbs, grimoires)..." />
         </label>
         <div class="card-actions">
           <button type="submit">Save Weapon</button>

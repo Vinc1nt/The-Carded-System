@@ -19,7 +19,7 @@ export const PHYSICAL_DAMAGE_TYPES = Object.freeze(['Bludgeoning', 'Piercing', '
 export const WEAPON_STYLE_OPTIONS = Object.freeze([
   { value: 'melee', label: 'Melee Weapon' },
   { value: 'ranged', label: 'Ranged Weapon' },
-  { value: 'arcane', label: 'Arcane Implement' },
+  { value: 'arcane', label: 'Arcane Implement (wand, orb, grimoire, etc.)' },
   { value: 'staff', label: 'Staff' }
 ]);
 
@@ -79,6 +79,9 @@ export function normalizeWeaponStyle(value = '') {
     token === 'implement' ||
     token === 'wand' ||
     token === 'orb' ||
+    token === 'grimoire' ||
+    token === 'grimoires' ||
+    token === 'tome' ||
     token === 'book' ||
     token === 'ring'
   ) {
