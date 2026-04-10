@@ -1,6 +1,12 @@
 import { UI_LIMITS } from './shared/game-config.js';
 import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
 import { ATTRIBUTE_BALANCE, getAttributeScalingFromScores } from './shared/stat-balance.js';
+import {
+  ARMOR_TYPE_OPTIONS,
+  REQUIREMENT_ABILITY_OPTIONS,
+  WEAPON_STYLE_OPTIONS,
+  hasWeaponBasicAttack
+} from './shared/equipment.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -70,6 +76,7 @@ const els = {
   nextTurn: document.getElementById('playerNextTurn'),
   playerShortRest: document.getElementById('playerShortRest'),
   playerLongRest: document.getElementById('playerLongRest'),
+  createCharacter: document.getElementById('playerCreateCharacter'),
   downloadCharacter: document.getElementById('downloadCharacter'),
   uploadCharacter: document.getElementById('uploadCharacter'),
   importCardFile: document.getElementById('playerImportCard'),
@@ -168,6 +175,7 @@ function wirePlayerMenu() {
     if (event.target.closest('.player-menu')) return;
     els.menuPanel.classList.remove('is-open');
   });
+  els.createCharacter?.addEventListener('click', openCharacterCreator);
   els.downloadCharacter?.addEventListener('click', handleCharacterDownload);
   els.uploadCharacter?.addEventListener('change', handleCharacterImport);
   els.baseToggle?.addEventListener('click', () => {
@@ -727,6 +735,7 @@ function renderStats() {
           <div class="player-bonus-strip">
             <span class="player-bonus-chip">Guard Restore ${participant.guardRestore || 3}</span>
             <span class="player-bonus-chip">Damage Bonus ${formatSignedValue(participant.damageBonus || 0)}</span>
+            <span class="player-bonus-chip">Shield Regen ${Number(getPlayerEquipmentSummary(participant).shieldRegen || 0)}/turn</span>
             ${
               participant.constructs?.length
                 ? `<span class="player-bonus-chip">Constructs ${participant.constructs.length}${
@@ -952,8 +961,20 @@ function renderPlayerAbilitiesPanel(participant, manageMode = false) {
       <div class="ability-list">
         ${renderPlayerAbilityEntries(participant, manageMode)}
       </div>
-      ${renderPlayerTextListEditor('Proficiencies', participant.proficiencies || [], 'proficiency', manageMode)}
-      ${renderPlayerTextListEditor('Languages', participant.languages || [], 'language', manageMode)}
+      ${renderPlayerTextListEditor(
+        'Proficiencies',
+        participant.proficiencies || [],
+        'proficiency',
+        manageMode,
+        getPlayerDerivedSetValues(participant, 'proficiencies')
+      )}
+      ${renderPlayerTextListEditor(
+        'Languages',
+        participant.languages || [],
+        'language',
+        manageMode,
+        getPlayerDerivedSetValues(participant, 'languages')
+      )}
       ${
         manageMode
           ? `
@@ -1166,43 +1187,14 @@ function renderPlayerInventoryTab() {
         </section>
         <section class="player-dashboard-card player-subpanel">
           <div class="section-header">
-            <h3>Weapons & Armour</h3>
-            <button type="button" data-player-toggle-equipment>Add Weapon/Armour</button>
+            <h3>Equipment</h3>
+            <button type="button" data-player-toggle-equipment>Edit Equipment</button>
           </div>
-          <div id="playerWeaponArmorList" class="relic-list empty-state">No weapons or armour tracked.</div>
+          <div id="playerWeaponArmorList" class="relic-list">No equipment configured.</div>
           <details id="playerEquipmentDrawer" class="player-tool-drawer" data-player-card-details-key="equipmentTools">
-            <summary><strong>Weapon & Armour Tools</strong></summary>
+            <summary><strong>Equipment Tools</strong></summary>
             <div class="collapsible-body">
-              <div class="card-import">
-                <label class="file-upload">
-                  Import Weapon/Armour
-                  <input type="file" id="playerImportEquipment" accept="application/json" />
-                </label>
-              </div>
-              <form id="playerEquipmentForm" class="stacked-form">
-                <div class="form-row">
-                  <label>Name
-                    <input type="text" name="name" placeholder="Iron Sword" required />
-                  </label>
-                  <label>Qty
-                    <input type="number" name="quantity" min="1" value="1" />
-                  </label>
-                  <label>Type
-                    <select name="equipmentType">
-                      <option value="Weapon">Weapon</option>
-                      <option value="Armour">Armour</option>
-                      <option value="Shield">Shield</option>
-                    </select>
-                  </label>
-                </div>
-                <label>Description
-                  <input type="text" name="description" placeholder="Optional details" />
-                </label>
-                <label>Tags
-                  <input type="text" name="tags" placeholder="Melee, Heavy, Martial" />
-                </label>
-                <button type="submit">Add Weapon/Armour</button>
-              </form>
+              <div id="playerEquipmentEditor"></div>
             </div>
           </details>
         </section>
@@ -1271,7 +1263,7 @@ function renderCharacterCreator() {
       <div class="panel-header">
         <div>
           <h2>Create Character</h2>
-          <p class="muted">Fill out the base stats to add this character to the encounter.</p>
+          <p class="muted">Fill out the base character details, stats, and proficiencies to add this character to the encounter.</p>
         </div>
       </div>
       <form id="playerCreateForm" class="stacked-form">
@@ -1324,6 +1316,133 @@ function renderCharacterCreator() {
                 <input type="number" name="${key}" value="10" />
               </label>`
           ).join('')}
+        </div>
+        <div class="player-create-grid">
+          <section class="player-create-section">
+            <div class="player-create-section-header">
+              <h3>Saving Throw Proficiencies</h3>
+              <small class="muted">Typical baseline: choose 2.</small>
+            </div>
+            <div class="player-create-option-grid player-create-option-grid-compact">
+              ${ABILITIES.map(
+                ({ key, label }) => `
+                  <label class="checkbox-row player-create-check">
+                    <input type="checkbox" name="savingThrowProficiencies" value="${key}" />
+                    <span>${label}</span>
+                  </label>`
+              ).join('')}
+            </div>
+          </section>
+          <section class="player-create-section">
+            <div class="player-create-section-header">
+              <h3>Skill Proficiencies</h3>
+              <small class="muted">Typical baseline: choose 5. Expert is optional.</small>
+            </div>
+            <div class="player-create-option-grid">
+              ${SKILLS.map(
+                ([skill, ability, key]) => `
+                  <div class="player-create-skill-row">
+                    <div class="player-create-skill-meta">
+                      <strong>${escapeHtml(skill)}</strong>
+                      <small class="muted">${abilityLabel(ability)}</small>
+                    </div>
+                    <label class="checkbox-row player-create-check">
+                      <input type="checkbox" name="skillProficiencies" value="${key}" />
+                      <span>Prof</span>
+                    </label>
+                    <label class="checkbox-row player-create-check">
+                      <input type="checkbox" name="skillExpertise" value="${key}" />
+                      <span>Expert</span>
+                    </label>
+                  </div>`
+              ).join('')}
+            </div>
+          </section>
+        </div>
+        <div class="form-row">
+          <label>Proficiencies
+            <input type="text" name="proficiencies" placeholder="Light Armour, Herbalism Kit, Smith's Tools" />
+          </label>
+          <label>Languages
+            <input type="text" name="languages" placeholder="Common, Elvish" />
+          </label>
+        </div>
+        <div class="player-create-grid">
+          <section class="player-create-section">
+            <div class="player-create-section-header">
+              <h3>Equipment</h3>
+              <small class="muted">Optional starting weapon, armour, and shield.</small>
+            </div>
+            <div class="stacked-form">
+              <div class="damage-group-header">
+                <h4>Weapon</h4>
+              </div>
+              <div class="form-row">
+                <label>Name
+                  <input type="text" name="weaponName" placeholder="Iron Sword" />
+                </label>
+                <label>Style
+                  <select name="weaponStyle">
+                    ${renderEquipmentSelectOptions(WEAPON_STYLE_OPTIONS, 'melee')}
+                  </select>
+                </label>
+                <label>Hands
+                  <select name="weaponHands">
+                    <option value="1" selected>1</option>
+                    <option value="2">2</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Basic AP
+                  <input type="number" name="weaponBasicAttackApCost" value="2" min="0" />
+                </label>
+                <label>Basic Damage
+                  <input type="number" name="weaponBasicAttackDamage" value="" min="0" placeholder="0" />
+                </label>
+                <label>Damage Type
+                  <select name="weaponDamageType">
+                    ${renderEquipmentDamageTypeOptions('Slashing')}
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Card Bonus
+                  <input type="number" name="weaponCardBonusDamage" value="" min="0" placeholder="Auto by weapon type" />
+                </label>
+                <label>Requirement
+                  <select name="weaponRequirementAbility">
+                    ${renderEquipmentSelectOptions(REQUIREMENT_ABILITY_OPTIONS, 'none')}
+                  </select>
+                </label>
+                <label>Req Score
+                  <input type="number" name="weaponRequirementScore" value="" min="0" placeholder="Optional" />
+                </label>
+              </div>
+              <label>Proficiency Group
+                <input type="text" name="weaponProficiencyGroup" placeholder="Melee Weapons, Arcane Implements..." />
+              </label>
+              <div class="damage-group-header">
+                <h4>Armour</h4>
+              </div>
+              <div class="form-row">
+                <label>Name
+                  <input type="text" name="armorName" placeholder="Chain Shirt" />
+                </label>
+                <label>Type
+                  <select name="armorType">
+                    ${renderEquipmentSelectOptions(ARMOR_TYPE_OPTIONS, 'light')}
+                  </select>
+                </label>
+              </div>
+              <div class="damage-group-header">
+                <h4>Shield</h4>
+              </div>
+              <label>Name
+                <input type="text" name="shieldName" placeholder="Tower Shield" />
+              </label>
+            </div>
+          </section>
         </div>
         <label>Resistances
           <select name="resistances" multiple size="6">
@@ -1507,6 +1626,25 @@ function buildParticipantFromCreateForm(formData) {
   ABILITIES.forEach(({ key }) => {
     stats[key] = Number(formData.get(key) || 0);
   });
+  const savingThrows = {};
+  const selectedSavingThrows = new Set(
+    formData.getAll('savingThrowProficiencies').map((value) => String(value || '').trim()).filter(Boolean)
+  );
+  ABILITIES.forEach(({ key }) => {
+    savingThrows[key] = selectedSavingThrows.has(key);
+  });
+  const proficientSkills = new Set(
+    formData.getAll('skillProficiencies').map((value) => String(value || '').trim()).filter(Boolean)
+  );
+  const expertSkills = new Set(
+    formData.getAll('skillExpertise').map((value) => String(value || '').trim()).filter(Boolean)
+  );
+  const skills = {};
+  SKILLS.forEach(([, , key]) => {
+    const expert = expertSkills.has(key);
+    const proficient = expert || proficientSkills.has(key);
+    skills[key] = { proficient, expert };
+  });
   const proficiencyBonus = Number(formData.get('proficiencyBonus') || 0);
   const maxHp = Number(formData.get('maxHp') || 0);
   const maxShield = Number(formData.get('maxShield') || 0);
@@ -1523,6 +1661,11 @@ function buildParticipantFromCreateForm(formData) {
     apMax,
     proficiencyBonus,
     stats,
+    savingThrows,
+    skills,
+    equipment: buildEquipmentPayloadFromCreateForm(formData),
+    proficiencies: normalizeTextInputList(formData.get('proficiencies')),
+    languages: normalizeTextInputList(formData.get('languages')),
     notes: formData.get('notes') || '',
     resistances,
     vulnerabilities,
@@ -1530,11 +1673,291 @@ function buildParticipantFromCreateForm(formData) {
   };
 }
 
+function normalizeTextInputList(value) {
+  return String(value || '')
+    .split(/,|\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function renderEquipmentSelectOptions(options = [], selectedValue = '') {
+  return options
+    .map(({ value, label }) => `<option value="${value}" ${String(selectedValue || '') === value ? 'selected' : ''}>${label}</option>`)
+    .join('');
+}
+
+function renderEquipmentDamageTypeOptions(selectedValue = '', allowBlank = false) {
+  const options = allowBlank ? ['<option value="">None</option>'] : [];
+  options.push(
+    ...DAMAGE_TYPES.map(
+      (type) => `<option value="${type}" ${String(selectedValue || '') === type ? 'selected' : ''}>${type}</option>`
+    )
+  );
+  return options.join('');
+}
+
+function getPlayerEquipmentSummary(participant = {}) {
+  return participant?.derivedBonuses?.equipment || {
+    weapon: participant?.equipment?.weapon || null,
+    armor: participant?.equipment?.armor || null,
+    shield: participant?.equipment?.shield || null,
+    moveApCost: 1,
+    shieldRegen: 0,
+    weaponApPenalty: 0,
+    weaponPenaltyReasons: [],
+    canHide: true
+  };
+}
+
+function buildEquipmentSlotPayloadFromFormData(formData, slot = '') {
+  const readOptionalNumber = (name) => {
+    const raw = String(formData.get(name) ?? '').trim();
+    return raw ? Number(raw) : undefined;
+  };
+  if (slot === 'weapon') {
+    const name = String(formData.get('weaponName') || '').trim();
+    if (!name) return null;
+    return {
+      name,
+      weaponStyle: String(formData.get('weaponStyle') || 'melee'),
+      basicAttackDamage: readOptionalNumber('weaponBasicAttackDamage'),
+      basicAttackApCost: readOptionalNumber('weaponBasicAttackApCost'),
+      basicAttackDamageType: String(formData.get('weaponDamageType') || ''),
+      cardBonusDamage: readOptionalNumber('weaponCardBonusDamage'),
+      requirementAbility: String(formData.get('weaponRequirementAbility') || 'none'),
+      requirementScore: readOptionalNumber('weaponRequirementScore'),
+      hands: readOptionalNumber('weaponHands'),
+      proficiencyGroup: String(formData.get('weaponProficiencyGroup') || '').trim()
+    };
+  }
+  if (slot === 'armor') {
+    const name = String(formData.get('armorName') || '').trim();
+    if (!name) return null;
+    return {
+      name,
+      armorType: String(formData.get('armorType') || 'light')
+    };
+  }
+  if (slot === 'shield') {
+    const name = String(formData.get('shieldName') || '').trim();
+    if (!name) return null;
+    return { name };
+  }
+  return null;
+}
+
+function buildEquipmentPayloadFromCreateForm(formData) {
+  return {
+    weapon: buildEquipmentSlotPayloadFromFormData(formData, 'weapon'),
+    armor: buildEquipmentSlotPayloadFromFormData(formData, 'armor'),
+    shield: buildEquipmentSlotPayloadFromFormData(formData, 'shield')
+  };
+}
+
+function renderPlayerEquipmentSlotCard(title, item = null, lines = []) {
+  if (!item) {
+    return `
+      <article class="relic-card">
+        <h4>${title}</h4>
+        <p class="muted">None equipped.</p>
+      </article>
+    `;
+  }
+  return `
+    <article class="relic-card">
+      <h4>${escapeHtml(item.name || title)}</h4>
+      <p><strong>${title}</strong></p>
+      ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
+    </article>
+  `;
+}
+
+function renderPlayerEquipmentSummary(participant = {}) {
+  const summary = getPlayerEquipmentSummary(participant);
+  const weapon = summary.weapon;
+  const armor = summary.armor;
+  const shield = summary.shield;
+  const weaponLines = weapon
+    ? [
+        `${String(weapon.weaponStyle || '').replace(/^./, (char) => char.toUpperCase()) || 'Weapon'}${hasWeaponBasicAttack(weapon) ? ` · ${Number(weapon.basicAttackApCost || 0)} AP / ${Number(weapon.basicAttackDamage || 0)} ${weapon.basicAttackDamageType || 'damage'}` : ' · No basic attack'}`,
+        `Card Bonus +${Number(weapon.cardBonusDamage || 0)} · ${weapon.proficiencyGroup || 'No proficiency group'}`,
+        summary.weaponPenaltyReasons?.length ? `Penalty: +${Number(summary.weaponApPenalty || 0)} AP (${summary.weaponPenaltyReasons.join(', ')})` : 'Penalty: none'
+      ]
+    : [];
+  const armorLines = armor
+    ? [
+        `${String(armor.armorType || '').replace(/^./, (char) => char.toUpperCase())} Armour`,
+        `Shield +${Number(armor.maxShieldBonus || 0)} · Regen +${Number(armor.shieldRegen || 0)}/turn`,
+        Number(armor.dexterityPenalty || 0) > 0 ? `DEX ${formatSignedValue(-Number(armor.dexterityPenalty || 0))}` : 'DEX unchanged'
+      ]
+    : [];
+  const shieldLines = shield
+    ? [
+        `Shield +${Number(shield.maxShieldBonus || 0)} · Regen +${Number(shield.shieldRegen || 0)}/turn`,
+        'Uses 1 hand'
+      ]
+    : [];
+  const notes = [];
+  notes.push(`Hands ${Number(summary.handsUsed || 0)}/${Number(summary.handsAvailable || 2)}`);
+  notes.push(`Shield Regen ${Number(summary.shieldRegen || 0)}/turn`);
+  if (Number(summary.moveApCost || 1) > 1) {
+    notes.push(`Move actions cost ${Number(summary.moveApCost || 1)} AP`);
+  }
+  if (summary.canHide === false) {
+    notes.push('Cannot become Hidden');
+  }
+  return `
+    <div class="cards-grid player-card-grid">
+      ${renderPlayerEquipmentSlotCard('Weapon', weapon, weaponLines)}
+      ${renderPlayerEquipmentSlotCard('Armour', armor, armorLines)}
+      ${renderPlayerEquipmentSlotCard('Shield', shield, shieldLines)}
+    </div>
+    <div class="player-bonus-strip">
+      ${notes.map((note) => `<span class="player-bonus-chip">${escapeHtml(note)}</span>`).join('')}
+    </div>
+  `;
+}
+
+function renderPlayerEquipmentEditor(participant = {}) {
+  const summary = getPlayerEquipmentSummary(participant);
+  const weapon = summary.weapon || {};
+  const armor = summary.armor || {};
+  const shield = summary.shield || {};
+  return `
+    <div class="stacked-form">
+      <form data-player-equipment-form="weapon" class="stacked-form">
+        <div class="damage-group-header">
+          <h4>Weapon</h4>
+        </div>
+        <div class="form-row">
+          <label>Name
+            <input type="text" name="weaponName" value="${escapeHtml(weapon.name || '')}" placeholder="Iron Sword" />
+          </label>
+          <label>Style
+            <select name="weaponStyle">
+              ${renderEquipmentSelectOptions(WEAPON_STYLE_OPTIONS, weapon.weaponStyle || 'melee')}
+            </select>
+          </label>
+          <label>Hands
+            <select name="weaponHands">
+              <option value="1" ${Number(weapon.hands || 1) === 1 ? 'selected' : ''}>1</option>
+              <option value="2" ${Number(weapon.hands || 1) === 2 ? 'selected' : ''}>2</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Basic AP
+            <input type="number" name="weaponBasicAttackApCost" value="${Number(weapon.basicAttackApCost ?? 2)}" min="0" />
+          </label>
+          <label>Basic Damage
+            <input type="number" name="weaponBasicAttackDamage" value="${weapon.basicAttackDamage ?? ''}" min="0" placeholder="0" />
+          </label>
+          <label>Damage Type
+            <select name="weaponDamageType">
+              ${renderEquipmentDamageTypeOptions(weapon.basicAttackDamageType || 'Slashing')}
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Card Bonus
+            <input type="number" name="weaponCardBonusDamage" value="${weapon.cardBonusDamage ?? ''}" min="0" placeholder="Auto by weapon type" />
+          </label>
+          <label>Requirement
+            <select name="weaponRequirementAbility">
+              ${renderEquipmentSelectOptions(REQUIREMENT_ABILITY_OPTIONS, weapon.requirementAbility || 'none')}
+            </select>
+          </label>
+          <label>Req Score
+            <input type="number" name="weaponRequirementScore" value="${weapon.requirementScore ?? ''}" min="0" placeholder="Optional" />
+          </label>
+        </div>
+        <label>Proficiency Group
+          <input type="text" name="weaponProficiencyGroup" value="${escapeHtml(weapon.proficiencyGroup || '')}" placeholder="Melee Weapons, Arcane Implements..." />
+        </label>
+        <div class="card-actions">
+          <button type="submit">Save Weapon</button>
+          <button type="button" data-player-clear-equipment="weapon">Clear Weapon</button>
+        </div>
+      </form>
+      <form data-player-equipment-form="armor" class="stacked-form">
+        <div class="damage-group-header">
+          <h4>Armour</h4>
+        </div>
+        <div class="form-row">
+          <label>Name
+            <input type="text" name="armorName" value="${escapeHtml(armor.name || '')}" placeholder="Chain Shirt" />
+          </label>
+          <label>Type
+            <select name="armorType">
+              ${renderEquipmentSelectOptions(ARMOR_TYPE_OPTIONS, armor.armorType || 'light')}
+            </select>
+          </label>
+        </div>
+        <div class="card-actions">
+          <button type="submit">Save Armour</button>
+          <button type="button" data-player-clear-equipment="armor">Clear Armour</button>
+        </div>
+      </form>
+      <form data-player-equipment-form="shield" class="stacked-form">
+        <div class="damage-group-header">
+          <h4>Shield</h4>
+        </div>
+        <label>Name
+          <input type="text" name="shieldName" value="${escapeHtml(shield.name || '')}" placeholder="Tower Shield" />
+        </label>
+        <div class="card-actions">
+          <button type="submit">Save Shield</button>
+          <button type="button" data-player-clear-equipment="shield">Clear Shield</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderPlayerWeaponAttackPanel(participant = {}) {
+  const summary = getPlayerEquipmentSummary(participant);
+  const weapon = summary.weapon;
+  if (!weapon) {
+    return '<p class="muted small-note">No weapon equipped.</p>';
+  }
+  if (!hasWeaponBasicAttack(weapon)) {
+    return `<p class="muted small-note">${escapeHtml(weapon.name || 'Equipped implement')} has no basic attack. Matching Spell cards still gain its card bonus.</p>`;
+  }
+  const targets = getPlayerEncounterTargetables()
+    .filter((entry) => entry.id !== participant.id)
+    .filter((entry) => isPlayerEnemyForUi(participant, entry))
+    .map((entry) => `<option value="${entry.id}">${escapeHtml(formatPlayerTargetableLabel(entry))}</option>`)
+    .join('');
+  const apCost = Math.max(1, Number(weapon.basicAttackApCost || 0) + Math.max(0, Number(summary.weaponApPenalty || 0)));
+  return `
+    <div class="damage-group">
+      <div class="damage-group-header">
+        <h4>Weapon Attack</h4>
+        <small class="muted">${escapeHtml(weapon.name || 'Weapon')} · ${Number(weapon.basicAttackDamage || 0)} ${escapeHtml(weapon.basicAttackDamageType || 'damage')}</small>
+      </div>
+      <div class="form-row">
+        <label>Target
+          <select data-player-weapon-target>
+            <option value="">Select target…</option>
+            ${targets}
+          </select>
+        </label>
+        <button type="button" data-player-weapon-attack>Basic Attack (${apCost} AP)</button>
+      </div>
+      <p class="muted small-note">
+        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on matching ${escapeHtml(summary.weaponMatchType || 'weapon')} cards
+        ${summary.weaponPenaltyReasons?.length ? ` · Penalty +${Number(summary.weaponApPenalty || 0)} AP (${escapeHtml(summary.weaponPenaltyReasons.join(', '))})` : ''}
+      </p>
+    </div>
+  `;
+}
+
 function renderPlayerStandardActionsSection(participant) {
   return `
     <details class="player-collapsible" data-player-section="standardActions">
       <summary><strong>Standard Actions</strong></summary>
       <div class="collapsible-body">
+        ${renderPlayerWeaponAttackPanel(participant)}
         <label class="checkbox-row">
           <input type="checkbox" data-player-difficult />
           <span>Difficult terrain (Move = ${getPlayerMoveDistanceFt(participant, { difficultTerrain: true })} ft)</span>
@@ -1558,7 +1981,7 @@ function renderPlayerStandardActionButtons(participant) {
     .map(
       (action) => `
       <div class="standard-action-item">
-        <button type="button" data-player-standard="${action.id}">${action.label} (${action.apCost} AP)</button>
+        <button type="button" data-player-standard="${action.id}">${action.label} (${action.id === 'move' ? Math.max(1, Number(getPlayerEquipmentSummary(participant).moveApCost || 1)) : action.apCost} AP)</button>
         <small class="muted small-note">${escapeHtml(getPlayerStandardActionSummary(action, participant))}</small>
       </div>`
     )
@@ -1812,8 +2235,20 @@ function renderPlayerAbilitiesSection(participant, manageMode = false) {
         <div class="ability-list">
           ${renderPlayerAbilityEntries(participant, manageMode)}
         </div>
-        ${renderPlayerTextListEditor('Proficiencies', participant.proficiencies || [], 'proficiency', manageMode)}
-        ${renderPlayerTextListEditor('Languages', participant.languages || [], 'language', manageMode)}
+        ${renderPlayerTextListEditor(
+          'Proficiencies',
+          participant.proficiencies || [],
+          'proficiency',
+          manageMode,
+          getPlayerDerivedSetValues(participant, 'proficiencies')
+        )}
+        ${renderPlayerTextListEditor(
+          'Languages',
+          participant.languages || [],
+          'language',
+          manageMode,
+          getPlayerDerivedSetValues(participant, 'languages')
+        )}
         ${
           manageMode
             ? `
@@ -1834,7 +2269,7 @@ function renderPlayerAbilitiesSection(participant, manageMode = false) {
   `;
 }
 
-function renderPlayerTextListEditor(label, values = [], key = 'entry', manageMode = false) {
+function renderPlayerTextListEditor(label, values = [], key = 'entry', manageMode = false, derivedValues = []) {
   const pills = (values || [])
     .map(
       (value, index) => `
@@ -1848,14 +2283,18 @@ function renderPlayerTextListEditor(label, values = [], key = 'entry', manageMod
         </span>`
     )
     .join('');
+  const derived = filterPlayerManualOverlap(values, derivedValues)
+    .map((value) => `<span class="tag-pill">${escapeHtml(value)}</span>`)
+    .join('');
   return `
     <div class="damage-group">
       <div class="damage-group-header">
         <h4>${label}</h4>
       </div>
       <div class="tag-list">
-        ${pills || '<span class="muted">None</span>'}
+        ${pills || (!derived ? '<span class="muted">None</span>' : '')}
       </div>
+      ${derived ? `<p class="muted small-note">From sets</p><div class="tag-list">${derived}</div>` : ''}
       ${
         manageMode
           ? `
@@ -2396,6 +2835,28 @@ async function handlePlayerStandardAction(actionId) {
   }
 }
 
+async function handlePlayerWeaponAttack() {
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant first.');
+    return;
+  }
+  const targetId = String(els.stats.querySelector('[data-player-weapon-target]')?.value || '').trim();
+  if (!targetId) {
+    notify('Select a target for the weapon attack.');
+    return;
+  }
+  try {
+    await api('/api/actions/weapon-attack', 'POST', {
+      participantId: participant.id,
+      targetId
+    });
+    fetchState();
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
 function normalizeRecoverToken(value) {
   return String(value || '')
     .toLowerCase()
@@ -2715,7 +3176,7 @@ function renderPlayerAttributeScalingNote(participant = {}) {
 
 function getPlayerStandardActionSummary(action = {}, participant = {}) {
   if (action.id === 'move') {
-    return `1 AP -> ${getPlayerMoveDistanceFt(participant)} ft`;
+    return `${Math.max(1, Number(getPlayerEquipmentSummary(participant).moveApCost || 1))} AP -> ${getPlayerMoveDistanceFt(participant)} ft`;
   }
   if (action.id === 'guard') {
     return `2 AP -> Restore ${Math.max(0, Math.round(Number(participant?.guardRestore ?? 3)))} Shield`;
@@ -2950,6 +3411,7 @@ function renderSetTracker(participant) {
               ${bonus.pieces} pcs — ${bonus.effect || summarizeModifiers(bonus.modifiers || {})}
               ${count >= bonus.pieces ? renderPlayerSetBonusStatus(setName, bonus, participant) : ''}
               ${count >= bonus.pieces ? renderPlayerSetActivationButton(setName, bonus, participant) : ''}
+              ${renderPlayerSetBonusMeta(bonus)}
             </li>`
         )
         .join('');
@@ -5322,41 +5784,31 @@ function renderInventory(participant) {
   const currencyListEl = document.getElementById('playerCurrencyList');
   const currencyFormEl = document.getElementById('playerCurrencyForm');
   const equipmentListEl = document.getElementById('playerWeaponArmorList');
-  const equipmentFormEl = document.getElementById('playerEquipmentForm');
   const equipmentDrawerEl = document.getElementById('playerEquipmentDrawer');
-  const equipmentImportEl = document.getElementById('playerImportEquipment');
-  if (equipmentImportEl) {
-    equipmentImportEl.onchange = (event) => handlePlayerEquipmentFile(event, equipmentDrawerEl);
-  }
+  const equipmentEditorEl = document.getElementById('playerEquipmentEditor');
   if (!listEl || !currencyListEl || !equipmentListEl) return;
   if (!participant) {
     listEl.classList.add('empty-state');
     listEl.innerHTML = '<p class="empty-state">Select a combatant to view inventory.</p>';
     currencyListEl.classList.add('empty-state');
     currencyListEl.innerHTML = '<p class="empty-state">Select a combatant to view currencies.</p>';
-    equipmentListEl.classList.add('empty-state');
-    equipmentListEl.innerHTML = '<p class="empty-state">Select a combatant to view weapons and armour.</p>';
+    equipmentListEl.classList.remove('empty-state');
+    equipmentListEl.innerHTML = '<p class="empty-state">Select a combatant to view equipment.</p>';
+    if (equipmentEditorEl) equipmentEditorEl.innerHTML = '';
     if (formEl) formEl.onsubmit = null;
     if (currencyFormEl) currencyFormEl.onsubmit = null;
-    if (equipmentFormEl) equipmentFormEl.onsubmit = null;
     return;
   }
   const items = participant?.inventory || [];
   const currencies = participant?.currencies || [];
-  const equipmentItems = [];
-  const generalItems = [];
-  items.forEach((item, index) => {
-    const entry = { item, index };
-    if (isPlayerEquipmentItem(item)) {
-      equipmentItems.push(entry);
-    } else {
-      generalItems.push(entry);
-    }
-  });
+  const generalItems = items.map((item, index) => ({ item, index }));
   listEl.classList.toggle('empty-state', generalItems.length === 0);
   listEl.innerHTML = renderPlayerInventoryCards(generalItems, 'No items or supplies tracked.');
-  equipmentListEl.classList.toggle('empty-state', equipmentItems.length === 0);
-  equipmentListEl.innerHTML = renderPlayerInventoryCards(equipmentItems, 'No weapons or armour tracked.');
+  equipmentListEl.classList.remove('empty-state');
+  equipmentListEl.innerHTML = renderPlayerEquipmentSummary(participant);
+  if (equipmentEditorEl) {
+    equipmentEditorEl.innerHTML = renderPlayerEquipmentEditor(participant);
+  }
   if (!currencies.length) {
     currencyListEl.classList.add('empty-state');
     currencyListEl.innerHTML = '<p class="empty-state">No currencies yet.</p>';
@@ -5380,21 +5832,19 @@ function renderInventory(participant) {
       )
       .join('');
   }
-  [listEl, equipmentListEl].forEach((container) => {
-    container.querySelectorAll('[data-remove-inventory]').forEach((button) => {
-      button.onclick = async () => {
-        const itemId = button.dataset.removeInventory;
-        const fallbackIndex = Number(button.dataset.inventoryIndex);
-        const latest = (await fetchParticipantFromServer(participant.id)) || participant;
-        const inventory = [...(latest?.inventory || participant.inventory || [])];
-        let idx = inventory.findIndex((item) => itemId && item.id === itemId);
-        if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
-        if (idx < 0 || idx >= inventory.length) return;
-        inventory.splice(idx, 1);
-        await patchParticipant(participant.id, { inventory });
-        fetchState();
-      };
-    });
+  listEl.querySelectorAll('[data-remove-inventory]').forEach((button) => {
+    button.onclick = async () => {
+      const itemId = button.dataset.removeInventory;
+      const fallbackIndex = Number(button.dataset.inventoryIndex);
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const inventory = [...(latest?.inventory || participant.inventory || [])];
+      let idx = inventory.findIndex((item) => itemId && item.id === itemId);
+      if (idx < 0 && Number.isInteger(fallbackIndex)) idx = fallbackIndex;
+      if (idx < 0 || idx >= inventory.length) return;
+      inventory.splice(idx, 1);
+      await patchParticipant(participant.id, { inventory });
+      fetchState();
+    };
   });
   currencyListEl.querySelectorAll('[data-player-currency-adjust]').forEach((button) => {
     button.onclick = async () => {
@@ -5493,40 +5943,36 @@ function renderInventory(participant) {
       fetchState();
     };
   }
-  if (equipmentFormEl) {
-    equipmentFormEl.onsubmit = async (event) => {
+  equipmentEditorEl?.querySelectorAll('[data-player-equipment-form]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const data = new FormData(equipmentFormEl);
-      const name = String(data.get('name') || '').trim();
-      if (!name) {
-        notify('Item name is required.');
-        return;
-      }
-      const equipmentType = String(data.get('equipmentType') || 'Equipment').trim();
-      const tags = [equipmentType]
-        .concat(
-          String(data.get('tags') || '')
-            .split(',')
-            .map((tag) => tag.trim())
-            .filter(Boolean)
-        )
-        .filter(Boolean)
-        .filter((tag, index, entries) => entries.findIndex((entry) => entry.toLowerCase() === tag.toLowerCase()) === index);
-      const newItem = {
-        id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-        name,
-        quantity: Math.max(1, Number(data.get('quantity') || 1)),
-        description: String(data.get('description') || '').trim(),
-        tags
-      };
+      const slot = String(form.dataset.playerEquipmentForm || '').trim();
+      if (!slot) return;
+      const formData = new FormData(form);
+      const slotPayload = buildEquipmentSlotPayloadFromFormData(formData, slot);
       const latest = (await fetchParticipantFromServer(participant.id)) || participant;
-      const currentInventory = latest?.inventory || participant.inventory || [];
-      await patchParticipant(participant.id, { inventory: [...currentInventory, newItem] });
-      equipmentFormEl.reset();
+      const equipment = {
+        ...(latest?.equipment || participant.equipment || {})
+      };
+      equipment[slot] = slotPayload;
+      await patchParticipant(participant.id, { equipment });
       if (equipmentDrawerEl) equipmentDrawerEl.open = false;
       fetchState();
-    };
-  }
+    });
+  });
+  equipmentEditorEl?.querySelectorAll('[data-player-clear-equipment]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const slot = String(button.dataset.playerClearEquipment || '').trim();
+      if (!slot) return;
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const equipment = {
+        ...(latest?.equipment || participant.equipment || {}),
+        [slot]: null
+      };
+      await patchParticipant(participant.id, { equipment });
+      fetchState();
+    });
+  });
 }
 
 function renderLog() {
@@ -5638,6 +6084,50 @@ function summarizeModifiers(modifiers = {}) {
   return summary || '—';
 }
 
+function summarizePlayerSetAbilityBonuses(abilityBonuses = {}) {
+  const labels = {
+    strength: 'STR',
+    dexterity: 'DEX',
+    constitution: 'CON',
+    intelligence: 'INT',
+    wisdom: 'WIS',
+    charisma: 'CHA'
+  };
+  return Object.entries(labels)
+    .map(([key, label]) => {
+      const value = Number(abilityBonuses?.[key] || 0);
+      if (!value) return null;
+      return `${label} ${value > 0 ? '+' : ''}${value}`;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function renderPlayerSetBonusMeta(bonus = {}) {
+  const details = [
+    summarizePlayerSetAbilityBonuses(bonus.abilityBonuses),
+    Array.isArray(bonus.proficiencies) && bonus.proficiencies.length
+      ? `Proficiencies: ${bonus.proficiencies.join(', ')}`
+      : '',
+    Array.isArray(bonus.languages) && bonus.languages.length
+      ? `Languages: ${bonus.languages.join(', ')}`
+      : ''
+  ].filter(Boolean);
+  return details.length ? `<br><small class="muted">${escapeHtml(details.join(' · '))}</small>` : '';
+}
+
+function getPlayerDerivedSetValues(participant = {}, key = 'proficiencies') {
+  return Array.isArray(participant?.derivedBonuses?.setGrants?.[key]) ? participant.derivedBonuses.setGrants[key] : [];
+}
+
+function filterPlayerManualOverlap(values = [], derivedValues = []) {
+  const existing = new Set((values || []).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+  return (derivedValues || []).filter((value) => {
+    const key = String(value || '').trim().toLowerCase();
+    return key && !existing.has(key);
+  });
+}
+
 function getPlayerManageState(participantId) {
   const snapshot = participantId ? playerManageState.get(participantId) : null;
   return {
@@ -5680,6 +6170,9 @@ function wirePlayerSheetEvents(participant) {
   });
   panel.querySelectorAll('[data-player-standard]').forEach((button) => {
     button.onclick = () => handlePlayerStandardAction(button.dataset.playerStandard);
+  });
+  panel.querySelector('[data-player-weapon-attack]')?.addEventListener('click', () => {
+    handlePlayerWeaponAttack();
   });
   panel.querySelectorAll('[data-player-activate-set]').forEach((button) => {
     button.onclick = async () => {
@@ -6807,4 +7300,12 @@ function slugify(value) {
 
 function openPlayerMenu() {
   els.menuPanel?.classList.add('is-open');
+}
+
+function openCharacterCreator() {
+  focusId = null;
+  createMode = true;
+  updateUrl({ create: true });
+  els.menuPanel?.classList.remove('is-open');
+  render();
 }

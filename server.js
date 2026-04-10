@@ -9,6 +9,22 @@ import {
   getAttributeScalingFromScores,
   getContextualDamageBonusFromScaling
 } from './public/shared/stat-balance.js';
+import {
+  EQUIPMENT_DAMAGE_TYPES,
+  classifyCardEquipmentMatch,
+  getDefaultArmorProperties,
+  getDefaultWeaponCardBonus,
+  getDefaultWeaponHands,
+  getDefaultWeaponProficiencyGroup,
+  getDefaultWeaponRequirementAbility,
+  getWeaponCardMatchType,
+  hasWeaponBasicAttack,
+  normalizeArmorType,
+  normalizeEquipmentCategory,
+  normalizeEquipmentToken,
+  normalizeRequirementAbility,
+  normalizeWeaponStyle
+} from './public/shared/equipment.js';
 import { startEncounterLifecycle, endEncounterLifecycle } from './lib/encounter-lifecycle.js';
 import { executeStandardActionForEncounter } from './lib/actions/standard.js';
 import { executeCustomActionForEncounter } from './lib/actions/custom.js';
@@ -207,18 +223,23 @@ function getRuntimeStandardActionsForParticipant(participant = {}) {
   const moveFt = getParticipantMoveDistanceFt(participant);
   const difficultMoveFt = getParticipantMoveDistanceFt(participant, { difficultTerrain: true });
   const guardRestore = Math.max(0, Math.round(Number(participant?.guardRestore ?? DEFAULT_GUARD_RESTORE)));
+  const moveApCost = Math.max(1, Number(participant?.derivedBonuses?.equipment?.moveApCost || 1));
+  const movePenaltyNote =
+    moveApCost > 1 ? ' Armour requirement unmet: movement costs extra AP.' : '';
   return {
     ...STANDARD_ACTIONS,
     move: {
       ...STANDARD_ACTIONS.move,
-      summary: `1 AP → ${moveFt} ft${moveFt > 0 ? ` (${Math.max(1, Math.round(moveFt / 5))} squares)` : ''}; repeat as needed.`,
-      detail: `Move ${moveFt} ft. May be repeated without limit.`,
+      apCost: moveApCost,
+      summary: `${moveApCost} AP → ${moveFt} ft${moveFt > 0 ? ` (${Math.max(1, Math.round(moveFt / 5))} squares)` : ''}; repeat as needed.`,
+      detail: `Move ${moveFt} ft.${movePenaltyNote}`,
       logText: `moves ${moveFt} ft.`
     },
     move_difficult: {
       ...STANDARD_ACTIONS.move_difficult,
-      summary: `1 AP → ${difficultMoveFt} ft in difficult terrain.`,
-      detail: `When terrain is difficult, 1 AP moves ${difficultMoveFt} ft.`,
+      apCost: moveApCost,
+      summary: `${moveApCost} AP → ${difficultMoveFt} ft in difficult terrain.`,
+      detail: `When terrain is difficult, ${moveApCost} AP moves ${difficultMoveFt} ft.${movePenaltyNote}`,
       logText: `pushes through difficult terrain (${difficultMoveFt} ft).`
     },
     guard: {
@@ -523,6 +544,258 @@ function normalizeAbilityScoreValue(value, fallback = 10) {
   return rounded === 0 ? fallback : rounded;
 }
 
+function normalizeEquipmentText(value = '') {
+  return String(value || '').trim();
+}
+
+function normalizeEquipmentInteger(value, fallback = 0, options = {}) {
+  const parsed = Number(value);
+  const min = Number.isFinite(Number(options.min)) ? Number(options.min) : Number.MIN_SAFE_INTEGER;
+  const max = Number.isFinite(Number(options.max)) ? Number(options.max) : Number.MAX_SAFE_INTEGER;
+  const normalized = Number.isFinite(parsed) ? Math.round(parsed) : Math.round(Number(fallback || 0));
+  return Math.max(min, Math.min(max, normalized));
+}
+
+function normalizeSupportedEquipmentDamageType(value = '', fallback = '') {
+  const token = String(value || '').trim();
+  if (!token) return String(fallback || '').trim();
+  const match = EQUIPMENT_DAMAGE_TYPES.find((entry) => entry.toLowerCase() === token.toLowerCase());
+  return match || String(fallback || '').trim();
+}
+
+function createEmptyParticipantEquipment() {
+  return {
+    weapon: null,
+    armor: null,
+    shield: null
+  };
+}
+
+function normalizeWeaponEquipmentSlot(raw = {}) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = normalizeEquipmentText(raw.name || raw.title);
+  if (!name) return null;
+  const weaponStyle = normalizeWeaponStyle(raw.weaponStyle || raw.style || raw.subcategory || raw.category);
+  if (!weaponStyle) return null;
+  const hasBasicAttack = hasWeaponBasicAttack({ kind: 'weapon', weaponStyle });
+  const fallbackDamageType =
+    weaponStyle === 'ranged'
+      ? 'Piercing'
+      : weaponStyle === 'melee'
+        ? 'Slashing'
+        : '';
+  return {
+    id: raw.id || randomUUID(),
+    kind: 'weapon',
+    name,
+    weaponStyle,
+    hands: normalizeEquipmentInteger(raw.hands, getDefaultWeaponHands(weaponStyle), { min: 1, max: 2 }),
+    rangeFt: normalizeEquipmentInteger(raw.rangeFt ?? raw.range, weaponStyle === 'ranged' ? 30 : 5, { min: 0, max: 999 }),
+    basicAttackApCost: hasBasicAttack
+      ? normalizeEquipmentInteger(raw.basicAttackApCost ?? raw.apCost, 2, { min: 1, max: 99 })
+      : 0,
+    basicAttackDamage: hasBasicAttack
+      ? normalizeEquipmentInteger(raw.basicAttackDamage ?? raw.damage, 0, { min: 0, max: 999 })
+      : 0,
+    basicAttackDamageType: hasBasicAttack
+      ? normalizeSupportedEquipmentDamageType(raw.basicAttackDamageType ?? raw.damageType, fallbackDamageType)
+      : '',
+    cardBonusDamage: normalizeEquipmentInteger(raw.cardBonusDamage ?? raw.bonusDamage, getDefaultWeaponCardBonus(weaponStyle), {
+      min: 0,
+      max: 999
+    }),
+    requirementAbility: normalizeRequirementAbility(
+      raw.requirementAbility ?? raw.requirementStat ?? raw.requirement ?? getDefaultWeaponRequirementAbility(weaponStyle)
+    ),
+    requirementScore: normalizeEquipmentInteger(raw.requirementScore ?? raw.requiredScore, 0, { min: 0, max: 99 }),
+    proficiencyGroup: normalizeEquipmentText(raw.proficiencyGroup || getDefaultWeaponProficiencyGroup(weaponStyle)),
+    notes: normalizeEquipmentText(raw.notes || raw.description)
+  };
+}
+
+function normalizeArmorEquipmentSlot(raw = {}) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = normalizeEquipmentText(raw.name || raw.title);
+  if (!name) return null;
+  const armorType = normalizeArmorType(raw.armorType || raw.type || raw.category || raw.subcategory);
+  if (!armorType) return null;
+  const defaults = getDefaultArmorProperties(armorType);
+  return {
+    id: raw.id || randomUUID(),
+    kind: 'armor',
+    name,
+    armorType,
+    maxShieldBonus: normalizeEquipmentInteger(raw.maxShieldBonus ?? raw.shieldBonus, defaults.maxShieldBonus, { min: 0, max: 999 }),
+    shieldRegen: normalizeEquipmentInteger(raw.shieldRegen ?? raw.shieldRegenPerTurn, defaults.shieldRegen, { min: 0, max: 999 }),
+    strengthRequirement: normalizeEquipmentInteger(
+      raw.strengthRequirement ?? raw.requirementScore ?? raw.requiredStrength,
+      defaults.strengthRequirement,
+      { min: 0, max: 99 }
+    ),
+    dexterityPenalty: normalizeEquipmentInteger(raw.dexterityPenalty ?? raw.dexPenalty, defaults.dexterityPenalty, {
+      min: 0,
+      max: 99
+    }),
+    notes: normalizeEquipmentText(raw.notes || raw.description)
+  };
+}
+
+function normalizeShieldEquipmentSlot(raw = {}) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = normalizeEquipmentText(raw.name || raw.title);
+  if (!name) return null;
+  return {
+    id: raw.id || randomUUID(),
+    kind: 'shield',
+    name,
+    hands: 1,
+    maxShieldBonus: normalizeEquipmentInteger(raw.maxShieldBonus ?? raw.shieldBonus, 3, { min: 0, max: 999 }),
+    shieldRegen: normalizeEquipmentInteger(raw.shieldRegen ?? raw.shieldRegenPerTurn, 1, { min: 0, max: 999 }),
+    notes: normalizeEquipmentText(raw.notes || raw.description)
+  };
+}
+
+function normalizeParticipantEquipment(value = {}) {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    weapon: normalizeWeaponEquipmentSlot(source.weapon),
+    armor: normalizeArmorEquipmentSlot(source.armor),
+    shield: normalizeShieldEquipmentSlot(source.shield)
+  };
+}
+
+function normalizeEquipmentProficiencyToken(value = '') {
+  return normalizeEquipmentToken(value).replace(/armour/g, 'armor');
+}
+
+function getParticipantEquipmentProficiencyTokens(participant = {}, extraProficiencies = []) {
+  const combined = [
+    ...normalizeTextList(participant?.proficiencies),
+    ...normalizeTextList(extraProficiencies)
+  ];
+  return new Set(combined.map((entry) => normalizeEquipmentProficiencyToken(entry)).filter(Boolean));
+}
+
+function hasParticipantEquipmentProficiency(participant = {}, group = '', options = {}) {
+  const target = normalizeEquipmentProficiencyToken(group);
+  if (!target) return true;
+  const extraProficiencies = Array.isArray(options?.setProficiencies)
+    ? options.setProficiencies
+    : participant?.derivedBonuses?.setGrants?.proficiencies || [];
+  const tokens = getParticipantEquipmentProficiencyTokens(participant, extraProficiencies);
+  if (tokens.has(target)) return true;
+  if (tokens.has('equipment') || tokens.has('allequipment')) return true;
+  if (['meleeweapons', 'rangedweapons', 'arcaneimplements', 'staff'].includes(target)) {
+    return tokens.has('weapon') || tokens.has('weapons') || tokens.has('allweapons');
+  }
+  return false;
+}
+
+function getParticipantAbilityForEquipmentCheck(effectiveStats = {}, participant = {}, ability = '') {
+  const key = String(ability || '').trim().toLowerCase();
+  const fromStats = Number(effectiveStats?.[key]);
+  if (Number.isFinite(fromStats)) {
+    return Math.round(fromStats);
+  }
+  return getEffectiveAbilityScore(participant, key);
+}
+
+function doesParticipantMeetEquipmentRequirement(participant = {}, effectiveStats = {}, requirementAbility = 'none', requirementScore = 0) {
+  const normalizedAbility = normalizeRequirementAbility(requirementAbility);
+  const minimum = Math.max(0, Number(requirementScore || 0));
+  if (!minimum || normalizedAbility === 'none') return true;
+  if (normalizedAbility === 'either') {
+    return (
+      getParticipantAbilityForEquipmentCheck(effectiveStats, participant, 'strength') >= minimum ||
+      getParticipantAbilityForEquipmentCheck(effectiveStats, participant, 'dexterity') >= minimum
+    );
+  }
+  return getParticipantAbilityForEquipmentCheck(effectiveStats, participant, normalizedAbility) >= minimum;
+}
+
+function getParticipantEquipmentSummary(participant = {}, effectiveStats = {}, options = {}) {
+  const equipment = normalizeParticipantEquipment(participant?.equipment);
+  const weapon = equipment.weapon;
+  const armor = equipment.armor;
+  const shield = equipment.shield;
+  const armorType = normalizeArmorType(armor?.armorType);
+  const handsUsed = Math.max(0, Number(weapon?.hands || 0)) + (shield ? 1 : 0);
+  const handsExceeded = handsUsed > 2;
+  const armorStrengthRequirement = Math.max(0, Number(armor?.strengthRequirement || 0));
+  const armorStrengthMet =
+    !armorStrengthRequirement ||
+    getParticipantAbilityForEquipmentCheck(effectiveStats, participant, 'strength') >= armorStrengthRequirement;
+  const weaponRequirementMet = doesParticipantMeetEquipmentRequirement(
+    participant,
+    effectiveStats,
+    weapon?.requirementAbility,
+    weapon?.requirementScore
+  );
+  const weaponProficient = weapon
+    ? hasParticipantEquipmentProficiency(participant, weapon.proficiencyGroup, {
+        setProficiencies: options?.setProficiencies
+      })
+    : true;
+  const weaponStatPenalty = weapon && !weaponRequirementMet ? 2 : 0;
+  const weaponProficiencyPenalty = weapon && !weaponProficient ? 2 : 0;
+  const weaponApPenalty = Math.min(3, weaponStatPenalty + weaponProficiencyPenalty);
+  const moveApCost = armor && (armorType === 'medium' || armorType === 'heavy') && !armorStrengthMet ? 2 : 1;
+  const maxShieldBonus = Math.max(0, Number(armor?.maxShieldBonus || 0)) + Math.max(0, Number(shield?.maxShieldBonus || 0));
+  const shieldRegen = Math.max(0, Number(armor?.shieldRegen || 0)) + Math.max(0, Number(shield?.shieldRegen || 0));
+  const penaltyReasons = [];
+  if (weapon && !weaponRequirementMet) {
+    penaltyReasons.push('Requirement unmet');
+  }
+  if (weapon && !weaponProficient) {
+    penaltyReasons.push('Not proficient');
+  }
+  return {
+    weapon,
+    armor,
+    shield,
+    handsUsed,
+    handsAvailable: 2,
+    handsExceeded,
+    armorStrengthRequirement,
+    armorStrengthMet,
+    moveApCost,
+    maxShieldBonus,
+    shieldRegen,
+    canHide: armorType !== 'heavy',
+    dexterityPenalty: Math.max(0, Number(armor?.dexterityPenalty || 0)),
+    weaponStyle: weapon ? normalizeWeaponStyle(weapon.weaponStyle) : '',
+    weaponMatchType: weapon ? getWeaponCardMatchType(weapon) : '',
+    weaponProficient,
+    weaponRequirementMet,
+    weaponStatPenalty,
+    weaponProficiencyPenalty,
+    weaponApPenalty,
+    weaponPenaltyReasons: penaltyReasons
+  };
+}
+
+function getParticipantWeaponContextForCard(participant = {}, card = {}, options = {}) {
+  const equipmentSummary =
+    participant?.derivedBonuses?.equipment && typeof participant.derivedBonuses.equipment === 'object'
+      ? participant.derivedBonuses.equipment
+      : getParticipantEquipmentSummary(participant);
+  const weapon = equipmentSummary.weapon;
+  const cardMatchType = classifyCardEquipmentMatch(card, options);
+  const matches = Boolean(weapon && equipmentSummary.weaponMatchType && equipmentSummary.weaponMatchType === cardMatchType);
+  return {
+    weapon,
+    cardMatchType,
+    weaponMatchType: equipmentSummary.weaponMatchType || '',
+    matches,
+    damageBonus: matches ? Math.max(0, Number(weapon?.cardBonusDamage || 0)) : 0,
+    apPenalty: matches ? Math.max(0, Number(equipmentSummary.weaponApPenalty || 0)) : 0,
+    proficiencyPenalty: matches ? Math.max(0, Number(equipmentSummary.weaponProficiencyPenalty || 0)) : 0,
+    statPenalty: matches ? Math.max(0, Number(equipmentSummary.weaponStatPenalty || 0)) : 0,
+    proficient: Boolean(equipmentSummary.weaponProficient),
+    requirementMet: Boolean(equipmentSummary.weaponRequirementMet)
+  };
+}
+
 function normalizeParticipantNameToken(value = '') {
   return String(value || '').trim().toLowerCase();
 }
@@ -757,6 +1030,15 @@ async function handleApi(req, res, pathname, method) {
     if (method === 'POST' && pathname === '/api/actions/card') {
       const body = await readBody(req);
       const result = executeCardAction(body);
+      if (result.error) {
+        return sendJson(res, result, 400);
+      }
+      return sendJson(res, result);
+    }
+
+    if (method === 'POST' && pathname === '/api/actions/weapon-attack') {
+      const body = await readBody(req);
+      const result = executeWeaponAttackAction(body);
       if (result.error) {
         return sendJson(res, result, 400);
       }
@@ -1098,6 +1380,123 @@ function spendCardAp(participant, apCost, options = {}) {
   return { spentNow, debtAdded };
 }
 
+function executeWeaponAttackAction(body = {}) {
+  const participant = resolveActor(body.participantId);
+  if (!participant) {
+    return { error: 'Participant required' };
+  }
+  const pauseError = getPauseActionError(participant, { label: 'Weapon attack' });
+  if (pauseError) {
+    return { error: pauseError };
+  }
+  const equipmentSummary =
+    participant?.derivedBonuses?.equipment && typeof participant.derivedBonuses.equipment === 'object'
+      ? participant.derivedBonuses.equipment
+      : getParticipantEquipmentSummary(participant);
+  const weapon = equipmentSummary.weapon;
+  if (!weapon || !hasWeaponBasicAttack(weapon)) {
+    return { error: 'No equipped weapon basic attack available.' };
+  }
+  if (equipmentSummary.handsExceeded) {
+    return { error: 'Your equipped loadout exceeds available hands.' };
+  }
+  const baseDamage = Math.max(0, Number(weapon.basicAttackDamage || 0));
+  if (baseDamage <= 0) {
+    return { error: `${weapon.name} does not have basic attack damage configured.` };
+  }
+  const targetId = String(body.targetId || '').trim();
+  if (!targetId) {
+    return { error: 'Target is required for a weapon attack.' };
+  }
+  const target = findTargetableEntity(targetId);
+  if (!target) {
+    return { error: 'Target not found' };
+  }
+  if (String(target.id || '') === String(participant.id || '')) {
+    return { error: 'Weapon attacks cannot target self.' };
+  }
+  if (!isParticipantEnemy(participant, target)) {
+    return { error: 'Weapon attacks can only target enemies.' };
+  }
+  if (equipmentSummary.weaponMatchType === 'ranged' && Number(target.rangedUntargetableTurns || 0) > 0) {
+    return { error: `${target.name} cannot be targeted by ranged attacks right now.` };
+  }
+  const baseCost = Math.max(1, Number(weapon.basicAttackApCost || 0));
+  const apCost = Math.max(1, baseCost + Math.max(0, Number(equipmentSummary.weaponApPenalty || 0)));
+  const apSpend = spendCardAp(participant, apCost);
+  if (apSpend.error) {
+    return apSpend;
+  }
+  const fauxCard = {
+    type: 'Attack',
+    tags: [equipmentSummary.weaponMatchType],
+    damageType: weapon.basicAttackDamageType || '',
+    range: Math.max(0, Number(weapon.rangeFt || (equipmentSummary.weaponMatchType === 'ranged' ? 30 : 5)))
+  };
+  const nextAttackBonus = Math.max(0, Number(participant.nextAttackDamageBonus || 0));
+  const attackStatusDamageModifier = getParticipantAttackStatusDamageModifier(participant, fauxCard, 1);
+  const contextualDamageBonus = getParticipantCardDamageBonus(participant, fauxCard, {
+    damageType: weapon.basicAttackDamageType || '',
+    range: fauxCard.range
+  }).total;
+  const infernalBrandBonus = getInfernalBrandDamageBonus(target, participant.id);
+  const rawDamage = Math.max(
+    0,
+    baseDamage +
+      (participant.damageBonus || 0) +
+      contextualDamageBonus +
+      nextAttackBonus +
+      infernalBrandBonus +
+      attackStatusDamageModifier
+  );
+  const result = applyCardDamageWithType(target, rawDamage, weapon.basicAttackDamageType || '', {
+    sourceEntityId: participant.id
+  });
+  const notes = [];
+  if (nextAttackBonus > 0) {
+    participant.nextAttackDamageBonus = 0;
+    notes.push(`Consumes +${nextAttackBonus} next-attack damage bonus.`);
+  }
+  if (infernalBrandBonus > 0) {
+    notes.push(`Infernal Brand adds +${infernalBrandBonus} damage.`);
+  }
+  if (equipmentSummary.weaponApPenalty > 0) {
+    notes.push(`Equipment penalty adds +${equipmentSummary.weaponApPenalty} AP.`);
+  }
+  const mitigation =
+    result.resisted && !result.vulnerable
+      ? ' [Resisted]'
+      : result.vulnerable && !result.resisted
+        ? ' [Vulnerable]'
+        : '';
+  const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+  pushLog(
+    `${participant.name} attacks ${target.name} with ${weapon.name} (${costText}) for ${result.finalDamage} ${
+      weapon.basicAttackDamageType || 'damage'
+    } (${result.shieldDamage} Shield, ${result.hpDamage} HP).${mitigation}${notes.length ? ` ${notes.join(' ')}` : ''}`,
+    participant.id,
+    {
+      weaponAttack: true,
+      targetId: target.id,
+      targetIds: [target.id],
+      damageType: weapon.basicAttackDamageType || '',
+      rawDamage,
+      finalDamage: result.finalDamage
+    }
+  );
+  markTurnActionTaken(participant);
+  touchState();
+  broadcastState('weapon_attack');
+  return {
+    participant,
+    target,
+    weapon,
+    apCost,
+    baseCost,
+    result
+  };
+}
+
 function applyCardProgression(card, participant, notes, options = {}) {
   const chargesMax = Math.max(0, Number(options.chargesMax || 0));
   const chargesCurrent = Math.max(0, Number(options.chargesCurrent || 0));
@@ -1299,9 +1698,6 @@ function executeCardAction(body) {
   if (isArcaneNoReaction && Number(arcane.noReactionUsesTurn || 0) >= 3) {
     return { error: 'No can only be used as a reaction 3 times before your next turn.' };
   }
-  if (!isArcaneNoReaction && participant.apCurrent < apCost) {
-    return { error: 'Not enough AP' };
-  }
   const allowSelfTarget = card.allowSelfTarget !== false;
   const constructDamageBonus = getMachineConstructDamageBonus(participant);
   const constructDurationBonus = getMachineConstructDurationBonus(participant);
@@ -1363,6 +1759,24 @@ function executeCardAction(body) {
   if (arcaneModifiedCard?.mode === 'ap') {
     apCost = Math.max(1, apCost - 1);
   }
+  const weaponContext = !isConstruct
+    ? getParticipantWeaponContextForCard(participant, card, {
+        masteryLevel,
+        range: getCardScaledEffectValue(card, 'rangeByLevel', masteryLevel, Number(card.range || 0)),
+        damageType,
+        damage: baseDamage,
+        secondaryDamage: secondaryBaseDamage
+      })
+    : { weapon: null, matches: false, damageBonus: 0, apPenalty: 0 };
+  if (weaponContext.matches && weaponContext.apPenalty > 0) {
+    apCost += weaponContext.apPenalty;
+    notes.push(
+      `${weaponContext.weapon?.name || 'Equipped weapon'} adds +${weaponContext.apPenalty} AP (${participant?.derivedBonuses?.equipment?.weaponPenaltyReasons?.join(', ') || 'equipment penalty'}).`
+    );
+  }
+  if (!isArcaneNoReaction && participant.apCurrent < apCost) {
+    return { error: 'Not enough AP' };
+  }
   const nextAttackBonus = !isConstruct && baseDamage > 0
     ? Math.max(0, Number(participant.nextAttackDamageBonus || 0))
     : 0;
@@ -1389,6 +1803,7 @@ function executeCardAction(body) {
           0,
           zoneBaseDamage +
             (participant.damageBonus || 0) +
+            (weaponContext.matches ? weaponContext.damageBonus : 0) +
             (hasElemental7 ? 2 : 0) +
             (arcaneModifiedCard?.mode === 'damage' ? 2 : 0)
         );
@@ -1404,6 +1819,7 @@ function executeCardAction(body) {
           baseDamage +
             (participant.damageBonus || 0) +
             contextualPrimaryDamageBonus +
+            (weaponContext.matches ? weaponContext.damageBonus : 0) +
             nextAttackBonus +
             (arcaneModifiedCard?.mode === 'damage' ? 2 : 0) +
             attackStatusDamageModifier
@@ -1412,7 +1828,13 @@ function executeCardAction(body) {
   const secondaryRawDamage = isConstruct
     ? 0
     : secondaryBaseDamage > 0
-      ? Math.max(0, secondaryBaseDamage + contextualSecondaryDamageBonus + attackStatusDamageModifier)
+      ? Math.max(
+          0,
+          secondaryBaseDamage +
+            contextualSecondaryDamageBonus +
+            (weaponContext.matches && baseDamage <= 0 ? weaponContext.damageBonus : 0) +
+            attackStatusDamageModifier
+        )
       : 0;
   const shieldRestoreBase = getCardScaledEffectValue(card, 'shieldRestoreByLevel', masteryLevel, 0);
   const shieldRestoreTotal = getCardShieldRestoreAmount(participant, shieldRestoreBase);
@@ -3888,6 +4310,9 @@ function sanitizeParticipantUpdate(body, current) {
   if (Array.isArray(body.inventory)) {
     update.inventory = normalizeInventoryEntries(body.inventory);
   }
+  if (body.equipment && typeof body.equipment === 'object') {
+    update.equipment = normalizeParticipantEquipment(body.equipment);
+  }
   if (Array.isArray(body.currencies)) {
     update.currencies = normalizeCurrencyEntries(body.currencies);
   }
@@ -3970,6 +4395,7 @@ function createParticipant(body = {}) {
     proficiencies: normalizeTextList(body.proficiencies),
     languages: normalizeTextList(body.languages),
     inventory: normalizeInventoryEntries(body.inventory),
+    equipment: normalizeParticipantEquipment(body.equipment),
     currencies: normalizeCurrencyEntries(body.currencies),
     quests: normalizeJournalEntries(body.quests, 'quest'),
     achievements: normalizeJournalEntries(body.achievements, 'achievement'),
@@ -3988,6 +4414,7 @@ function createParticipant(body = {}) {
     setRuntime: normalizeSetRuntime(body.setRuntime),
     guardUsedThisTurn: false,
     guardRestore: baseStats.guardRestore,
+    shieldRegen: 0,
     damageBonus: baseStats.damageBonus,
     nextAttackDamageBonus: Number.isFinite(Number(body.nextAttackDamageBonus))
       ? Math.max(0, Math.round(Number(body.nextAttackDamageBonus)))
@@ -4081,6 +4508,7 @@ function createParticipantPresetTemplate(source = {}, options = {}) {
     proficiencies: normalizeTextList(body.proficiencies),
     languages: normalizeTextList(body.languages),
     inventory: structuredClone(normalizeInventoryEntries(body.inventory)),
+    equipment: structuredClone(normalizeParticipantEquipment(body.equipment)),
     currencies: structuredClone(normalizeCurrencyEntries(body.currencies)),
     resistances: normalizeDamageTypes(body.resistances),
     vulnerabilities: normalizeDamageTypes(body.vulnerabilities),
@@ -4326,6 +4754,15 @@ function resetTurn(participant, options = {}) {
   runtime.demonic.damagedByLastTurnIds = normalizeIdList(runtime.demonic.damagedByPendingIds || []);
   runtime.demonic.damagedByPendingIds = [];
   const events = [];
+  const shieldRegen = Math.max(0, Math.round(Number(participant.shieldRegen || 0)));
+  if (shieldRegen > 0 && participant.maxShield > 0 && participant.shield < participant.maxShield) {
+    const beforeShield = participant.shield;
+    participant.shield = Math.min(participant.maxShield, participant.shield + shieldRegen);
+    const restored = participant.shield - beforeShield;
+    if (restored > 0) {
+      events.push(`regenerates ${restored} Shield from equipment.`);
+    }
+  }
   const rangedUntargetableTurns = Math.max(0, Number(participant.rangedUntargetableTurns || 0));
   if (rangedUntargetableTurns > 0) {
     participant.rangedUntargetableTurns = Math.max(0, rangedUntargetableTurns - 1);
@@ -5939,6 +6376,15 @@ function normalizeTextList(list = []) {
     normalized.push(value);
   }
   return normalized;
+}
+
+function appendUniqueTextEntries(target = [], values = [], seen = new Set()) {
+  for (const value of normalizeTextList(values)) {
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    target.push(value);
+  }
 }
 
 function defaultSavingThrows() {
@@ -8310,6 +8756,11 @@ function computeSetBonuses(participant, groups = null) {
   const source = groups || buildActiveCardGroups(participant);
   const appliedBonuses = [];
   const totals = createZeroModifier();
+  const abilityBonuses = createZeroAbilityBonuses();
+  const grantedProficiencies = [];
+  const grantedLanguages = [];
+  const seenProficiencies = new Set();
+  const seenLanguages = new Set();
   for (const [setName, cards] of source.bySet.entries()) {
     const count = cards.length;
     const definitions = SET_LIBRARY[setName];
@@ -8317,19 +8768,34 @@ function computeSetBonuses(participant, groups = null) {
     definitions.forEach((bonus) => {
       if (count >= bonus.pieces) {
         const modifiers = normalizeModifiers(bonus.modifiers);
+        const setAbilityBonuses = normalizeAbilityBonuses(bonus.abilityBonuses);
+        const proficiencies = normalizeTextList(bonus.proficiencies);
+        const languages = normalizeTextList(bonus.languages);
         appliedBonuses.push({
           id: bonus.id || `${setName.toLowerCase()}_${bonus.pieces}`,
           set: setName,
           pieces: bonus.pieces,
           effect: bonus.effect,
           modifiers,
+          abilityBonuses: setAbilityBonuses,
+          proficiencies,
+          languages,
           activatable: bonus.activatable || null
         });
         addModifierTotals(totals, modifiers);
+        addAbilityBonusesTotals(abilityBonuses, setAbilityBonuses);
+        appendUniqueTextEntries(grantedProficiencies, proficiencies, seenProficiencies);
+        appendUniqueTextEntries(grantedLanguages, languages, seenLanguages);
       }
     });
   }
-  return { appliedBonuses, setTotals: totals };
+  return {
+    appliedBonuses,
+    setTotals: totals,
+    abilityBonuses,
+    grantedProficiencies,
+    grantedLanguages
+  };
 }
 
 function recalculateParticipant(participant) {
@@ -8353,6 +8819,7 @@ function recalculateParticipant(participant) {
   participant.zones = normalizeZones(participant.zones, participant.id);
   participant.abilities = normalizeAbilityEntries(participant.abilities);
   participant.inventory = normalizeInventoryEntries(participant.inventory);
+  participant.equipment = normalizeParticipantEquipment(participant.equipment);
   participant.currencies = normalizeCurrencyEntries(participant.currencies);
   participant.quests = normalizeJournalEntries(participant.quests, 'quest');
   participant.achievements = normalizeJournalEntries(participant.achievements, 'achievement');
@@ -8403,8 +8870,15 @@ function recalculateParticipant(participant) {
     }
     addModifierTotals(totals, modifiers);
   }
-  const { appliedBonuses, setTotals } = computeSetBonuses(participant, cardGroups);
+  const {
+    appliedBonuses,
+    setTotals,
+    abilityBonuses: setAbilityBonuses,
+    grantedProficiencies,
+    grantedLanguages
+  } = computeSetBonuses(participant, cardGroups);
   addModifierTotals(totals, setTotals);
+  addAbilityBonusesTotals(abilityBonuses, setAbilityBonuses);
 
   if (!hasSetBonus(participant, 'Machine', 5, cardGroups)) {
     setRuntime.machine.autoLoaderPrimed = false;
@@ -8426,7 +8900,17 @@ function recalculateParticipant(participant) {
   }
 
   const overchargeMultiplier = Math.max(1, Number(setRuntime.divine.overchargeMultiplier || 1));
+  const armorDexterityPenalty = Math.max(0, Number(participant?.equipment?.armor?.dexterityPenalty || 0));
+  if (armorDexterityPenalty > 0) {
+    abilityBonuses.dexterity -= armorDexterityPenalty;
+  }
   const effectiveStats = buildEffectiveAbilityScores(participant.stats, abilityBonuses);
+  const equipmentSummary = getParticipantEquipmentSummary(participant, effectiveStats, {
+    setProficiencies: grantedProficiencies
+  });
+  if (equipmentSummary.maxShieldBonus > 0) {
+    totals.maxShield += equipmentSummary.maxShieldBonus;
+  }
   const attributeScaling = getAttributeScalingFromScores(effectiveStats);
   participant.apMax = Math.max(1, Math.round(((base.apMax ?? 0) + totals.apMax) * overchargeMultiplier));
   participant.apCurrent = normalizeCurrentAp(participant.apCurrent ?? participant.apMax, participant.apMax);
@@ -8448,6 +8932,7 @@ function recalculateParticipant(participant) {
     1,
     Math.round((base.guardRestore ?? DEFAULT_GUARD_RESTORE) + totals.guardRestore)
   );
+  participant.shieldRegen = Math.max(0, Math.round(Number(equipmentSummary.shieldRegen || 0)));
   participant.damageBonus = Math.round((base.damageBonus ?? 0) + totals.damageBonus);
   participant.nextAttackDamageBonus = Number.isFinite(Number(participant.nextAttackDamageBonus))
     ? Math.max(0, Math.round(Number(participant.nextAttackDamageBonus)))
@@ -8478,6 +8963,12 @@ function recalculateParticipant(participant) {
       total: participant.cards.length
     },
     setBonuses: appliedBonuses,
+    setGrants: {
+      abilityBonuses: setAbilityBonuses,
+      proficiencies: grantedProficiencies,
+      languages: grantedLanguages
+    },
+    equipment: equipmentSummary,
     machineConstructs: {
       maxActive: machineConstructCap,
       damageBonus: machineConstructDamageBonus,

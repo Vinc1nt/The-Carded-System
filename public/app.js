@@ -1,6 +1,7 @@
 import { UI_LIMITS } from './shared/game-config.js';
 import { getCardTierMasteryThresholds, getCardTierShieldBonus } from './shared/card-rules.js';
 import { ATTRIBUTE_BALANCE, getAttributeScalingFromScores } from './shared/stat-balance.js';
+import { hasWeaponBasicAttack } from './shared/equipment.js';
 
 const DAMAGE_TYPES = [
   'Acid',
@@ -27,6 +28,34 @@ const HELP_TOPIC_TITLES = Object.freeze({
   out_of_combat: 'Out of Combat',
   cards: 'Cards'
 });
+const ABILITIES = Object.freeze([
+  { key: 'strength', label: 'STR' },
+  { key: 'dexterity', label: 'DEX' },
+  { key: 'constitution', label: 'CON' },
+  { key: 'intelligence', label: 'INT' },
+  { key: 'wisdom', label: 'WIS' },
+  { key: 'charisma', label: 'CHA' }
+]);
+const SKILLS = Object.freeze([
+  ['Acrobatics', 'dexterity', 'acrobatics'],
+  ['Animal Handling', 'wisdom', 'animalHandling'],
+  ['Arcana', 'intelligence', 'arcana'],
+  ['Athletics', 'strength', 'athletics'],
+  ['Deception', 'charisma', 'deception'],
+  ['History', 'intelligence', 'history'],
+  ['Insight', 'wisdom', 'insight'],
+  ['Intimidation', 'charisma', 'intimidation'],
+  ['Investigation', 'intelligence', 'investigation'],
+  ['Medicine', 'wisdom', 'medicine'],
+  ['Nature', 'intelligence', 'nature'],
+  ['Perception', 'wisdom', 'perception'],
+  ['Performance', 'charisma', 'performance'],
+  ['Persuasion', 'charisma', 'persuasion'],
+  ['Religion', 'intelligence', 'religion'],
+  ['Sleight of Hand', 'dexterity', 'sleightOfHand'],
+  ['Stealth', 'dexterity', 'stealth'],
+  ['Survival', 'wisdom', 'survival']
+]);
 const JOURNAL_IMPORT_SAMPLE = Object.freeze({
   defaults: {
     target: 'participant',
@@ -1001,24 +1030,44 @@ function renderDetailPanel() {
       </div>
     </div>
     ${renderBaseStatsPanel(participant)}
-    <div class="vitals-grid">
-      ${renderVitalCard('HP', participant.hp, participant.maxHp, 'hp')}
-      ${renderVitalCard('Shield', participant.shield, participant.maxShield, 'shield')}
-      ${renderVitalCard('AP', participant.apCurrent, participant.apMax, 'ap')}
+    <div class="gm-detail-layout">
+      <div class="gm-detail-column">
+        <section class="gm-detail-group">
+          <div class="gm-detail-group-label">Combat Overview</div>
+          <div class="vitals-grid">
+            ${renderVitalCard('HP', participant.hp, participant.maxHp, 'hp')}
+            ${renderVitalCard('Shield', participant.shield, participant.maxShield, 'shield')}
+            ${renderVitalCard('AP', participant.apCurrent, participant.apMax, 'ap')}
+          </div>
+          ${renderActionsSection(participant)}
+          ${renderStatusSection(participant)}
+          ${hasZoneCard ? renderZoneSection(participant) : ''}
+          ${renderConstructSection(participant)}
+          ${renderMitigationSection(participant)}
+        </section>
+        <section class="gm-detail-group">
+          <div class="gm-detail-group-label">Character</div>
+          ${renderCharacterSheetSection(participant)}
+          ${renderEquipmentSection(participant)}
+          ${renderAbilitiesSection(participant)}
+          ${renderAutomationSection(participant)}
+          ${renderAdvancedSection(participant, base)}
+        </section>
+      </div>
+      <div class="gm-detail-column">
+        <section class="gm-detail-group">
+          <div class="gm-detail-group-label">Loadout</div>
+          ${renderCardsSection(participant, drawers)}
+          ${renderSetTrackerSection(participant)}
+          ${renderRelicSection(participant, drawers)}
+          ${renderInventorySection(participant, drawers)}
+        </section>
+        <section class="gm-detail-group">
+          <div class="gm-detail-group-label">Journal & Progress</div>
+          ${renderJournalSection(participant)}
+        </section>
+      </div>
     </div>
-    ${renderActionsSection(participant)}
-    ${renderStatusSection(participant)}
-    ${hasZoneCard ? renderZoneSection(participant) : ''}
-    ${renderCardsSection(participant, drawers)}
-    ${renderSetTrackerSection(participant)}
-    ${renderConstructSection(participant)}
-    ${renderMitigationSection(participant)}
-    ${renderAbilitiesSection(participant)}
-    ${renderInventorySection(participant, drawers)}
-    ${renderRelicSection(participant, drawers)}
-    ${renderJournalSection(participant)}
-    ${renderAutomationSection(participant)}
-    ${renderAdvancedSection(participant, base)}
   `;
   els.detailPanel.dataset.participantId = participant.id;
   wireDetailEvents(participant);
@@ -1193,6 +1242,7 @@ function renderActionsSection(participant) {
         <strong>Standard Actions</strong>
       </summary>
       <div class="collapsible-body">
+        ${renderWeaponAttackControls(participant)}
         <label class="checkbox-row">
           <input type="checkbox" id="difficultTerrain" />
           <span>Difficult terrain (Move = ${getParticipantMoveDistanceFt(participant, { difficultTerrain: true })} ft)</span>
@@ -1632,7 +1682,7 @@ function renderSetTrackerSection(participant) {
           const isActive = count >= bonus.pieces;
           const status = isActive ? renderSetBonusStatus(bonus, participant) : '';
           const activation = isActive ? renderSetActivationButton(bonus, participant, 'data-activate-set') : '';
-          return `<li class="${isActive ? 'active' : ''}">${bonus.pieces} pcs — ${bonus.effect || summarizeModifiers(bonus.modifiers || {})}${status}${activation}</li>`;
+          return `<li class="${isActive ? 'active' : ''}">${bonus.pieces} pcs — ${bonus.effect || summarizeModifiers(bonus.modifiers || {})}${status}${activation}${renderSetBonusMeta(bonus)}</li>`;
         })
         .join('');
       return `
@@ -1964,8 +2014,18 @@ function renderAbilitiesSection(participant) {
         <strong>Abilities</strong>
       </summary>
       <div class="collapsible-body">
-        ${renderAbilityTextListEditor('Proficiencies', participant.proficiencies || [], 'proficiency')}
-        ${renderAbilityTextListEditor('Languages', participant.languages || [], 'language')}
+        ${renderAbilityTextListEditor(
+          'Proficiencies',
+          participant.proficiencies || [],
+          'proficiency',
+          getDerivedSetValues(participant, 'proficiencies')
+        )}
+        ${renderAbilityTextListEditor(
+          'Languages',
+          participant.languages || [],
+          'language',
+          getDerivedSetValues(participant, 'languages')
+        )}
         <div class="ability-list">
           ${renderAbilityEntries(participant)}
         </div>
@@ -1985,7 +2045,177 @@ function renderAbilitiesSection(participant) {
   `;
 }
 
-function renderAbilityTextListEditor(label, values = [], key = 'entry') {
+function renderCharacterSheetSection(participant) {
+  const saveCount = ABILITIES.filter(({ key }) => participant?.savingThrows?.[key]).length;
+  const proficientSkills = SKILLS.filter(([, , key]) => getParticipantSkillState(participant, key).proficient).length;
+  const expertSkills = SKILLS.filter(([, , key]) => getParticipantSkillState(participant, key).expert).length;
+  const proficiencyBonus = Math.max(0, Number(participant?.proficiencyBonus || 0));
+  return `
+    <details class="collapsible-block" data-section="characterSheet">
+      <summary>
+        <div>
+          <strong>Character Sheet</strong>
+          <span class="muted">PB ${formatSignedValue(proficiencyBonus)} · ${saveCount} save prof · ${proficientSkills} skill prof${expertSkills ? ` · ${expertSkills} expert` : ''}</span>
+        </div>
+      </summary>
+      <div class="collapsible-body">
+        <div class="gm-sheet-grid">
+          <section class="gm-sheet-panel">
+            <div class="damage-group-header">
+              <h4>Ability Scores</h4>
+            </div>
+            ${renderGmAbilityTable(participant)}
+          </section>
+          <section class="gm-sheet-panel">
+            <div class="damage-group-header">
+              <h4>Saving Throws</h4>
+            </div>
+            ${renderGmSavingThrowTable(participant)}
+          </section>
+          <section class="gm-sheet-panel gm-sheet-panel-wide">
+            <div class="damage-group-header">
+              <h4>Skills</h4>
+            </div>
+            ${renderGmSkillTable(participant)}
+          </section>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function getEquipmentSummary(participant = {}) {
+  return participant?.derivedBonuses?.equipment || {
+    weapon: participant?.equipment?.weapon || null,
+    armor: participant?.equipment?.armor || null,
+    shield: participant?.equipment?.shield || null,
+    moveApCost: 1,
+    shieldRegen: 0,
+    weaponApPenalty: 0,
+    weaponPenaltyReasons: [],
+    canHide: true
+  };
+}
+
+function renderEquipmentCard(title, item = null, lines = []) {
+  if (!item) {
+    return `
+      <article class="journal-entry">
+        <strong>${title}</strong>
+        <p class="muted">None equipped.</p>
+      </article>
+    `;
+  }
+  return `
+    <article class="journal-entry">
+      <strong>${escapeHtml(item.name || title)}</strong>
+      ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
+    </article>
+  `;
+}
+
+function renderEquipmentSection(participant) {
+  const summary = getEquipmentSummary(participant);
+  const weapon = summary.weapon;
+  const armor = summary.armor;
+  const shield = summary.shield;
+  const notes = [
+    `Hands ${Number(summary.handsUsed || 0)}/${Number(summary.handsAvailable || 2)}`,
+    `Shield Regen ${Number(summary.shieldRegen || 0)}/turn`
+  ];
+  if (Number(summary.moveApCost || 1) > 1) {
+    notes.push(`Move actions cost ${Number(summary.moveApCost || 1)} AP`);
+  }
+  if (summary.canHide === false) {
+    notes.push('Cannot become Hidden');
+  }
+  return `
+    <details class="collapsible-block" data-section="equipment">
+      <summary>
+        <div>
+          <strong>Equipment</strong>
+          <span class="muted">${escapeHtml(notes.join(' · '))}</span>
+        </div>
+      </summary>
+      <div class="collapsible-body">
+        <div class="ability-list">
+          ${renderEquipmentCard(
+            'Weapon',
+            weapon,
+            weapon
+              ? [
+                  `${String(weapon.weaponStyle || '').replace(/^./, (char) => char.toUpperCase()) || 'Weapon'}${hasWeaponBasicAttack(weapon) ? ` · ${Number(weapon.basicAttackApCost || 0)} AP / ${Number(weapon.basicAttackDamage || 0)} ${weapon.basicAttackDamageType || 'damage'}` : ' · No basic attack'}`,
+                  `Card Bonus +${Number(weapon.cardBonusDamage || 0)} · ${weapon.proficiencyGroup || 'No proficiency group'}`,
+                  summary.weaponPenaltyReasons?.length ? `Penalty: +${Number(summary.weaponApPenalty || 0)} AP (${summary.weaponPenaltyReasons.join(', ')})` : 'Penalty: none'
+                ]
+              : []
+          )}
+          ${renderEquipmentCard(
+            'Armour',
+            armor,
+            armor
+              ? [
+                  `${String(armor.armorType || '').replace(/^./, (char) => char.toUpperCase())} Armour`,
+                  `Shield +${Number(armor.maxShieldBonus || 0)} · Regen +${Number(armor.shieldRegen || 0)}/turn`,
+                  Number(armor.dexterityPenalty || 0) > 0 ? `DEX ${formatSignedValue(-Number(armor.dexterityPenalty || 0))}` : 'DEX unchanged'
+                ]
+              : []
+          )}
+          ${renderEquipmentCard(
+            'Shield',
+            shield,
+            shield
+              ? [
+                  `Shield +${Number(shield.maxShieldBonus || 0)} · Regen +${Number(shield.shieldRegen || 0)}/turn`,
+                  'Uses 1 hand'
+                ]
+              : []
+          )}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderWeaponAttackControls(participant) {
+  const summary = getEquipmentSummary(participant);
+  const weapon = summary.weapon;
+  if (!weapon) {
+    return '<p class="muted small-note">No weapon equipped.</p>';
+  }
+  if (!hasWeaponBasicAttack(weapon)) {
+    return `<p class="muted small-note">${escapeHtml(weapon.name || 'Equipped implement')} has no basic attack. Matching Spell cards still gain its card bonus.</p>`;
+  }
+  const targetOptions = getEncounterTargetablesForUi()
+    .filter((entry) => entry.id !== participant.id)
+    .filter((entry) => isParticipantEnemyForUi(participant, entry))
+    .map((entry) => `<option value="${entry.id}">${escapeHtml(formatTargetableEntityLabel(entry))}</option>`)
+    .join('');
+  const apCost = Math.max(1, Number(weapon.basicAttackApCost || 0) + Math.max(0, Number(summary.weaponApPenalty || 0)));
+  return `
+    <div class="damage-group">
+      <div class="damage-group-header">
+        <h4>Weapon Attack</h4>
+        <small class="muted">${escapeHtml(weapon.name || 'Weapon')} · ${Number(weapon.basicAttackDamage || 0)} ${escapeHtml(weapon.basicAttackDamageType || 'damage')}</small>
+      </div>
+      <div class="form-row">
+        <label>Target
+          <select data-weapon-target>
+            <option value="">Select target…</option>
+            ${targetOptions}
+          </select>
+        </label>
+        <button type="button" data-weapon-attack>Basic Attack (${apCost} AP)</button>
+      </div>
+      <p class="muted small-note">
+        Card Bonus +${Number(weapon.cardBonusDamage || 0)} on matching ${escapeHtml(summary.weaponMatchType || 'weapon')} cards
+        ${summary.weaponPenaltyReasons?.length ? ` · Penalty +${Number(summary.weaponApPenalty || 0)} AP (${escapeHtml(summary.weaponPenaltyReasons.join(', '))})` : ''}
+      </p>
+    </div>
+  `;
+}
+
+function renderAbilityTextListEditor(label, values = [], key = 'entry', derivedValues = []) {
   const pills = (values || [])
     .map(
       (value, index) => `
@@ -1995,14 +2225,18 @@ function renderAbilityTextListEditor(label, values = [], key = 'entry') {
         </span>`
     )
     .join('');
+  const derived = filterManualOverlap(values, derivedValues)
+    .map((value) => `<span class="tag-pill">${escapeHtml(value)}</span>`)
+    .join('');
   return `
     <div class="damage-group">
       <div class="damage-group-header">
         <h4>${label}</h4>
       </div>
       <div class="tag-list">
-        ${pills || '<span class="muted">None</span>'}
+        ${pills || (!derived ? '<span class="muted">None</span>' : '')}
       </div>
+      ${derived ? `<p class="muted small-note">From sets</p><div class="tag-list">${derived}</div>` : ''}
       <form data-form="${key}">
         <label class="compact-label">Add ${label.slice(0, -1)}
           <input type="text" name="${key}" placeholder="Add ${label.slice(0, -1).toLowerCase()}" />
@@ -2030,6 +2264,74 @@ function renderAbilityEntries(participant) {
         </article>`
     )
     .join('');
+}
+
+function renderGmAbilityTable(participant) {
+  const rows = ABILITIES.map(({ key, label }) => {
+    const score = getParticipantEffectiveAbilityScore(participant, key);
+    const bonus = getParticipantAbilityBonus(participant, key);
+    const mod = abilityMod(score);
+    return `
+      <tr>
+        <th>${label}</th>
+        <td>${score}</td>
+        <td>${bonus ? formatSignedValue(bonus) : '0'}</td>
+        <td>${formatSignedValue(mod)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <table class="player-table player-table-compact gm-sheet-table">
+      <thead>
+        <tr><th>Ability</th><th>Score</th><th>Bonus</th><th>Mod</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderGmSavingThrowTable(participant) {
+  const proficiencyBonus = Math.max(0, Number(participant?.proficiencyBonus || 0));
+  const rows = ABILITIES.map(({ key, label }) => {
+    const proficient = Boolean(participant?.savingThrows?.[key]);
+    const total = abilityMod(getParticipantEffectiveAbilityScore(participant, key)) + (proficient ? proficiencyBonus : 0);
+    return `
+      <tr>
+        <th>${label}</th>
+        <td>${proficient ? 'Yes' : 'No'}</td>
+        <td>${formatSignedValue(total)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <table class="player-table player-table-compact gm-sheet-table">
+      <thead>
+        <tr><th>Save</th><th>Prof</th><th>Total</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderGmSkillTable(participant) {
+  const proficiencyBonus = Math.max(0, Number(participant?.proficiencyBonus || 0));
+  const rows = SKILLS.map(([skill, ability, key]) => {
+    const entry = getParticipantSkillState(participant, key);
+    const total = abilityMod(getParticipantEffectiveAbilityScore(participant, ability)) + proficiencyBonus * (entry.expert ? 2 : entry.proficient ? 1 : 0);
+    return `
+      <tr>
+        <th>${escapeHtml(skill)}</th>
+        <td>${abilityLabel(ability)}</td>
+        <td>${entry.expert ? 'Expert' : entry.proficient ? 'Prof' : '—'}</td>
+        <td>${formatSignedValue(total)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <table class="player-table player-table-compact gm-sheet-table">
+      <thead>
+        <tr><th>Skill</th><th>Ability</th><th>Level</th><th>Total</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 function renderJournalSection(participant) {
@@ -2677,7 +2979,7 @@ function renderStandardActionButtons(participant) {
     .map(
       (action) => `
         <div class="standard-action-item">
-          <button type="button" data-standard="${action.id}">${action.label} (${action.apCost} AP)</button>
+          <button type="button" data-standard="${action.id}">${action.label} (${action.id === 'move' ? Math.max(1, Number(getEquipmentSummary(participant).moveApCost || 1)) : action.apCost} AP)</button>
           <small class="muted small-note">${escapeHtml(getStandardActionSummary(action, participant))}</small>
         </div>
       `
@@ -2703,7 +3005,7 @@ function renderAutomationSetList(entries = [], participant) {
       const effect = entry.effect || summarizeModifiers(entry.modifiers);
       const status = renderSetBonusStatus(entry, participant);
       const activation = renderSetActivationButton(entry, participant, 'data-activate-set');
-      return `<li>${entry.set} (${entry.pieces}+ pcs): ${effect}${status}${activation}</li>`;
+      return `<li>${entry.set} (${entry.pieces}+ pcs): ${effect}${status}${activation}${renderSetBonusMeta(entry)}</li>`;
     })
     .join('');
 }
@@ -3323,6 +3625,50 @@ function summarizeModifiers(modifiers = {}) {
   return summary || '—';
 }
 
+function summarizeSetAbilityBonuses(abilityBonuses = {}) {
+  const labels = {
+    strength: 'STR',
+    dexterity: 'DEX',
+    constitution: 'CON',
+    intelligence: 'INT',
+    wisdom: 'WIS',
+    charisma: 'CHA'
+  };
+  return Object.entries(labels)
+    .map(([key, label]) => {
+      const value = Number(abilityBonuses?.[key] || 0);
+      if (!value) return null;
+      return `${label} ${value > 0 ? '+' : ''}${value}`;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function renderSetBonusMeta(bonus = {}) {
+  const details = [
+    summarizeSetAbilityBonuses(bonus.abilityBonuses),
+    Array.isArray(bonus.proficiencies) && bonus.proficiencies.length
+      ? `Proficiencies: ${bonus.proficiencies.join(', ')}`
+      : '',
+    Array.isArray(bonus.languages) && bonus.languages.length
+      ? `Languages: ${bonus.languages.join(', ')}`
+      : ''
+  ].filter(Boolean);
+  return details.length ? `<br><small class="muted">${escapeHtml(details.join(' · '))}</small>` : '';
+}
+
+function getDerivedSetValues(participant = {}, key = 'proficiencies') {
+  return Array.isArray(participant?.derivedBonuses?.setGrants?.[key]) ? participant.derivedBonuses.setGrants[key] : [];
+}
+
+function filterManualOverlap(values = [], derivedValues = []) {
+  const existing = new Set((values || []).map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+  return (derivedValues || []).filter((value) => {
+    const key = String(value || '').trim().toLowerCase();
+    return key && !existing.has(key);
+  });
+}
+
 function wireDetailEvents(participant) {
   const panel = els.detailPanel;
   panel.querySelector('[data-remove]')?.addEventListener('click', async () => {
@@ -3387,6 +3733,9 @@ function wireDetailEvents(participant) {
 
   panel.querySelectorAll('[data-standard]').forEach((button) => {
     button.addEventListener('click', () => handleStandardAction(button.dataset.standard));
+  });
+  panel.querySelector('[data-weapon-attack]')?.addEventListener('click', () => {
+    handleWeaponAttack();
   });
 
   panel.querySelectorAll('[data-activate-set]').forEach((button) => {
@@ -4949,6 +5298,19 @@ function getParticipantMoveDistanceFt(participant = {}, options = {}) {
   return Math.max(0, Math.round(Number(value || 0)));
 }
 
+function abilityMod(score = 0) {
+  return Math.floor((Number(score) - 10) / 2);
+}
+
+function abilityLabel(key = '') {
+  const match = ABILITIES.find((entry) => entry.key === key);
+  return match ? match.label : String(key || '').toUpperCase();
+}
+
+function getParticipantSkillState(participant = {}, key = '') {
+  return participant?.skills?.[key] || { proficient: false, expert: false };
+}
+
 function renderParticipantAttributeScalingNote(participant = {}) {
   const scaling = getParticipantAttributeScaling(participant);
   return `
@@ -4966,7 +5328,7 @@ function renderParticipantAttributeScalingNote(participant = {}) {
 function getStandardActionSummary(action = {}, participant = {}) {
   if (action.id === 'move') {
     const moveFt = getParticipantMoveDistanceFt(participant);
-    return `1 AP -> ${moveFt} ft`;
+    return `${Math.max(1, Number(getEquipmentSummary(participant).moveApCost || 1))} AP -> ${moveFt} ft`;
   }
   if (action.id === 'guard') {
     return `2 AP -> Restore ${Math.max(0, Math.round(Number(participant?.guardRestore ?? 3)))} Shield`;
@@ -5840,6 +6202,28 @@ async function handleStandardAction(actionId) {
       actionId: resolvedId,
       participantId: selectedParticipantId,
       ...standardPayload
+    });
+    fetchState();
+  } catch (err) {
+    notify(err.message);
+  }
+}
+
+async function handleWeaponAttack() {
+  const participant = getSelectedParticipant();
+  if (!participant?.id) {
+    notify('Select a combatant first.');
+    return;
+  }
+  const targetId = String(els.detailPanel.querySelector('[data-weapon-target]')?.value || '').trim();
+  if (!targetId) {
+    notify('Select a target for the weapon attack.');
+    return;
+  }
+  try {
+    await api('/api/actions/weapon-attack', 'POST', {
+      participantId: participant.id,
+      targetId
     });
     fetchState();
   } catch (err) {
