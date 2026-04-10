@@ -9,7 +9,7 @@ export const ATTRIBUTE_BALANCE = Object.freeze({
   constitutionMaxHpPerModifier: 4,
   wisdomMaxShieldPerModifier: 4,
   intelligenceMagicDamagePerModifier: 1,
-  charismaAbilityShieldPerModifier: 2,
+  charismaStatusEffectDamagePerModifier: 1,
   meleeDamageTypes: Object.freeze(['Bludgeoning', 'Piercing', 'Slashing']),
   directMagicDamageTypes: Object.freeze([
     'Acid',
@@ -55,7 +55,7 @@ export function getAttributeScalingFromScores(scores = {}) {
     maxHpBonus: modifiers.constitution * ATTRIBUTE_BALANCE.constitutionMaxHpPerModifier,
     maxShieldBonus: modifiers.wisdom * ATTRIBUTE_BALANCE.wisdomMaxShieldPerModifier,
     magicDamageBonus: modifiers.intelligence * ATTRIBUTE_BALANCE.intelligenceMagicDamagePerModifier,
-    abilityShieldBonus: modifiers.charisma * ATTRIBUTE_BALANCE.charismaAbilityShieldPerModifier
+    statusEffectDamageBonus: modifiers.charisma * ATTRIBUTE_BALANCE.charismaStatusEffectDamagePerModifier
   };
 }
 
@@ -92,4 +92,3 @@ export function getContextualDamageBonusFromScaling(scaling = {}, profile = {}) 
     total: meleeDamageBonus + magicDamageBonus
   };
 }
-

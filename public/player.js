@@ -378,9 +378,9 @@ function renderPlayerStatRulesHelpContent() {
         <li>STR: +${ATTRIBUTE_BALANCE.strengthMeleeDamagePerModifier} melee damage per modifier.</li>
         <li>DEX: +${ATTRIBUTE_BALANCE.dexterityMoveFtPerModifier} ft movement per modifier. Base move is ${ATTRIBUTE_BALANCE.baseMoveFt} ft per AP and difficult terrain starts at ${ATTRIBUTE_BALANCE.difficultMoveFt} ft per AP.</li>
         <li>CON: +${ATTRIBUTE_BALANCE.constitutionMaxHpPerModifier} max HP per modifier.</li>
-        <li>WIS: +${ATTRIBUTE_BALANCE.wisdomMaxShieldPerModifier} max Shield per modifier.</li>
+        <li>WIS: +${ATTRIBUTE_BALANCE.wisdomMaxShieldPerModifier} base Shield per modifier.</li>
         <li>INT: +${ATTRIBUTE_BALANCE.intelligenceMagicDamagePerModifier} direct magic damage per modifier.</li>
-        <li>CHA: +${ATTRIBUTE_BALANCE.charismaAbilityShieldPerModifier} Shield restored from abilities and effects per modifier.</li>
+        <li>CHA: +${ATTRIBUTE_BALANCE.charismaStatusEffectDamagePerModifier} status effect damage per modifier.</li>
       </ul>
     </section>
     <section class="help-section">
@@ -389,7 +389,7 @@ function renderPlayerStatRulesHelpContent() {
         <li>Movement scaling applies to standard movement, difficult-terrain movement, and card-based movement.</li>
         <li>Melee damage scaling applies to melee physical attacks within ${ATTRIBUTE_BALANCE.meleeRangeFt} ft.</li>
         <li>Direct magic damage scaling applies to non-zone, non-construct attacks that use one of the listed magic damage types.</li>
-        <li>Shield restoration scaling applies to Guard and other shield-restoring cards or effects.</li>
+        <li>Status effect damage scaling applies to damaging statuses and other status-based damage.</li>
       </ul>
     </section>
     <section class="help-section">
@@ -707,7 +707,6 @@ function renderStats() {
       <div class="panel-header player-dashboard-nameplate">
         <div>
           <h2>${participant.name}</h2>
-          <p class="muted">Set Focus: ${participant.setFocus || '—'}</p>
         </div>
       </div>
       <div class="player-dashboard-top">
@@ -748,7 +747,7 @@ function renderStats() {
         </section>
       </div>
       <div class="player-dashboard-body">
-        <div class="player-dashboard-side">
+        <div class="player-dashboard-side player-dashboard-side-primary">
           <section class="player-dashboard-card">
             <div class="panel-header">
               <h3>Stats</h3>
@@ -757,19 +756,18 @@ function renderStats() {
               </label>
             </div>
             ${renderAbilityTable(participant)}
-            ${renderPlayerAttributeScalingNote(participant)}
           </section>
           ${renderPlayerMitigationPanel(participant, manageState.mitigation)}
         </div>
-        <div class="player-dashboard-side">
-          <section class="player-dashboard-card">
+        <div class="player-dashboard-side player-dashboard-side-secondary">
+          <section class="player-dashboard-card player-compact-table-card">
             <div class="section-header">
               <h3>Saving Throws</h3>
               <button type="button" data-player-compact-toggle="saves">${savesExpanded ? 'Hide Prof' : 'Show Prof'}</button>
             </div>
             ${renderSavingThrows(participant, { expanded: savesExpanded })}
           </section>
-          <section class="player-dashboard-card">
+          <section class="player-dashboard-card player-compact-table-card">
             <div class="section-header">
               <h3>Skills</h3>
               <button type="button" data-player-compact-toggle="skills">${skillsExpanded ? 'Hide Prof/Expert' : 'Show Prof/Expert'}</button>
@@ -2544,7 +2542,7 @@ function renderSavingThrows(participant, options = {}) {
       </tr>`;
   }).join('');
   return `
-    <table class="player-table">
+    <table class="player-table player-table-compact">
       <thead>
         <tr><th>Ability</th>${expanded ? '<th>Prof</th>' : ''}<th>Total</th></tr>
       </thead>
@@ -2589,7 +2587,7 @@ function renderSkillsTable(participant, options = {}) {
       </tr>`;
   }).join('');
   return `
-    <table class="player-table">
+    <table class="player-table player-table-compact">
       <thead>
         <tr><th>Skill</th>${expanded ? '<th>Prof</th><th>Expert</th>' : ''}<th>Total</th></tr>
       </thead>
@@ -2657,9 +2655,9 @@ function renderPlayerAttributeScalingNote(participant = {}) {
       STR melee ${formatSignedValue(scaling.meleeDamageBonus || 0)} damage ·
       DEX move ${getPlayerMoveDistanceFt(participant)} ft (${getPlayerMoveDistanceFt(participant, { difficultTerrain: true })} ft difficult) ·
       CON ${formatSignedValue(scaling.maxHpBonus || 0)} max HP ·
-      WIS ${formatSignedValue(scaling.maxShieldBonus || 0)} max Shield ·
+      WIS ${formatSignedValue(scaling.maxShieldBonus || 0)} base Shield ·
       INT magic ${formatSignedValue(scaling.magicDamageBonus || 0)} damage ·
-      CHA shield effects ${formatSignedValue(scaling.abilityShieldBonus || 0)}
+      CHA status damage ${formatSignedValue(scaling.statusEffectDamageBonus || 0)}
     </p>
   `;
 }

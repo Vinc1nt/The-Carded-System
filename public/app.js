@@ -412,9 +412,9 @@ function renderStatRulesHelpContent() {
         <li>STR: +${ATTRIBUTE_BALANCE.strengthMeleeDamagePerModifier} melee damage per modifier.</li>
         <li>DEX: +${ATTRIBUTE_BALANCE.dexterityMoveFtPerModifier} ft movement per modifier. Base move is ${ATTRIBUTE_BALANCE.baseMoveFt} ft per AP and difficult terrain starts at ${ATTRIBUTE_BALANCE.difficultMoveFt} ft per AP.</li>
         <li>CON: +${ATTRIBUTE_BALANCE.constitutionMaxHpPerModifier} max HP per modifier.</li>
-        <li>WIS: +${ATTRIBUTE_BALANCE.wisdomMaxShieldPerModifier} max Shield per modifier.</li>
+        <li>WIS: +${ATTRIBUTE_BALANCE.wisdomMaxShieldPerModifier} base Shield per modifier.</li>
         <li>INT: +${ATTRIBUTE_BALANCE.intelligenceMagicDamagePerModifier} direct magic damage per modifier.</li>
-        <li>CHA: +${ATTRIBUTE_BALANCE.charismaAbilityShieldPerModifier} Shield restored from abilities and effects per modifier.</li>
+        <li>CHA: +${ATTRIBUTE_BALANCE.charismaStatusEffectDamagePerModifier} status effect damage per modifier.</li>
       </ul>
     </section>
     <section class="help-section">
@@ -423,7 +423,7 @@ function renderStatRulesHelpContent() {
         <li>Movement scaling applies to standard movement, difficult-terrain movement, and card-based movement.</li>
         <li>Melee damage scaling applies to melee physical attacks within ${ATTRIBUTE_BALANCE.meleeRangeFt} ft.</li>
         <li>Direct magic damage scaling applies to non-zone, non-construct attacks that use one of the listed magic damage types.</li>
-        <li>Shield restoration scaling applies to Guard and other shield-restoring cards or effects.</li>
+        <li>Status effect damage scaling applies to damaging statuses and other status-based damage.</li>
       </ul>
     </section>
     <section class="help-section">
@@ -4956,9 +4956,9 @@ function renderParticipantAttributeScalingNote(participant = {}) {
       STR melee ${formatSignedValue(scaling.meleeDamageBonus || 0)} damage ·
       DEX move ${getParticipantMoveDistanceFt(participant)} ft (${getParticipantMoveDistanceFt(participant, { difficultTerrain: true })} ft difficult) ·
       CON ${formatSignedValue(scaling.maxHpBonus || 0)} max HP ·
-      WIS ${formatSignedValue(scaling.maxShieldBonus || 0)} max Shield ·
+      WIS ${formatSignedValue(scaling.maxShieldBonus || 0)} base Shield ·
       INT magic ${formatSignedValue(scaling.magicDamageBonus || 0)} damage ·
-      CHA shield effects ${formatSignedValue(scaling.abilityShieldBonus || 0)}
+      CHA status damage ${formatSignedValue(scaling.statusEffectDamageBonus || 0)}
     </p>
   `;
 }

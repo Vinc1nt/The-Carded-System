@@ -523,6 +523,26 @@ function normalizeAbilityScoreValue(value, fallback = 10) {
   return rounded === 0 ? fallback : rounded;
 }
 
+function normalizeParticipantNameToken(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function buildPresetSpawnParticipantName(rawName = '') {
+  const baseName = String(rawName || '').trim() || 'Preset Character';
+  const existingNames = new Set(
+    (trackerState.encounter.participants || [])
+      .map((participant) => normalizeParticipantNameToken(participant?.name))
+      .filter(Boolean)
+  );
+  let suffix = existingNames.has(normalizeParticipantNameToken(baseName)) ? 2 : 1;
+  let candidate = `${baseName} ${suffix}`;
+  while (existingNames.has(normalizeParticipantNameToken(candidate))) {
+    suffix += 1;
+    candidate = `${baseName} ${suffix}`;
+  }
+  return candidate;
+}
+
 const server = createServer(async (req, res) => {
   const { method, url: reqUrl } = req;
   const requestUrl = new URL(reqUrl, `http://${req.headers.host}`);
@@ -601,9 +621,10 @@ async function handleApi(req, res, pathname, method) {
       }
       if (method === 'POST' && subresource === 'spawn') {
         const body = await readBody(req);
+        const spawnBaseName = String(body?.name || preset.template?.name || preset.name || 'Preset Character').trim();
         const participant = createParticipant({
           ...structuredClone(preset.template),
-          name: String(body?.name || preset.template?.name || preset.name || 'Preset Character').trim(),
+          name: buildPresetSpawnParticipantName(spawnBaseName),
           team: Object.prototype.hasOwnProperty.call(body || {}, 'team') ? body.team : preset.template?.team
         });
         participant.hp = participant.maxHp;
@@ -4986,12 +5007,12 @@ function enforceControlHierarchy(participant) {
 }
 
 function applyStatusDamage(participant, type, damage) {
-  const amount = Math.max(0, Number(damage || 0));
-  if (!amount) return;
+  const amount = getStatusEffectDamageAmount(participant, damage);
+  if (!amount) return 0;
   const runtime = ensureSetRuntime(participant);
   if (hasSetBonus(participant, 'Divine', 7) && !runtime.divine.reverseDamageUsedEncounter) {
     runtime.divine.reverseDamageUsedEncounter = true;
-    return;
+    return 0;
   }
   let totalDamageTaken = 0;
   if (type === 'burning') {
@@ -5013,6 +5034,7 @@ function applyStatusDamage(participant, type, damage) {
       runtime.demonic.pendingNextTurnAp += 1;
     }
   }
+  return totalDamageTaken;
 }
 
 function triggerBeastBleedingRestore(victim) {
@@ -5054,18 +5076,20 @@ function applyStartOfTurnStatusEffects(participant) {
   ['bleeding', 'poisoned', 'burning'].forEach((type) => {
     const stacks = startingStacks[type] || 0;
     if (stacks <= 0) return;
-    applyStatusDamage(participant, type, stacks);
-    if (type === 'bleeding') {
+    const dealt = applyStatusDamage(participant, type, stacks);
+    if (type === 'bleeding' && dealt > 0) {
       triggerBeastBleedingRestore(participant);
     }
-    events.push(`takes ${stacks} ${statusDisplayName(type)} damage at start of turn.`);
+    if (dealt > 0) {
+      events.push(`takes ${dealt} ${statusDisplayName(type)} damage at start of turn.`);
+    }
   });
 
   participant.statuses = normalizeStatuses(participant.statuses);
   for (const status of participant.statuses || []) {
     const hpLossPerTurn = Math.max(0, Number(status?.hpLossPerTurn || 0));
     if (hpLossPerTurn <= 0 || participant.hp <= 0) continue;
-    const hpLoss = Math.min(participant.hp, hpLossPerTurn);
+    const hpLoss = Math.min(participant.hp, getStatusEffectDamageAmount(participant, hpLossPerTurn));
     if (hpLoss <= 0) continue;
     participant.hp = Math.max(0, participant.hp - hpLoss);
     events.push(`loses ${hpLoss} HP from ${status.name || 'a curse'}.`);
@@ -6009,18 +6033,20 @@ function getParticipantMoveDistanceFt(participant = {}, options = {}) {
 function getCardShieldRestoreAmount(participant = {}, baseAmount = 0) {
   const base = Math.round(Number(baseAmount || 0));
   if (!Number.isFinite(base) || base <= 0) return 0;
-  const scaling = getParticipantAttributeScaling(participant);
-  return Math.max(
-    0,
-    base + getGlobalShieldRestoreBonus(participant) + Math.round(Number(scaling.abilityShieldBonus || 0))
-  );
+  return Math.max(0, base + getGlobalShieldRestoreBonus(participant));
 }
 
 function getEffectShieldRestoreAmount(participant = {}, baseAmount = 0) {
   const base = Math.round(Number(baseAmount || 0));
   if (!Number.isFinite(base) || base <= 0) return 0;
+  return Math.max(0, base);
+}
+
+function getStatusEffectDamageAmount(participant = {}, baseAmount = 0) {
+  const base = Math.round(Number(baseAmount || 0));
+  if (!Number.isFinite(base) || base <= 0) return 0;
   const scaling = getParticipantAttributeScaling(participant);
-  return Math.max(0, base + Math.round(Number(scaling.abilityShieldBonus || 0)));
+  return Math.max(0, base + Math.round(Number(scaling.statusEffectDamageBonus || 0)));
 }
 
 function getParticipantCardDamageBonus(participant = {}, card = {}, options = {}) {
