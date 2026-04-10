@@ -148,6 +148,14 @@ function wirePlayerCardImports() {
   }
 }
 
+function togglePlayerDrawer(drawer) {
+  if (!drawer) return;
+  drawer.open = !drawer.open;
+  if (drawer.open) {
+    drawer.querySelector('input, select, textarea, button')?.focus();
+  }
+}
+
 function wirePlayerMenu() {
   if (!els.menuToggle || !els.menuPanel) return;
   els.menuToggle.addEventListener('click', (event) => {
@@ -994,116 +1002,118 @@ function renderPlayerCardsTab(participant) {
         <p class="muted">${active.length}/${MAX_ACTIVE_CARDS} active · ${total} total</p>
       </div>
       <div id="playerCardList" class="card-list empty-state">Cards for the selected combatant will show here.</div>
-      <details id="playerCardDrawer">
-        <summary>Card Tools</summary>
-        <div class="card-import">
-          <label class="file-upload">
-            Import Card
-            <input type="file" id="playerImportCard" accept="application/json" />
-          </label>
-          <label class="file-upload">
-            Import Card Deck
-            <input type="file" id="playerImportDeck" accept="application/json" />
-          </label>
-          <p class="muted help-text">Upload single cards or a {"cards": []} deck file.</p>
+      <details id="playerCardDrawer" class="player-tool-drawer" data-player-card-details-key="cardTools">
+        <summary><strong>Card Tools</strong></summary>
+        <div class="collapsible-body">
+          <div class="card-import">
+            <label class="file-upload">
+              Import Card
+              <input type="file" id="playerImportCard" accept="application/json" />
+            </label>
+            <label class="file-upload">
+              Import Card Deck
+              <input type="file" id="playerImportDeck" accept="application/json" />
+            </label>
+            <p class="muted help-text">Upload single cards or a {"cards": []} deck file.</p>
+          </div>
+          <form id="playerCardForm" class="stacked-form">
+            <div class="form-row">
+              <label>Name
+                <input type="text" name="name" required />
+              </label>
+              <label>Set
+                <input type="text" name="set" placeholder="Machine" />
+              </label>
+              <label>Type
+                <input type="text" name="type" placeholder="Attack" />
+              </label>
+              <label>Tier
+                <input type="text" name="tier" placeholder="Common" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>AP Cost
+                <input type="number" name="apCost" value="2" />
+              </label>
+              <label>Range
+                <input type="number" name="range" value="5" />
+              </label>
+              <label>Health Bonus
+                <input type="number" name="healthBonus" value="0" />
+              </label>
+              <label>Shield Bonus
+                <input type="number" name="shieldBonus" placeholder="Auto by tier" />
+              </label>
+              <label>Damage
+                <input type="number" name="damage" value="0" />
+              </label>
+              <label>Damage Type
+                <select name="damageType">
+                  ${renderDamageTypeOptions(true)}
+                </select>
+              </label>
+              <label>Construct Duration
+                <input type="number" name="constructDurationTurns" value="1" min="1" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Construct Mode
+                <select name="constructMode">
+                  <option value="">Auto</option>
+                  <option value="damage">Damage</option>
+                  <option value="status">Status</option>
+                  <option value="utility">Utility</option>
+                </select>
+              </label>
+              <label>Construct Status
+                <select name="constructStatusId">
+                  <option value="">None</option>
+                  ${renderStatusPresetOptions()}
+                </select>
+              </label>
+              <label>Status Stacks
+                <input type="number" name="constructStatusStacks" value="1" min="1" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Max HP Bonus
+                <input type="number" name="modMaxHp" value="0" />
+              </label>
+              <label>Max Shield Bonus
+                <input type="number" name="modMaxShield" value="0" />
+              </label>
+              <label>AP Max Bonus
+                <input type="number" name="modApMax" value="0" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Guard Bonus
+                <input type="number" name="modGuard" value="0" />
+              </label>
+              <label>Damage Bonus
+                <input type="number" name="modDamage" value="0" />
+              </label>
+            </div>
+            <label>Tags
+              <input type="text" name="tags" placeholder="Melee, Shield" />
+            </label>
+            <label>Effect
+              <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
+            </label>
+            <div class="form-row">
+              <label>Mastery to L2 uses
+                <input type="number" name="masteryTo2" value="10" min="1" />
+              </label>
+              <label>Mastery to L3 uses
+                <input type="number" name="masteryTo3" value="25" min="2" />
+              </label>
+              <label>Mastery to L4 uses
+                <input type="number" name="masteryTo4" value="50" min="3" />
+              </label>
+            </div>
+            <button type="submit">Add Card</button>
+          </form>
         </div>
-        <form id="playerCardForm" class="stacked-form">
-          <div class="form-row">
-            <label>Name
-              <input type="text" name="name" required />
-            </label>
-            <label>Set
-              <input type="text" name="set" placeholder="Machine" />
-            </label>
-            <label>Type
-              <input type="text" name="type" placeholder="Attack" />
-            </label>
-            <label>Tier
-              <input type="text" name="tier" placeholder="Common" />
-            </label>
-          </div>
-          <div class="form-row">
-            <label>AP Cost
-              <input type="number" name="apCost" value="2" />
-            </label>
-            <label>Range
-              <input type="number" name="range" value="5" />
-            </label>
-            <label>Health Bonus
-              <input type="number" name="healthBonus" value="0" />
-            </label>
-            <label>Shield Bonus
-              <input type="number" name="shieldBonus" placeholder="Auto by tier" />
-            </label>
-            <label>Damage
-              <input type="number" name="damage" value="0" />
-            </label>
-            <label>Damage Type
-              <select name="damageType">
-                ${renderDamageTypeOptions(true)}
-              </select>
-            </label>
-            <label>Construct Duration
-              <input type="number" name="constructDurationTurns" value="1" min="1" />
-            </label>
-          </div>
-          <div class="form-row">
-            <label>Construct Mode
-              <select name="constructMode">
-                <option value="">Auto</option>
-                <option value="damage">Damage</option>
-                <option value="status">Status</option>
-                <option value="utility">Utility</option>
-              </select>
-            </label>
-            <label>Construct Status
-              <select name="constructStatusId">
-                <option value="">None</option>
-                ${renderStatusPresetOptions()}
-              </select>
-            </label>
-            <label>Status Stacks
-              <input type="number" name="constructStatusStacks" value="1" min="1" />
-            </label>
-          </div>
-          <div class="form-row">
-            <label>Max HP Bonus
-              <input type="number" name="modMaxHp" value="0" />
-            </label>
-            <label>Max Shield Bonus
-              <input type="number" name="modMaxShield" value="0" />
-            </label>
-            <label>AP Max Bonus
-              <input type="number" name="modApMax" value="0" />
-            </label>
-          </div>
-          <div class="form-row">
-            <label>Guard Bonus
-              <input type="number" name="modGuard" value="0" />
-            </label>
-            <label>Damage Bonus
-              <input type="number" name="modDamage" value="0" />
-            </label>
-          </div>
-          <label>Tags
-            <input type="text" name="tags" placeholder="Melee, Shield" />
-          </label>
-          <label>Effect
-            <textarea name="effect" rows="2" placeholder="Describe the effect"></textarea>
-          </label>
-          <div class="form-row">
-            <label>Mastery to L2 uses
-              <input type="number" name="masteryTo2" value="10" min="1" />
-            </label>
-            <label>Mastery to L3 uses
-              <input type="number" name="masteryTo3" value="25" min="2" />
-            </label>
-            <label>Mastery to L4 uses
-              <input type="number" name="masteryTo4" value="50" min="3" />
-            </label>
-          </div>
-          <button type="submit">Add Card</button>
-        </form>
       </details>
     </section>
     ${renderPlayerSetSection(participant)}
@@ -1120,40 +1130,81 @@ function renderPlayerInventoryTab() {
             <button type="button" data-player-toggle-relic>Add Relic</button>
           </div>
           <div id="playerRelicList" class="relic-list empty-state">No relics yet.</div>
-          <form id="playerRelicForm" class="stacked-form hidden">
-            <div class="form-row">
-              <label>Name
-                <input type="text" name="name" required />
-              </label>
-              <label>HP Bonus
-                <input type="number" name="hp" value="0" />
-              </label>
-              <label>AP Bonus
-                <input type="number" name="ap" value="0" />
-              </label>
+          <details id="playerRelicDrawer" class="player-tool-drawer" data-player-card-details-key="relicTools">
+            <summary><strong>Relic Tools</strong></summary>
+            <div class="collapsible-body">
+              <div class="card-import">
+                <label class="file-upload">
+                  Import Relics
+                  <input type="file" id="playerImportRelic" accept="application/json" />
+                </label>
+              </div>
+              <form id="playerRelicForm" class="stacked-form">
+                <div class="form-row">
+                  <label>Name
+                    <input type="text" name="name" required />
+                  </label>
+                  <label>HP Bonus
+                    <input type="number" name="hp" value="0" />
+                  </label>
+                  <label>AP Bonus
+                    <input type="number" name="ap" value="0" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Ability Focus
+                    <input type="text" name="ability" placeholder="Machine, Shield, etc." />
+                  </label>
+                  <label>Description
+                    <input type="text" name="description" placeholder="What does it do?" />
+                  </label>
+                </div>
+                <button type="submit">Add Relic</button>
+              </form>
             </div>
-            <div class="form-row">
-              <label>Ability Focus
-                <input type="text" name="ability" placeholder="Machine, Shield, etc." />
-              </label>
-              <label>Description
-                <input type="text" name="description" placeholder="What does it do?" />
-              </label>
-            </div>
-            <button type="submit">Add Relic</button>
-          </form>
-          <div class="card-import">
-            <label class="file-upload">
-              Import Relics
-              <input type="file" id="playerImportRelic" accept="application/json" />
-            </label>
-          </div>
+          </details>
         </section>
         <section class="player-dashboard-card player-subpanel">
           <div class="section-header">
             <h3>Weapons & Armour</h3>
+            <button type="button" data-player-toggle-equipment>Add Weapon/Armour</button>
           </div>
           <div id="playerWeaponArmorList" class="relic-list empty-state">No weapons or armour tracked.</div>
+          <details id="playerEquipmentDrawer" class="player-tool-drawer" data-player-card-details-key="equipmentTools">
+            <summary><strong>Weapon & Armour Tools</strong></summary>
+            <div class="collapsible-body">
+              <div class="card-import">
+                <label class="file-upload">
+                  Import Weapon/Armour
+                  <input type="file" id="playerImportEquipment" accept="application/json" />
+                </label>
+              </div>
+              <form id="playerEquipmentForm" class="stacked-form">
+                <div class="form-row">
+                  <label>Name
+                    <input type="text" name="name" placeholder="Iron Sword" required />
+                  </label>
+                  <label>Qty
+                    <input type="number" name="quantity" min="1" value="1" />
+                  </label>
+                  <label>Type
+                    <select name="equipmentType">
+                      <option value="Weapon">Weapon</option>
+                      <option value="Armour">Armour</option>
+                      <option value="Shield">Shield</option>
+                    </select>
+                  </label>
+                </div>
+                <label>Description
+                  <input type="text" name="description" placeholder="Optional details" />
+                </label>
+                <label>Tags
+                  <input type="text" name="tags" placeholder="Melee, Heavy, Martial" />
+                </label>
+                <button type="submit">Add Weapon/Armour</button>
+              </form>
+            </div>
+          </details>
         </section>
         <section class="player-dashboard-card player-subpanel">
           <div class="section-header">
@@ -1903,10 +1954,10 @@ function restorePlayerSections(participantId) {
 }
 
 function restorePlayerCardDetails(participantId) {
-  if (!participantId || !els.cardList) return;
+  if (!participantId || !els.stats) return;
   const snapshot = playerCardOpenState.get(participantId);
   if (!snapshot) return;
-  els.cardList.querySelectorAll('details[data-player-card-details-key]').forEach((node) => {
+  els.stats.querySelectorAll('details[data-player-card-details-key]').forEach((node) => {
     const key = node.dataset.playerCardDetailsKey;
     if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
       node.open = Boolean(snapshot[key]);
@@ -5176,9 +5227,10 @@ function renderConstructCardSummary(construct = {}) {
 function renderRelics(participant) {
   const listEl = document.getElementById('playerRelicList');
   const formEl = document.getElementById('playerRelicForm');
+  const drawerEl = document.getElementById('playerRelicDrawer');
   const importInput = document.getElementById('playerImportRelic');
   if (importInput) {
-    importInput.onchange = handlePlayerRelicFile;
+    importInput.onchange = (event) => handlePlayerRelicFile(event, drawerEl);
   }
   if (!listEl) return;
   if (!participant) {
@@ -5233,7 +5285,7 @@ function renderRelics(participant) {
       const currentRelics = latest?.relics || relics;
       await patchParticipant(participant.id, { relics: [...currentRelics, newRelic] });
       formEl.reset();
-      formEl.classList.add('hidden');
+      if (drawerEl) drawerEl.open = false;
       fetchState();
     };
   }
@@ -5243,7 +5295,7 @@ function isPlayerEquipmentItem(item = {}) {
   const tokens = [item.name, item.description, ...(Array.isArray(item.tags) ? item.tags : [])]
     .map((value) => String(value || '').toLowerCase())
     .join(' ');
-  return /\b(weapon|weapons|armor|armour|shield|sword|dagger|axe|bow|staff|spear|mace|hammer|mail|plate|helmet|helm|gauntlet)\b/.test(tokens);
+  return /\b(weapon|weapons|armor|armour|equipment|shield|sword|dagger|axe|bow|staff|spear|mace|hammer|mail|plate|helmet|helm|gauntlet)\b/.test(tokens);
 }
 
 function renderPlayerInventoryCards(items = [], emptyText = 'No inventory items yet.') {
@@ -5270,6 +5322,12 @@ function renderInventory(participant) {
   const currencyListEl = document.getElementById('playerCurrencyList');
   const currencyFormEl = document.getElementById('playerCurrencyForm');
   const equipmentListEl = document.getElementById('playerWeaponArmorList');
+  const equipmentFormEl = document.getElementById('playerEquipmentForm');
+  const equipmentDrawerEl = document.getElementById('playerEquipmentDrawer');
+  const equipmentImportEl = document.getElementById('playerImportEquipment');
+  if (equipmentImportEl) {
+    equipmentImportEl.onchange = (event) => handlePlayerEquipmentFile(event, equipmentDrawerEl);
+  }
   if (!listEl || !currencyListEl || !equipmentListEl) return;
   if (!participant) {
     listEl.classList.add('empty-state');
@@ -5280,6 +5338,7 @@ function renderInventory(participant) {
     equipmentListEl.innerHTML = '<p class="empty-state">Select a combatant to view weapons and armour.</p>';
     if (formEl) formEl.onsubmit = null;
     if (currencyFormEl) currencyFormEl.onsubmit = null;
+    if (equipmentFormEl) equipmentFormEl.onsubmit = null;
     return;
   }
   const items = participant?.inventory || [];
@@ -5431,6 +5490,40 @@ function renderInventory(participant) {
       currencyFormEl.reset();
       currencyFormEl.classList.add('hidden');
       notify(existingIndex >= 0 ? `${name} updated.` : `${name} added.`);
+      fetchState();
+    };
+  }
+  if (equipmentFormEl) {
+    equipmentFormEl.onsubmit = async (event) => {
+      event.preventDefault();
+      const data = new FormData(equipmentFormEl);
+      const name = String(data.get('name') || '').trim();
+      if (!name) {
+        notify('Item name is required.');
+        return;
+      }
+      const equipmentType = String(data.get('equipmentType') || 'Equipment').trim();
+      const tags = [equipmentType]
+        .concat(
+          String(data.get('tags') || '')
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+        )
+        .filter(Boolean)
+        .filter((tag, index, entries) => entries.findIndex((entry) => entry.toLowerCase() === tag.toLowerCase()) === index);
+      const newItem = {
+        id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+        name,
+        quantity: Math.max(1, Number(data.get('quantity') || 1)),
+        description: String(data.get('description') || '').trim(),
+        tags
+      };
+      const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+      const currentInventory = latest?.inventory || participant.inventory || [];
+      await patchParticipant(participant.id, { inventory: [...currentInventory, newItem] });
+      equipmentFormEl.reset();
+      if (equipmentDrawerEl) equipmentDrawerEl.open = false;
       fetchState();
     };
   }
@@ -5917,7 +6010,8 @@ function wirePlayerSheetEvents(participant) {
   });
   const inventoryForm = panel.querySelector('#playerInventoryForm');
   const currencyForm = panel.querySelector('#playerCurrencyForm');
-  const relicForm = panel.querySelector('#playerRelicForm');
+  const relicDrawer = panel.querySelector('#playerRelicDrawer');
+  const equipmentDrawer = panel.querySelector('#playerEquipmentDrawer');
   panel.querySelector('[data-player-toggle-inventory]')?.addEventListener('click', () => {
     inventoryForm?.classList.toggle('hidden');
   });
@@ -5925,7 +6019,10 @@ function wirePlayerSheetEvents(participant) {
     currencyForm?.classList.toggle('hidden');
   });
   panel.querySelector('[data-player-toggle-relic]')?.addEventListener('click', () => {
-    relicForm?.classList.toggle('hidden');
+    togglePlayerDrawer(relicDrawer);
+  });
+  panel.querySelector('[data-player-toggle-equipment]')?.addEventListener('click', () => {
+    togglePlayerDrawer(equipmentDrawer);
   });
   const notesButton = panel.querySelector('[data-player-save-notes]');
   const notesInput = panel.querySelector('[data-player-notes]');
@@ -6422,7 +6519,7 @@ function extractCardsFromPayload(payload) {
   return [];
 }
 
-async function handlePlayerRelicFile(event) {
+async function handlePlayerRelicFile(event, drawerEl = null) {
   const file = event.target.files?.[0];
   if (!file) return;
   const participant = getFocusedParticipant();
@@ -6441,6 +6538,7 @@ async function handlePlayerRelicFile(event) {
     const latest = (await fetchParticipantFromServer(participant.id)) || participant;
     const existing = latest?.relics || [];
     await patchParticipant(participant.id, { relics: [...existing, ...relics] });
+    if (drawerEl) drawerEl.open = false;
     fetchState();
     notify(`Imported ${relics.length} relic${relics.length === 1 ? '' : 's'}.`);
   } catch (err) {
@@ -6476,6 +6574,81 @@ function normalizeRelicPayload(raw = {}) {
       damageBonus: Number(raw.modifiers?.damageBonus ?? raw.modDamage ?? 0)
     }
   };
+}
+
+async function handlePlayerEquipmentFile(event, drawerEl = null) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const participant = getFocusedParticipant();
+  if (!participant) {
+    notify('Select a combatant first.');
+    event.target.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const items = extractInventoryEntriesFromPayload(payload).map((item) => normalizeEquipmentInventoryEntry(item));
+    if (!items.length) {
+      throw new Error('No weapons or armour found in file.');
+    }
+    const latest = (await fetchParticipantFromServer(participant.id)) || participant;
+    const existing = latest?.inventory || [];
+    await patchParticipant(participant.id, { inventory: [...existing, ...items] });
+    if (drawerEl) drawerEl.open = false;
+    fetchState();
+    notify(`Imported ${items.length} weapon/armour item${items.length === 1 ? '' : 's'}.`);
+  } catch (err) {
+    notify(`Weapon/armour import failed: ${err.message}`);
+  } finally {
+    event.target.value = '';
+  }
+}
+
+function extractInventoryEntriesFromPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  const keys = ['inventory', 'items', 'equipment', 'weapons', 'armor', 'armour', 'gear'];
+  for (const key of keys) {
+    if (Array.isArray(payload[key])) {
+      return payload[key];
+    }
+  }
+  const singularKeys = ['item', 'equipment', 'weapon', 'armor', 'armour'];
+  for (const key of singularKeys) {
+    if (payload[key] && typeof payload[key] === 'object') {
+      return [payload[key]];
+    }
+  }
+  if (typeof payload === 'object' && (payload.name || payload.title)) return [payload];
+  return [];
+}
+
+function normalizeEquipmentInventoryEntry(raw = {}) {
+  const tags = Array.isArray(raw.tags)
+    ? raw.tags.map((tag) => String(tag || '').trim()).filter(Boolean)
+    : String(raw.tags || '')
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+  const typeHints = [raw.type, raw.category, raw.slot]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const allTags = [...typeHints, ...tags].filter(
+    (tag, index, entries) => entries.findIndex((entry) => entry.toLowerCase() === tag.toLowerCase()) === index
+  );
+  const name = String(raw.name || raw.title || '').trim() || 'Imported Equipment';
+  const normalized = {
+    id: raw.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+    name,
+    quantity: Math.max(1, Math.round(Number(raw.quantity ?? raw.qty ?? 1) || 1)),
+    description: String(raw.description || raw.notes || '').trim(),
+    tags: allTags
+  };
+  if (!isPlayerEquipmentItem(normalized)) {
+    normalized.tags.unshift('Equipment');
+  }
+  return normalized;
 }
 
 async function fetchParticipantFromServer(participantId) {

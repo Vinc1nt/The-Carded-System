@@ -853,6 +853,29 @@ textarea {
   margin-top: 0.55rem;
 }
 
+.player-tool-drawer {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.6rem 0.8rem;
+  background: rgba(2, 6, 23, 0.36);
+}
+
+.player-tool-drawer > summary {
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.player-tool-drawer .collapsible-body {
+  margin-top: 0.65rem;
+}
+
+.player-tool-drawer .card-import {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
 .inactive-picker {
   display: flex;
   flex-direction: column;
