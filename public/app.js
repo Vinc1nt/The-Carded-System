@@ -381,7 +381,7 @@ function getHelpTopicContent(topic) {
         <h3>Resting Outside Combat</h3>
         <ul class="help-list">
           <li>Short Rest (about 10-15 min): heal 5 + CON mod (minimum 1), recover short-rest resources, restore half Max Shield (table rules).</li>
-          <li>Long Rest (about 6-8 hrs): restore HP, Shield, and long-rest resources.</li>
+          <li>Long Rest (about 6-8 hrs): restore HP, Shield, long-rest resources, and all card charges.</li>
           <li>Long Rest is also the main loadout swap window (cards, relics, passives).</li>
           <li>If rest is interrupted by combat/hazards/strenuous activity, no rest benefits unless at least 50% of duration completed.</li>
         </ul>
@@ -1230,12 +1230,15 @@ function renderZoneCards(participant, zones = []) {
       const sustainText = sustainParts.length
         ? `<p class="muted small-note">${sustainParts.join(' · ')}</p>`
         : '';
+      const utilityNote = String(zone.utilityNote || '').trim();
+      const utilityText = utilityNote ? `<p class="muted small-note">${escapeHtml(utilityNote)}</p>` : '';
       return `
         <article class="card-item construct-item">
           <h4>${escapeHtml(zone.name || 'Zone')}</h4>
           <p>${Number(zone.damage || 0)} ${escapeHtml(zone.damageType || 'damage')} · ${Number(zone.radiusFt || 0)} ft radius${remaining}</p>
           ${triggerText}
           ${sustainText}
+          ${utilityText}
           <p class="muted small-note">Currently in zone: ${targetNames.length ? escapeHtml(targetNames.join(', ')) : 'No targets assigned'}</p>
           <div class="status-list">
             ${targetBadges || '<span class="muted">No targets assigned.</span>'}
@@ -5153,7 +5156,7 @@ function formatCardTargetSelectionLabel(card = {}, multiTargetCap = 0) {
   return `Targets (up to ${multiTargetCap})`;
 }
 
-function renderCardCustomEffectControl(card = {}) {
+function renderCardCustomEffectControl(card = {}, participant = {}) {
   const effectId = String(card.customCardEffect || '').trim().toLowerCase();
   if (effectId === 'arcane_no') {
     const zones = getEncounterZonesForUi();
@@ -5169,6 +5172,15 @@ function renderCardCustomEffectControl(card = {}) {
       <input type="checkbox" data-card-use-hp-sacrifice="${card.id || ''}" />
       Sacrifice 10 HP to apply Weakened 2 instead.
     </label>`;
+  }
+  if (effectId === 'divine_sight_unseen' && Number(card.masteryLevel || 1) >= 2) {
+    const multiTargetCap = Math.max(1, Number(card.multiTargetMax || 12));
+    return `<label>Affected Allies (within 10 ft)
+      <select data-card-targets="${card.id || ''}" multiple size="${Math.max(3, Math.min(6, multiTargetCap + 1))}">
+        ${renderParticipantTargetOptions(participant.id, true, 'allies', participant)}
+      </select>
+    </label>
+    <p class="muted small-note">Select only allies actually within 10 ft. Self is included automatically.</p>`;
   }
   return '';
 }
@@ -5193,7 +5205,7 @@ function renderCardTargetControl(card = {}, participant = {}) {
     splitEnabled: arcaneSplitEnabled,
     shiftEnabled: arcaneShiftEnabled
   });
-  const customEffectControl = renderCardCustomEffectControl(card);
+  const customEffectControl = renderCardCustomEffectControl(card, participant);
   const constructTargetAssist = renderConstructTargetAssistForCard(card, participant);
   const perTargetDetailContainer = getCardPerTargetInputs(card).length
     ? `<div data-card-target-detail-container="${card.id || ''}">${renderCardPerTargetDetailSection(card)}</div>`
@@ -5571,6 +5583,10 @@ function getStatusApplyAtMastery(card = {}, level = 1) {
   if (!source || typeof source !== 'object') return null;
   const id = String(source.id || source.statusId || '').trim();
   const name = resolveStatusName(id, String(source.name || '').trim());
+  const durationTurns = Math.max(
+    0,
+    Math.round(getCardScaledValue(source.durationTurnsByLevel, level, Number(source.durationTurns ?? 0)))
+  );
   let stacks = Math.max(
     1,
     Math.round(
@@ -5579,7 +5595,7 @@ function getStatusApplyAtMastery(card = {}, level = 1) {
   );
   stacks = Math.max(1, Math.round(getCardScaledEffectValue(card, 'statusApplyStacksByLevel', level, stacks)));
   if (!id && !name) return null;
-  return { id, name, stacks };
+  return { id, name, stacks, durationTurns };
 }
 
 function getCardContestedEffectSummary(card = {}, level = 1) {
@@ -5658,6 +5674,7 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     const zoneHeal = Math.max(0, Math.round(getCardScaledEffectValue(card, 'zoneHealByLevel', level, Number(card.zoneHeal || 0))));
     const zoneShield = Math.max(0, Math.round(getCardScaledEffectValue(card, 'zoneShieldRestoreByLevel', level, Number(card.zoneShieldRestore || 0))));
     const zoneStatus = getStatusApplyAtMastery(card, level);
+    const utilityNote = String(card.utilityNote || '').trim();
     const parts = [`Create zone (${radius} ft radius${duration > 0 ? `, ${duration} turn${duration === 1 ? '' : 's'}` : ''}).`];
     if (zoneDamage > 0) {
       parts.push(`Deals ${zoneDamage}${card.damageType ? ` ${card.damageType}` : ''} damage each turn.`);
@@ -5671,12 +5688,23 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     if (zoneShield > 0) {
       parts.push(`Restores ${zoneShield} Shield${card.zoneShieldRestoreAlliesOnly !== false ? ' to allies' : ''} each turn.`);
     }
+    if (utilityNote) {
+      parts.push(utilityNote);
+    }
     return parts.join(' ');
   }
   const targetMode = getCardTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
+  const multiTargetMin =
+    targetMode === 'multi_select'
+      ? Math.max(0, Math.min(multiTargetCap, Math.round(Number(card.multiTargetMin || 0))))
+      : 0;
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
   const customEffectId = String(card.customCardEffect || '').trim().toLowerCase();
+  const areaRadius = Math.max(
+    0,
+    Math.round(getCardScaledEffectValue(card, 'areaRadiusByLevel', level, Number(card.areaRadius || 0)))
+  );
   const parts = [];
   if (customEffectId === 'arcane_two_step') {
     const duration = level >= 2 ? 3 : 2;
@@ -5698,7 +5726,11 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     if (targetMode === 'all_others') {
       parts.push(`Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage to all targets.`);
     } else if (targetMode === 'multi_select') {
-      parts.push(`Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage to up to ${multiTargetCap} targets.`);
+      parts.push(
+        `Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage to ${
+          multiTargetMin > 0 && multiTargetMin === multiTargetCap ? `${multiTargetCap}` : `up to ${multiTargetCap}`
+        } targets.`
+      );
     } else if (secondaryDamage > 0 && secondaryTargetMode === 'adjacent') {
       parts.push(
         `Deal ${damage}${card.damageType ? ` ${card.damageType}` : ''} damage to target and ${secondaryDamage}${
@@ -5739,13 +5771,20 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   }
   const statusApply = getStatusApplyAtMastery(card, level);
   if (statusApply) {
+    const durationText =
+      statusApply.durationTurns > 0 ? ` for ${statusApply.durationTurns} turn${statusApply.durationTurns === 1 ? '' : 's'}` : '';
     if (targetMode === 'all_others') {
-      parts.push(`Apply ${statusApply.name} ${statusApply.stacks} to all targets.`);
+      parts.push(`Apply ${statusApply.name} ${statusApply.stacks}${durationText} to all targets.`);
     } else if (targetMode === 'multi_select') {
-      parts.push(`Apply ${statusApply.name} ${statusApply.stacks} to each selected target.`);
+      parts.push(`Apply ${statusApply.name} ${statusApply.stacks}${durationText} to each selected target.`);
     } else {
-      parts.push(`Apply ${statusApply.name} ${statusApply.stacks}.`);
+      parts.push(`Apply ${statusApply.name} ${statusApply.stacks}${durationText}.`);
     }
+  }
+  if (targetMode === 'multi_select' && areaRadius > 0) {
+    const groupLabel =
+      card.targetEnemiesOnly === true ? 'enemies' : card.targetAlliesOnly === true ? 'allies' : 'targets';
+    parts.push(`Select ${groupLabel} within ${areaRadius} ft radius.`);
   }
   const contestedSummary = getCardContestedEffectSummary(card, level);
   if (contestedSummary) {
@@ -5911,6 +5950,10 @@ function renderCardDamageLine(card = {}, participant = {}) {
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
   const targetMode = getCardTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
+  const multiTargetMin =
+    targetMode === 'multi_select'
+      ? Math.max(0, Math.min(multiTargetCap, Math.round(Number(card.multiTargetMin || 0))))
+      : 0;
   const typeText = card.damageType || '';
   if (!isConstructCard(card)) {
     if (baseDamage > 0 && secondaryDamage > 0 && secondaryTargetMode === 'adjacent') {
@@ -5923,7 +5966,7 @@ function renderCardDamageLine(card = {}, participant = {}) {
       return `<p>Damage: ${baseDamage} ${typeText} (all targets)</p>`;
     }
     if (targetMode === 'multi_select' && baseDamage > 0) {
-      return `<p>Damage: ${baseDamage} ${typeText} (up to ${multiTargetCap} targets)</p>`;
+      return `<p>Damage: ${baseDamage} ${typeText} (${multiTargetMin > 0 && multiTargetMin === multiTargetCap ? `${multiTargetCap}` : `up to ${multiTargetCap}`} targets)</p>`;
     }
     if (secondaryDamage > 0) {
       return `<p>Damage: ${secondaryDamage} ${secondaryType}</p>`;
@@ -6622,6 +6665,7 @@ function normalizeCardPayload(raw = {}) {
     secondaryTargetMode: String(raw.secondaryTargetMode || '').trim().toLowerCase(),
     secondaryTargetLabel: String(raw.secondaryTargetLabel || '').trim(),
     targetMode: String(raw.targetMode || '').trim().toLowerCase(),
+    multiTargetMin: toNumber(raw.multiTargetMin ?? 0),
     multiTargetMax: toNumber(raw.multiTargetMax ?? 0),
     multiTargetMaxByLevel:
       raw.multiTargetMaxByLevel && typeof raw.multiTargetMaxByLevel === 'object'
@@ -6667,6 +6711,11 @@ function normalizeCardPayload(raw = {}) {
             id: String(raw.statusApply.id || '').trim(),
             name: String(raw.statusApply.name || '').trim(),
             notes: String(raw.statusApply.notes || '').trim(),
+            durationTurns: toNumber(raw.statusApply.durationTurns ?? 0),
+            durationTurnsByLevel:
+              raw.statusApply.durationTurnsByLevel && typeof raw.statusApply.durationTurnsByLevel === 'object'
+                ? { ...raw.statusApply.durationTurnsByLevel }
+                : undefined,
             stacksByLevel:
               raw.statusApply.stacksByLevel && typeof raw.statusApply.stacksByLevel === 'object'
                 ? { ...raw.statusApply.stacksByLevel }

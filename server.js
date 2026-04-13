@@ -1860,6 +1860,10 @@ function executeCardAction(body) {
   const targetMode = normalizeCardTargetMode(card);
   const secondaryTargetMode = normalizeSecondaryTargetMode(card);
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card, masteryLevel) : 0;
+  const multiTargetMin =
+    targetMode === 'multi_select'
+      ? Math.max(0, Math.min(multiTargetCap, Math.round(Number(card.multiTargetMin || 0))))
+      : 0;
   const customCardEffect = String(card.customCardEffect || '').trim().toLowerCase();
   const currentTurnParticipant = getCurrentParticipant();
   const isOffTurnForParticipant =
@@ -2299,6 +2303,9 @@ function executeCardAction(body) {
   }
   if (targetMode === 'multi_select' && selectedTargets.length > multiTargetCap) {
     return { error: `Select up to ${multiTargetCap} targets` };
+  }
+  if (targetMode === 'multi_select' && multiTargetMin > 0 && selectedTargets.length < multiTargetMin) {
+    return { error: multiTargetMin === multiTargetCap ? `Select ${multiTargetMin} targets` : `Select at least ${multiTargetMin} targets` };
   }
 
   const primaryTarget = targetMode === 'multi_select'
@@ -3193,6 +3200,102 @@ function executeCardAction(body) {
     };
   }
 
+  if (customCardEffect === 'divine_sight_unseen') {
+    const apSpend = spendCardAp(participant, apCost);
+    if (apSpend.error) {
+      return apSpend;
+    }
+    const durationTurns = Math.max(
+      1,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, 3))
+    );
+    const allyShareRadiusFt = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'allyShareRadiusFtByLevel', masteryLevel, 0))
+    );
+    if (targetIds.length && selectedTargets.length !== targetIds.length) {
+      return { error: 'One or more selected targets were not found' };
+    }
+    const invalidRecipient = selectedTargets.find((entry) => !isParticipantAlly(participant, entry));
+    if (invalidRecipient) {
+      return { error: `${card.name} can only share with allies.` };
+    }
+    const selectedAllies = selectedTargets.filter((entry) => entry.id !== participant.id);
+    if (masteryLevel < 2 && selectedAllies.length) {
+      return { error: `${card.name} can only affect the caster until Mastery 2.` };
+    }
+    const recipients = Array.from(
+      new Map([participant, ...(masteryLevel >= 2 ? selectedAllies : [])].map((entry) => [String(entry.id || ''), entry])).values()
+    );
+    recipients.forEach((entry) => {
+      upsertTimedStatus(entry, {
+        presetId: 'sight_unseen',
+        name: 'Sight Unseen',
+        stacks: 1,
+        notes: 'Can see invisible creatures and illusions.',
+        remainingTurns: durationTurns
+      });
+    });
+    if (recipients.length === 1) {
+      notes.push(
+        `${participant.name} gains Sight Unseen for ${durationTurns} turn${durationTurns === 1 ? '' : 's'}.`
+      );
+    } else {
+      notes.push(
+        `${recipients.map((entry) => entry.name).join(', ')} gain Sight Unseen for ${durationTurns} turn${durationTurns === 1 ? '' : 's'}.`
+      );
+      if (allyShareRadiusFt > 0) {
+        notes.push(`Shared with selected allies within ${allyShareRadiusFt} ft.`);
+      }
+    }
+    const masteryChoicePrompt = applyCardProgression(card, participant, notes, {
+      chargesMax,
+      chargesCurrent
+    });
+    const noteText = notes.length ? ` ${notes.join(' ')}` : '';
+    const costText = apCost === baseCost ? `${apCost} AP` : `${apCost} AP (from ${baseCost})`;
+    pushLog(`${participant.name} plays ${card.name} (${costText}).${noteText}`, participant.id, {
+      cardId: card.id,
+      apCost,
+      baseCost,
+      targetId: participant.id,
+      targetIds: recipients.map((entry) => entry.id),
+      secondaryTargetId: null,
+      arcaneSplitTargetId: null,
+      targetMode: recipients.length > 1 ? 'multi_select' : 'self',
+      damageType: '',
+      secondaryDamageType: '',
+      rawDamage: 0,
+      secondaryRawDamage: 0,
+      finalDamage: 0,
+      construct: null,
+      zone: null,
+      customStatus: 'sight_unseen',
+      sightUnseen: {
+        durationTurns,
+        allyShareRadiusFt
+      }
+    });
+    recordCardActionHistoryEntry({
+      participantId: participant.id,
+      cardId: card.id,
+      cardName: card.name,
+      snapshot: currentActionSnapshot
+    });
+    touchState();
+    broadcastState('card_action');
+    return {
+      participant,
+      card,
+      apCost,
+      baseCost,
+      target: participant,
+      targets: recipients,
+      secondaryTarget: null,
+      masteryChoicePrompt
+    };
+  }
+
   participant.apCurrent = Math.max(0, participant.apCurrent - apCost);
 
   if (!isConstruct && selfHpLossTotal > 0) {
@@ -3944,6 +4047,7 @@ function executeCardAction(body) {
       beastRuntime: beast,
       elementalRuntime: elemental
     });
+    const statusDurationTurns = Math.max(0, Number(statusApply.durationTurns || 0));
     const statusTargets =
       targetMode === 'all_others'
         ? primaryTargets
@@ -3961,11 +4065,22 @@ function executeCardAction(body) {
           addCustomStatus(statusTarget, {
             name: statusApply.name,
             stacks: statusStacks,
-            notes: statusApply.notes
+            notes: statusApply.notes,
+            remainingTurns: statusDurationTurns
           });
           appliedTargets.push(statusTarget.name);
         } else {
-          if (addStatusStacks(statusTarget, statusApply.id, statusStacks)) {
+          if (statusDurationTurns > 0) {
+            const appliedStatus = upsertTimedStatus(statusTarget, {
+              presetId: statusApply.id,
+              name: statusApply.name || statusDisplayName(statusApply.id),
+              stacks: statusStacks,
+              remainingTurns: statusDurationTurns
+            });
+            if (appliedStatus) {
+              appliedTargets.push(statusTarget.name);
+            }
+          } else if (addStatusStacks(statusTarget, statusApply.id, statusStacks)) {
             appliedTargets.push(statusTarget.name);
           }
         }
@@ -3973,7 +4088,9 @@ function executeCardAction(body) {
       });
       if (appliedTargets.length) {
         notes.push(
-          `Applies ${statusApply.name || statusDisplayName(statusApply.id)} ${statusStacks} to ${appliedTargets.join(', ')}.`
+          `Applies ${statusApply.name || statusDisplayName(statusApply.id)} ${statusStacks}${
+            statusDurationTurns > 0 ? ` for ${statusDurationTurns} turn${statusDurationTurns === 1 ? '' : 's'}` : ''
+          } to ${appliedTargets.join(', ')}.`
         );
       }
       if (hasElemental10 && !elemental.burstUsedTurn) {
@@ -4928,6 +5045,8 @@ function advanceTurn(direction = 1) {
       if (!previousWasPausedTurn) {
         const timedStatusEvents = decrementTimedStatusesAtEndOfTurn(previousActor);
         timedStatusEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+        const passiveZoneEvents = advancePassiveZonesForParticipant(previousActor);
+        passiveZoneEvents.forEach((event) => pushLog(event, previousActor.id));
         const endEvents = applyEndOfTurnSetEffects(previousActor);
         endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
       }
@@ -5406,11 +5525,16 @@ function resetLongRestCardState(participant) {
     (participant.cards || []).map((card) => {
       if (!card || typeof card !== 'object') return card;
       const effectState = card.effectState && typeof card.effectState === 'object' ? { ...card.effectState } : {};
+      const chargesMax = Math.max(
+        0,
+        Math.round(Number(card.chargesMax ?? card.maxCharges ?? card.charges ?? 0) || 0)
+      );
       if (effectState.pauseButtonUsedLongRest) {
         effectState.pauseButtonUsedLongRest = false;
       }
       return {
         ...card,
+        chargesCurrent: chargesMax > 0 ? chargesMax : card.chargesCurrent,
         effectState
       };
     })
@@ -5793,6 +5917,12 @@ function applyStartOfTurnStatusEffects(participant) {
   participant.statuses = normalizeStatuses(participant.statuses);
   const events = [];
   const startingStacks = {};
+  const timedStatusTypes = new Set(
+    (participant.statuses || [])
+      .filter((status) => Math.max(0, Number(status?.remainingTurns || 0)) > 0)
+      .map((status) => detectStatusType(status))
+      .filter(Boolean)
+  );
   KNOWN_STATUS_TYPES.forEach((type) => {
     startingStacks[type] = getStatusStacks(participant, type);
   });
@@ -5858,6 +5988,10 @@ function applyStartOfTurnStatusEffects(participant) {
   const escalatedThisTurn = new Set();
   const nextStacks = {};
   KNOWN_STATUS_TYPES.forEach((type) => {
+    if (timedStatusTypes.has(type)) {
+      nextStacks[type] = Math.max(0, startingStacks[type] || 0);
+      return;
+    }
     const reduction = isStatusResisted(participant, type) ? 2 : 1;
     nextStacks[type] = Math.max(0, (startingStacks[type] || 0) - reduction);
   });
@@ -6346,30 +6480,50 @@ function applyZoneTurnEffects(participant, zone) {
   const turnStatusName = String(entry.statusName || entry.statusId || '').trim();
   const turnStatusNotes = String(entry.statusNotes || '').trim();
   const turnStatusStacks = Math.max(1, Number(entry.statusStacks || 1));
+  const zoneDamage = Math.max(0, Number(entry.damage || 0));
+  const zoneShieldRestore = Math.max(0, Number(entry.shieldRestore || 0));
+  const zoneHeal = Math.max(0, Number(entry.heal || 0));
   const targets = (entry.targetIds || [])
     .map((id) => findParticipant(id))
     .filter(Boolean);
+  const decrementZoneDuration = () => {
+    const events = [];
+    if (Number(entry.remainingTurns || 0) > 0) {
+      entry.remainingTurns = Math.max(0, Number(entry.remainingTurns || 0) - 1);
+      if (entry.remainingTurns <= 0) {
+        participant.zones = participant.zones.filter((item) => String(item.id) !== String(entry.id));
+        events.push(`${participant.name}'s zone ${entry.name} expires.`);
+      }
+    }
+    return events;
+  };
   if (!targets.length) {
-    return [`${participant.name}'s zone ${entry.name} has no targets.`];
+    const events = decrementZoneDuration();
+    clampParticipant(participant);
+    const hasTrackedEffect =
+      (tickOnTurn && (zoneDamage > 0 || turnStatusType || turnStatusName)) ||
+      zoneShieldRestore > 0 ||
+      zoneHeal > 0;
+    if (hasTrackedEffect) {
+      events.unshift(`${participant.name}'s zone ${entry.name} has no targets.`);
+    }
+    return events;
   }
   const events = [];
   const nature5 = hasSetBonus(participant, 'Nature', 5);
   const nature7 = hasSetBonus(participant, 'Nature', 7);
-  const zoneShieldRestore = Math.max(0, Number(entry.shieldRestore || 0));
-  const zoneHeal = Math.max(0, Number(entry.heal || 0));
   for (const target of targets) {
     const allied = isParticipantAlly(participant, target);
-    const amount = Math.max(0, Number(entry.damage || 0));
-    const canDamageTarget = tickOnTurn && amount > 0 && !(allied && nature5);
+    const canDamageTarget = tickOnTurn && zoneDamage > 0 && !(allied && nature5);
     if (!canDamageTarget) {
-      if (tickOnTurn && allied && nature5 && amount > 0) {
+      if (tickOnTurn && allied && nature5 && zoneDamage > 0) {
         events.push(`${participant.name}'s zone ${entry.name} does not damage ally ${target.name}.`);
       }
       if (tickOnTurn || turnStatusType || zoneShieldRestore > 0 || zoneHeal > 0) {
         events.push(`${participant.name}'s zone ${entry.name} affects ${target.name}.`);
       }
     } else {
-      const result = applyCardDamageWithType(target, amount, entry.damageType, {
+      const result = applyCardDamageWithType(target, zoneDamage, entry.damageType, {
         sourceEntityId: participant.id
       });
       const mitigation =
@@ -6426,14 +6580,36 @@ function applyZoneTurnEffects(participant, zone) {
       }
     }
   }
-  if (Number(entry.remainingTurns || 0) > 0) {
-    entry.remainingTurns = Math.max(0, Number(entry.remainingTurns || 0) - 1);
-    if (entry.remainingTurns <= 0) {
-      participant.zones = participant.zones.filter((item) => String(item.id) !== String(entry.id));
-      events.push(`${participant.name}'s zone ${entry.name} expires.`);
-    }
-  }
+  events.push(...decrementZoneDuration());
   clampParticipant(participant);
+  return events;
+}
+
+function advancePassiveZonesForParticipant(participant) {
+  if (!participant) return [];
+  participant.zones = normalizeZones(participant.zones, participant.id);
+  const events = [];
+  const nextZones = [];
+  for (const zone of participant.zones || []) {
+    if (!zone || zone.tickOnTurn !== false) {
+      nextZones.push(zone);
+      continue;
+    }
+    const remainingTurns = Math.max(0, Number(zone.remainingTurns || 0));
+    if (remainingTurns <= 0) {
+      continue;
+    }
+    const nextZone = {
+      ...zone,
+      remainingTurns: Math.max(0, remainingTurns - 1)
+    };
+    if (nextZone.remainingTurns <= 0) {
+      events.push(`${participant.name}'s zone ${zone.name} expires.`);
+      continue;
+    }
+    nextZones.push(nextZone);
+  }
+  participant.zones = nextZones;
   return events;
 }
 
@@ -6934,36 +7110,16 @@ function migrateKnownPresetCard(card = {}) {
   if (set === 'Elemental' && name === 'stone guard') {
     return {
       ...card,
-      shieldRestoreByLevel: { 1: 3 },
-      abilityBonusesByLevel: undefined,
-      masteryChoiceOptions: [
-        {
-          id: 'shield_restore_4',
-          label: 'Shield restored increases to 4',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            shieldRestoreByLevel: { 2: 4, 3: 4, 4: 4 }
-          }
-        },
-        {
-          id: 'constitution_plus_1',
-          label: 'CON +1',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { constitution: 1 },
-              3: { constitution: 1 },
-              4: { constitution: 1 }
-            }
-          }
-        }
-      ],
+      shieldRestoreByLevel: { 1: 3, 2: 4, 3: 4, 4: 4 },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      masteryChoiceOptions: [],
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Shield restored increases to 4 or CON +1.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Shield restored increases to 4.',
+        'Level 3: CON +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -6972,37 +7128,18 @@ function migrateKnownPresetCard(card = {}) {
   if (set === 'Elemental' && name === 'wind step') {
     return {
       ...card,
-      movementByLevel: { 1: 10 },
-      abilityBonusesByLevel: undefined,
+      apCost: 2,
+      movementByLevel: { 1: 10, 2: 15, 3: 15, 4: 15 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
       utilityNote: 'Does not trigger opportunity attacks.',
-      masteryChoiceOptions: [
-        {
-          id: 'movement_to_15',
-          label: 'Movement increases to 15 ft',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            movementByLevel: { 2: 15, 3: 15, 4: 15 }
-          }
-        },
-        {
-          id: 'dexterity_plus_1',
-          label: 'DEX +1',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { dexterity: 1 },
-              3: { dexterity: 1 },
-              4: { dexterity: 1 }
-            }
-          }
-        }
-      ],
+      masteryChoiceOptions: [],
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Movement increases to 15 ft or DEX +1.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Movement increases to 15 ft.',
+        'Level 3: DEX +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -7336,6 +7473,7 @@ function normalizeZones(list = [], ownerId = '') {
         ownerId: String(entry.ownerId || ownerId || '').trim(),
         sourceCardId: String(entry.sourceCardId || '').trim(),
         name,
+        utilityNote: String(entry.utilityNote || '').trim(),
         damage: Number.isFinite(damage) ? Math.max(0, Math.round(damage)) : 0,
         damageType: String(entry.damageType || '').trim(),
         radiusFt: Number.isFinite(radiusRaw) ? Math.max(0, Math.round(radiusRaw)) : 0,
@@ -7646,6 +7784,10 @@ function normalizeStatusApplyConfig(source, level = 1, options = {}) {
   const id = detectStatusType({ presetId: source.id, name: source.name });
   const customName = String(source.name || '').trim();
   const customNotes = String(source.notes || '').trim();
+  const durationTurns = Math.max(
+    0,
+    Math.round(getCardScaledValue(source.durationTurnsByLevel, level, Number(source.durationTurns ?? 0)))
+  );
   if (!id && customName) {
     let stacks = Math.max(1, Math.round(getCardScaledValue(source.stacksByLevel, level, source.stacks ?? 1)));
     const stacksByLevelOverride = options?.stacksByLevelOverride;
@@ -7661,6 +7803,7 @@ function normalizeStatusApplyConfig(source, level = 1, options = {}) {
       name: customName,
       notes: customNotes,
       stacks,
+      durationTurns,
       isCustom: true
     };
   }
@@ -7674,7 +7817,7 @@ function normalizeStatusApplyConfig(source, level = 1, options = {}) {
   if (Number.isFinite(stacksOverride)) {
     stacks = Math.max(1, Math.round(stacksOverride));
   }
-  return { id, stacks };
+  return { id, stacks, durationTurns };
 }
 
 function normalizeCardStatusApply(card = {}, level = 1) {
@@ -8962,6 +9105,7 @@ function deployZoneFromCard(participant, card, options = {}) {
     ownerId: participant.id,
     sourceCardId: String(card?.id || '').trim(),
     name: `${card?.name || 'Zone'}`,
+    utilityNote: String(card?.utilityNote || '').trim(),
     damage: Math.max(0, Number(options.damage || 0)),
     damageType: String(options.damageType || card?.damageType || '').trim(),
     radiusFt,

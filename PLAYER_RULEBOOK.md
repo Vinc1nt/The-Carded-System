@@ -212,6 +212,7 @@ Some cards create unique timed effects, including:
 - `Haste Matrix`
 - `Haste Crash`
 - `Polymorphed`
+- `Sight Unseen`
 - `Toiling Flames`
 
 Read the card text and status note together. These effects often add a rule beyond basic damage or stacks.
@@ -224,11 +225,14 @@ Each card has:
 - a `Type`
 - a `Tier`
 - an `AP Cost`
+- optional `Charges`
 - a `Range`
 - a `Health Bonus`
 - a `Shield Bonus`
 - tags
 - an effect
+
+If a card has charges, it cannot be used when its charges are depleted.
 
 Card effects may do any of the following:
 
@@ -679,7 +683,7 @@ Current tracker limits:
 
 ### Long Rest
 
-- refreshes long-rest resources and clears once-per-long-rest limits
+- refreshes long-rest resources, refills all card charges, and clears once-per-long-rest limits
 
 ## 21. What The Tracker Automates vs What The Table Still Decides
 
