@@ -790,6 +790,12 @@ export const CARD_PRESETS = [
       multiTargetMax: 12,
       targetEnemiesOnly: true,
       targetEntityKinds: ['participant'],
+      areaRadiusByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
       contestedEffect: {
         choiceLabel: 'Effect',
         hostileOnly: true,
@@ -956,6 +962,12 @@ export const CARD_PRESETS = [
         'Gain Two Step for 2 turns. At the end of each turn, teleport 10 ft forward horizontally. If the space is occupied, you do not teleport.',
       targetMode: 'none',
       customCardEffect: 'arcane_two_step',
+      durationTurnsByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
       abilityBonusesByLevel: {
         3: { dexterity: 1 },
         4: { dexterity: 1 }
@@ -989,6 +1001,12 @@ export const CARD_PRESETS = [
       allowSelfTarget: false,
       targetAlliesOnly: true,
       customCardEffect: 'arcane_haste_matrix',
+      durationTurnsByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
       abilityBonusesByLevel: {
         3: { dexterity: 2 },
         4: { dexterity: 2 }
@@ -1918,12 +1936,21 @@ export const CARD_PRESETS = [
       shieldBonus: 2,
       tags: ['Earth'],
       damage: 10,
-      damageType: 'Bludgeoning',
-      effect: 'Deal 10 Bludgeoning damage to enemies within Radius 10 ft. Apply Prone.',
+      effect: 'Deal 10 damage to enemies within Radius 10 ft. Apply Prone.',
       utilityNote: 'Manually select enemies within the 10 ft radius. Prone is tracked as a removable status note.',
       targetMode: 'multi_select',
       multiTargetMax: 12,
       targetEnemiesOnly: true,
+      areaRadius: 10,
+      areaRadiusByLevel: {
+        1: 10
+      },
+      masteryDamageByLevel: {
+        1: 10,
+        2: 11,
+        3: 11,
+        4: 11
+      },
       statusApply: {
         name: 'Prone',
         notes: 'Removable note from Earthquake.',
@@ -1931,38 +1958,14 @@ export const CARD_PRESETS = [
           1: 1
         }
       },
-      masteryChoiceOptions: [
-        {
-          id: 'damage_to_11',
-          label: 'Damage increases to 11',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            damageByLevel: {
-              2: 11,
-              3: 11,
-              4: 11
-            }
-          }
-        },
-        {
-          id: 'constitution_plus_2',
-          label: 'CON +2',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { constitution: 2 },
-              3: { constitution: 2 },
-              4: { constitution: 2 }
-            }
-          }
-        }
-      ],
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Damage increases to 11 or CON +2.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Damage increases to 11.',
+        'Level 3: CON +2.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -3526,38 +3529,19 @@ export const CARD_PRESETS = [
       selfApNextTurnByLevel: {
         1: 2
       },
-      masteryChoiceOptions: [
-        {
-          id: 'gain_1_ap_now',
-          label: 'Gain +1 AP this turn as well',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            apGainByLevel: {
-              2: 1,
-              3: 1,
-              4: 1
-            }
-          }
-        },
-        {
-          id: 'dexterity_plus_2',
-          label: 'DEX +2',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { dexterity: 2 },
-              3: { dexterity: 2 },
-              4: { dexterity: 2 }
-            }
-          }
-        }
-      ],
+      apGainByLevel: {
+        2: 1,
+        3: 1,
+        4: 1
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Gain +1 AP this turn as well or DEX +2.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Gain +1 AP this turn as well.',
+        'Level 3: DEX +2.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -4454,44 +4438,27 @@ export const CARD_PRESETS = [
       targetMode: 'multi_select',
       multiTargetMax: 12,
       targetEnemiesOnly: true,
+      areaRadius: 15,
+      areaRadiusByLevel: {
+        1: 15
+      },
       statusApply: {
         id: 'rooted',
         stacksByLevel: {
-          1: 1
+          1: 1,
+          2: 2,
+          3: 2,
+          4: 2
         }
       },
-      masteryChoiceOptions: [
-        {
-          id: 'rooted_to_2',
-          label: 'Rooted increases to 2',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            statusApplyStacksByLevel: {
-              2: 2,
-              3: 2,
-              4: 2
-            }
-          }
-        },
-        {
-          id: 'dexterity_plus_2',
-          label: 'DEX +2',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { dexterity: 2 },
-              3: { dexterity: 2 },
-              4: { dexterity: 2 }
-            }
-          }
-        }
-      ],
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Rooted increases to 2 or DEX +2.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Rooted increases to 2.',
+        'Level 3: DEX +2.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -4537,8 +4504,654 @@ export const CARD_PRESETS = [
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
     }
+  },
+  {
+    id: 'elemental_acid_rain',
+    card: {
+      id: 'elemental_acid_rain',
+      name: 'Acid Rain',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 30,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Acid'],
+      damage: 6,
+      damageType: 'Acid',
+      effect: 'Create Acid Zone (Radius 15 ft). Enemies inside take 6 Acid damage each turn for 2 turns.',
+      utilityNote: 'Manually select enemies inside the zone to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      zoneRadius: 15,
+      zoneDurationTurns: 2,
+      masteryDamageByLevel: {
+        1: 6,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_stoneguard',
+    card: {
+      id: 'elemental_stoneguard',
+      name: 'Stoneguard',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 2,
+      shieldBonus: 3,
+      tags: ['Earth'],
+      effect: 'Restore 8 Shield to yourself.',
+      shieldRestoreByLevel: {
+        1: 8,
+        2: 10,
+        3: 10,
+        4: 10
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Shield restored increases to 10.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_cyclone',
+    card: {
+      id: 'elemental_cyclone',
+      name: 'Cyclone',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Wind'],
+      effect: 'Pull enemies within Radius 10 ft toward the center.',
+      utilityNote: 'Manually select enemies within the radius. Pull distance and final positioning are GM-enforced.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadiusByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      pullDistanceByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Radius increases to 15 ft.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_ice_cage',
+    card: {
+      id: 'elemental_ice_cage',
+      name: 'Ice Cage',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Cold'],
+      effect: 'Apply Restrained.',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      statusApply: {
+        id: 'restrained',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      iceCageRootedStacksByLevel: {
+        1: 0,
+        2: 2,
+        3: 2,
+        4: 2
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Rooted 2 as well.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_inferno',
+    card: {
+      id: 'elemental_inferno',
+      name: 'Inferno',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 25,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Fire'],
+      damage: 12,
+      damageType: 'Fire',
+      effect: 'Deal 12 Fire damage. Apply Burning 3.',
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 3,
+          2: 4,
+          3: 4,
+          4: 4
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Burning increases to 4.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_lava_field',
+    card: {
+      id: 'elemental_lava_field',
+      name: 'Lava Field',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 4,
+      range: 25,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Fire'],
+      damage: 6,
+      damageType: 'Fire',
+      effect: 'Create Fire Zone (Radius 15 ft). Enemies inside take 6 Fire damage each turn for 2 turns.',
+      utilityNote: 'Manually select enemies inside the zone to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      zoneRadius: 15,
+      zoneDurationTurns: 2,
+      masteryDamageByLevel: {
+        1: 6,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_thunderstorm',
+    card: {
+      id: 'elemental_thunderstorm',
+      name: 'Thunderstorm',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 4,
+      range: 30,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Lightning'],
+      damage: 9,
+      damageType: 'Lightning',
+      effect: 'Deal 9 Lightning damage to enemies within Radius 15 ft.',
+      utilityNote: 'Manually select enemies within the 15 ft radius.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadius: 15,
+      areaRadiusByLevel: {
+        1: 15
+      },
+      masteryDamageByLevel: {
+        1: 9,
+        2: 10,
+        3: 10,
+        4: 10
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 10.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'nature_wind_wall',
+    card: {
+      id: 'nature_wind_wall',
+      name: 'Wind Wall',
+      set: 'Nature',
+      type: 'Defense',
+      tier: 'Rare',
+      apCost: 4,
+      range: 15,
+      healthBonus: 2,
+      shieldBonus: 3,
+      tags: ['Construct'],
+      effect: 'Create Wind Barrier (HP 20) that blocks ranged attacks. Duration 2 turns.',
+      isConstruct: true,
+      constructMode: 'utility',
+      constructAllowUntargetedDeploy: true,
+      targetMode: 'none',
+      constructAp: 0,
+      constructMaxHp: 20,
+      constructMaxHpByLevel: {
+        1: 20,
+        2: 30,
+        3: 30,
+        4: 30
+      },
+      constructDurationTurns: 2,
+      constructUtilityNote: 'Wind Barrier blocks ranged attacks. Duration 2 turns.',
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: HP increases to 30.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
   }
 ];
+
+const LINEAR_MASTERY_CHOICE_EXCEPTIONS = new Set(['arcane_pause_button', 'demonic_fire_of_retribution']);
+
+function clonePlain(value) {
+  if (!value || typeof value !== 'object') return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeChoiceToken(value = '', fallback = '') {
+  const token = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return token || fallback;
+}
+
+function stripMasteryPrefix(line = '', level = 1) {
+  return String(line || '')
+    .replace(new RegExp(`^Level\\s*${level}\\s*:\\s*`, 'i'), '')
+    .trim()
+    .replace(/\.$/, '');
+}
+
+function getScaledMapNumber(source, level = 1, fallback = 0) {
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || 1)));
+  if (!source || typeof source !== 'object') return fallback;
+  const exact = Number(source[parsedLevel] ?? source[`level${parsedLevel}`]);
+  if (Number.isFinite(exact)) return exact;
+  for (let probe = parsedLevel - 1; probe >= 1; probe -= 1) {
+    const lowered = Number(source[probe] ?? source[`level${probe}`]);
+    if (Number.isFinite(lowered)) return lowered;
+  }
+  for (let probe = parsedLevel + 1; probe <= 4; probe += 1) {
+    const raised = Number(source[probe] ?? source[`level${probe}`]);
+    if (Number.isFinite(raised)) return raised;
+  }
+  return fallback;
+}
+
+function getMapNumberAtOrBefore(source, level = 1, fallback = 0) {
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || 1)));
+  if (!source || typeof source !== 'object') return fallback;
+  const exact = Number(source[parsedLevel] ?? source[`level${parsedLevel}`]);
+  if (Number.isFinite(exact)) return exact;
+  for (let probe = parsedLevel - 1; probe >= 1; probe -= 1) {
+    const lowered = Number(source[probe] ?? source[`level${probe}`]);
+    if (Number.isFinite(lowered)) return lowered;
+  }
+  return fallback;
+}
+
+function normalizeAbilityBonusEntry(entry = {}) {
+  if (!entry || typeof entry !== 'object') return null;
+  const normalized = {};
+  for (const [key, value] of Object.entries(entry)) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed === 0) continue;
+    normalized[key] = Math.round(parsed);
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function hasAbilityBonusEntry(entry = {}) {
+  return Boolean(normalizeAbilityBonusEntry(entry));
+}
+
+function getScaledAbilityBonusEntry(source, level = 1) {
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || 1)));
+  if (!source || typeof source !== 'object') return null;
+  const direct = normalizeAbilityBonusEntry(source[parsedLevel] || source[`level${parsedLevel}`]);
+  if (direct) return direct;
+  for (let probe = parsedLevel - 1; probe >= 1; probe -= 1) {
+    const lowered = normalizeAbilityBonusEntry(source[probe] || source[`level${probe}`]);
+    if (lowered) return lowered;
+  }
+  for (let probe = parsedLevel + 1; probe <= 4; probe += 1) {
+    const raised = normalizeAbilityBonusEntry(source[probe] || source[`level${probe}`]);
+    if (raised) return raised;
+  }
+  return null;
+}
+
+function getAbilityBonusEntryAtOrBefore(source, level = 1) {
+  const parsedLevel = Math.max(1, Math.min(4, Number(level || 1)));
+  if (!source || typeof source !== 'object') return null;
+  const direct = normalizeAbilityBonusEntry(source[parsedLevel] || source[`level${parsedLevel}`]);
+  if (direct) return direct;
+  for (let probe = parsedLevel - 1; probe >= 1; probe -= 1) {
+    const lowered = normalizeAbilityBonusEntry(source[probe] || source[`level${probe}`]);
+    if (lowered) return lowered;
+  }
+  return null;
+}
+
+function numericChoiceStartLevel(source, fallback = 0) {
+  const base = Number(getMapNumberAtOrBefore(source, 1, fallback));
+  for (let level = 2; level <= 4; level += 1) {
+    if (Number(getMapNumberAtOrBefore(source, level, fallback)) !== base) return level;
+  }
+  return 0;
+}
+
+function abilityChoiceStartLevel(source) {
+  const base = getAbilityBonusEntryAtOrBefore(source, 1);
+  for (let level = 2; level <= 4; level += 1) {
+    const current = getAbilityBonusEntryAtOrBefore(source, level);
+    if (JSON.stringify(current || null) !== JSON.stringify(base || null)) return level;
+  }
+  return 0;
+}
+
+function buildChoiceNumberMap(source, fallback = 0, startLevel = 2) {
+  const effect = {};
+  for (let level = 2; level <= 4; level += 1) {
+    const sourceLevel = level < startLevel ? startLevel : level;
+    effect[level] = Math.round(Number(getScaledMapNumber(source, sourceLevel, fallback)) || 0);
+  }
+  return effect;
+}
+
+function buildChoiceAbilityMap(source, startLevel = 2) {
+  const effect = {};
+  for (let level = 2; level <= 4; level += 1) {
+    const sourceLevel = level < startLevel ? startLevel : level;
+    const entry = getScaledAbilityBonusEntry(source, sourceLevel);
+    if (!entry) continue;
+    effect[level] = clonePlain(entry);
+  }
+  return Object.keys(effect).length ? effect : null;
+}
+
+function makeBaseNumberMap(source, fallback = 0) {
+  return { 1: Math.round(Number(getMapNumberAtOrBefore(source, 1, fallback)) || 0) };
+}
+
+function makeBaseAbilityMap(source) {
+  const entry = getAbilityBonusEntryAtOrBefore(source, 1);
+  return entry ? { 1: clonePlain(entry) } : null;
+}
+
+function contestedChoiceEffectKey(optionId = '', suffix = '') {
+  const token = normalizeChoiceToken(optionId, 'option');
+  return `contested_${token}_${suffix}`;
+}
+
+function cardByLevelFallback(card = {}, key = '') {
+  switch (key) {
+    case 'masteryDamageByLevel':
+      return Number(card.damage || 0);
+    case 'rangeByLevel':
+      return Number(card.range || 0);
+    case 'areaRadiusByLevel':
+      return Number(card.areaRadius || 0);
+    case 'zoneRadiusByLevel':
+      return Number(card.zoneRadius || 0);
+    case 'constructDurationTurnsByLevel':
+      return Number(card.constructDurationTurns ?? card.constructDuration ?? card.durationTurns ?? 1);
+    case 'constructMaxHpByLevel':
+      return Number(card.constructMaxHp || 0);
+    case 'durationTurnsByLevel':
+      return Number(card.durationTurns || 0);
+    case 'pauseApByLevel':
+      return Number(card.pauseAp || 0);
+    case 'healByLevel':
+      return Number(card.heal || 0);
+    default:
+      return 0;
+  }
+}
+
+function assignChoiceEffect(target, branch = '', key = '', value = null) {
+  if (!target?.[branch] || !key || !value || typeof value !== 'object') return;
+  target[branch][key] = clonePlain(value);
+}
+
+function hasChoiceEffects(effects = {}) {
+  return Boolean(effects && typeof effects === 'object' && Object.keys(effects).length);
+}
+
+function applySpecialLinearChoiceFields(card = {}, choiceEffects = {}) {
+  const cardId = String(card.id || '').trim();
+  if (cardId === 'arcane_no') {
+    card.offTurnReactionEnabledByLevel = { 1: 0 };
+    assignChoiceEffect(choiceEffects, 'optionA', 'offTurnReactionEnabledByLevel', { 2: 1, 3: 1, 4: 1 });
+  }
+  if (cardId === 'demonic_ray_of_enfeeblement') {
+    card.hpSacrificeWeakenedStacksByLevel = { 1: 1 };
+    assignChoiceEffect(choiceEffects, 'optionB', 'hpSacrificeWeakenedStacksByLevel', { 2: 2, 3: 2, 4: 2 });
+  }
+}
+
+export function applyDefaultMasteryChoiceBehavior(card = {}) {
+  if (!card || typeof card !== 'object') return card;
+  if (Array.isArray(card.masteryChoiceOptions) && card.masteryChoiceOptions.length) return card;
+  if (LINEAR_MASTERY_CHOICE_EXCEPTIONS.has(String(card.id || '').trim())) return card;
+  const masteryLines = Array.isArray(card.mastery) ? card.mastery.map((line) => String(line || '').trim()).filter(Boolean) : [];
+  if (masteryLines.length < 4) return card;
+  const level2Label = stripMasteryPrefix(masteryLines[1], 2);
+  const level3Label = stripMasteryPrefix(masteryLines[2], 3);
+  if (!level2Label || !level3Label || level3Label === '-' || /unlocks fusion eligibility/i.test(level3Label)) {
+    return card;
+  }
+
+  const choiceEffects = { optionA: {}, optionB: {} };
+  const topLevelKeys = Object.keys(card).filter((key) => key.endsWith('ByLevel') && key !== 'abilityBonusesByLevel');
+  for (const key of topLevelKeys) {
+    const source = card[key];
+    if (!source || typeof source !== 'object') continue;
+    const fallback = cardByLevelFallback(card, key);
+    const startLevel = numericChoiceStartLevel(source, fallback);
+    if (startLevel !== 2 && startLevel !== 3) continue;
+    const branch = startLevel === 2 ? 'optionA' : 'optionB';
+    assignChoiceEffect(choiceEffects, branch, key, buildChoiceNumberMap(source, fallback, startLevel));
+    card[key] = makeBaseNumberMap(source, fallback);
+  }
+
+  if (card.abilityBonusesByLevel && typeof card.abilityBonusesByLevel === 'object') {
+    const startLevel = abilityChoiceStartLevel(card.abilityBonusesByLevel);
+    if (startLevel === 2 || startLevel === 3) {
+      const branch = startLevel === 2 ? 'optionA' : 'optionB';
+      const effect = buildChoiceAbilityMap(card.abilityBonusesByLevel, startLevel);
+      if (effect) {
+        assignChoiceEffect(choiceEffects, branch, 'abilityBonusesByLevel', effect);
+        card.abilityBonusesByLevel = makeBaseAbilityMap(card.abilityBonusesByLevel);
+      }
+    }
+  }
+
+  if (card.statusApply && typeof card.statusApply === 'object') {
+    const stackFallback = Number(card.statusApply.stacks ?? card.statusApply.defaultStacks ?? 1);
+    const stackStart = numericChoiceStartLevel(card.statusApply.stacksByLevel, stackFallback);
+    if (stackStart === 2 || stackStart === 3) {
+      const branch = stackStart === 2 ? 'optionA' : 'optionB';
+      assignChoiceEffect(
+        choiceEffects,
+        branch,
+        'statusApplyStacksByLevel',
+        buildChoiceNumberMap(card.statusApply.stacksByLevel, stackFallback, stackStart)
+      );
+      card.statusApply.stacksByLevel = makeBaseNumberMap(card.statusApply.stacksByLevel, stackFallback);
+    }
+    const durationFallback = Number(card.statusApply.durationTurns ?? 0);
+    const durationStart = numericChoiceStartLevel(card.statusApply.durationTurnsByLevel, durationFallback);
+    if (durationStart === 2 || durationStart === 3) {
+      const branch = durationStart === 2 ? 'optionA' : 'optionB';
+      assignChoiceEffect(
+        choiceEffects,
+        branch,
+        'statusApplyDurationTurnsByLevel',
+        buildChoiceNumberMap(card.statusApply.durationTurnsByLevel, durationFallback, durationStart)
+      );
+      card.statusApply.durationTurnsByLevel = makeBaseNumberMap(card.statusApply.durationTurnsByLevel, durationFallback);
+    }
+  }
+
+  if (card.contestedEffect && typeof card.contestedEffect === 'object' && Array.isArray(card.contestedEffect.options)) {
+    for (const entry of card.contestedEffect.options) {
+      if (!entry || typeof entry !== 'object') continue;
+      const optionId = String(entry.id || '').trim();
+      if (!optionId) continue;
+      const stackFallback = Number(entry.statusStacks ?? 1);
+      const stackStart = numericChoiceStartLevel(entry.statusStacksByLevel, stackFallback);
+      if (stackStart === 2 || stackStart === 3) {
+        const branch = stackStart === 2 ? 'optionA' : 'optionB';
+        assignChoiceEffect(
+          choiceEffects,
+          branch,
+          contestedChoiceEffectKey(optionId, 'statusStacksByLevel'),
+          buildChoiceNumberMap(entry.statusStacksByLevel, stackFallback, stackStart)
+        );
+        entry.statusStacksByLevel = makeBaseNumberMap(entry.statusStacksByLevel, stackFallback);
+      }
+      const durationFallback = Number(entry.durationTurns ?? card.contestedEffect.durationTurns ?? 0);
+      const durationStart = numericChoiceStartLevel(entry.durationTurnsByLevel, durationFallback);
+      if (durationStart === 2 || durationStart === 3) {
+        const branch = durationStart === 2 ? 'optionA' : 'optionB';
+        assignChoiceEffect(
+          choiceEffects,
+          branch,
+          contestedChoiceEffectKey(optionId, 'durationTurnsByLevel'),
+          buildChoiceNumberMap(entry.durationTurnsByLevel, durationFallback, durationStart)
+        );
+        entry.durationTurnsByLevel = makeBaseNumberMap(entry.durationTurnsByLevel, durationFallback);
+      }
+    }
+  }
+
+  applySpecialLinearChoiceFields(card, choiceEffects);
+  if (!hasChoiceEffects(choiceEffects.optionA) || !hasChoiceEffects(choiceEffects.optionB)) {
+    return card;
+  }
+
+  card.masteryChoiceOptions = [
+    {
+      id: normalizeChoiceToken(level2Label, 'choice_1'),
+      label: level2Label,
+      unlockLevel: 2,
+      deferredUnlockLevel: 3,
+      effects: clonePlain(choiceEffects.optionA)
+    },
+    {
+      id: normalizeChoiceToken(level3Label, 'choice_2'),
+      label: level3Label,
+      unlockLevel: 2,
+      deferredUnlockLevel: 3,
+      effects: clonePlain(choiceEffects.optionB)
+    }
+  ];
+  card.mastery = [
+    'Level 1: Base.',
+    `Level 2: Choose ${level2Label} or ${level3Label}.`,
+    'Level 3: Gain the option not chosen at Level 2.',
+    masteryLines[3] || 'Level 4: Unlocks fusion eligibility.'
+  ];
+  return card;
+}
+
+for (const entry of CARD_PRESETS) {
+  if (!entry?.card) continue;
+  applyDefaultMasteryChoiceBehavior(entry.card);
+}
 
 export const RARITY_ORDER = [
   'Common',

@@ -4320,22 +4320,40 @@ function renderPlayerCardCustomEffectControl(card = {}, participant = {}) {
       </select>
     </label>`;
   }
-  if (effectId === 'demonic_ray_of_enfeeblement' && Number(card.masteryLevel || 1) >= 3) {
+  const masteryLevel = Math.max(1, Math.min(4, Number(card.masteryLevel || 1)));
+  const raySacrificeStacks = Math.max(
+    1,
+    Math.round(getCardScaledEffectValue(card, 'hpSacrificeWeakenedStacksByLevel', masteryLevel, 1))
+  );
+  if (effectId === 'demonic_ray_of_enfeeblement' && raySacrificeStacks > 1) {
     return `<label class="checkbox-label">
       <input type="checkbox" data-player-card-use-hp-sacrifice="${card.id}" />
-      Sacrifice 10 HP to apply Weakened 2 instead.
+      Sacrifice 10 HP to apply Weakened ${raySacrificeStacks} instead.
     </label>`;
   }
-  if (effectId === 'divine_sight_unseen' && Number(card.masteryLevel || 1) >= 2) {
+  const allyShareRadiusFt = Math.max(
+    0,
+    Math.round(getCardScaledEffectValue(card, 'allyShareRadiusFtByLevel', masteryLevel, 0))
+  );
+  if (effectId === 'divine_sight_unseen' && allyShareRadiusFt > 0) {
     const multiTargetCap = Math.max(1, Number(card.multiTargetMax || 12));
-    return `<label>Affected Allies (within 10 ft)
+    return `<label>Affected Allies (within ${allyShareRadiusFt} ft)
       <select data-player-card-targets="${card.id}" multiple size="${Math.max(3, Math.min(6, multiTargetCap + 1))}">
         ${renderPlayerTargetOptions(participant.id, true, 'allies', participant)}
       </select>
     </label>
-    <p class="muted small-note">Select only allies actually within 10 ft. Self is included automatically.</p>`;
+    <p class="muted small-note">Select only allies actually within ${allyShareRadiusFt} ft. Self is included automatically.</p>`;
   }
   return '';
+}
+
+function getContestedChoiceEffectKey(optionId = '', suffix = '') {
+  const token = String(optionId || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'option';
+  return `contested_${token}_${suffix}`;
 }
 
 function renderPlayerCardTargetControl(card = {}, participant = {}) {
@@ -4579,7 +4597,7 @@ function getStatusApplyAtMastery(card = {}, level = 1) {
   if (!source || typeof source !== 'object') return null;
   const id = String(source.id || source.statusId || '').trim();
   const name = resolveStatusName(id, String(source.name || '').trim());
-  const durationTurns = Math.max(
+  let durationTurns = Math.max(
     0,
     Math.round(getCardScaledValue(source.durationTurnsByLevel, level, Number(source.durationTurns ?? 0)))
   );
@@ -4590,6 +4608,7 @@ function getStatusApplyAtMastery(card = {}, level = 1) {
     )
   );
   stacks = Math.max(1, Math.round(getCardScaledEffectValue(card, 'statusApplyStacksByLevel', level, stacks)));
+  durationTurns = Math.max(0, Math.round(getCardScaledEffectValue(card, 'statusApplyDurationTurnsByLevel', level, durationTurns)));
   if (!id && !name) return null;
   return { id, name, stacks, durationTurns };
 }
@@ -4605,10 +4624,15 @@ function getPlayerCardContestedEffectSummary(card = {}, level = 1) {
       const durationTurns = Math.max(
         0,
         Math.round(
-          getCardScaledValue(
-            entry.durationTurnsByLevel,
+          getCardScaledEffectValue(
+            card,
+            getContestedChoiceEffectKey(String(entry.id || '').trim(), 'durationTurnsByLevel'),
             level,
-            Number(entry.durationTurns ?? source.durationTurns ?? 0)
+            getCardScaledValue(
+              entry.durationTurnsByLevel,
+              level,
+              Number(entry.durationTurns ?? source.durationTurns ?? 0)
+            )
           )
         )
       );
@@ -4618,10 +4642,15 @@ function getPlayerCardContestedEffectSummary(card = {}, level = 1) {
         statusStacks: Math.max(
           1,
           Math.round(
-            getCardScaledValue(
-              entry.statusStacksByLevel,
+            getCardScaledEffectValue(
+              card,
+              getContestedChoiceEffectKey(String(entry.id || '').trim(), 'statusStacksByLevel'),
               level,
-              Number(entry.statusStacks || 1)
+              getCardScaledValue(
+                entry.statusStacksByLevel,
+                level,
+                Number(entry.statusStacks || 1)
+              )
             )
           )
         ),
@@ -4703,14 +4732,26 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   );
   const parts = [];
   if (customEffectId === 'arcane_two_step') {
-    const duration = level >= 2 ? 3 : 2;
+    const duration = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', level, Number(card.durationTurnsByLevel?.[1] ?? card.durationTurns ?? 2)))
+    );
     parts.push(`Gain Two Step for ${duration} turn${duration === 1 ? '' : 's'}. End of each turn, resolve a 10 ft forward horizontal teleport if space permits.`);
   } else if (customEffectId === 'arcane_haste_matrix') {
-    const duration = level >= 2 ? 3 : 2;
+    const duration = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', level, Number(card.durationTurnsByLevel?.[1] ?? card.durationTurns ?? 2)))
+    );
     parts.push(`Target ally gains +2 AP at the start of each turn for ${duration} turn${duration === 1 ? '' : 's'}. When it ends, Haste Crash applies (-4 AP on the next turn). Each creature can only be targeted twice per encounter.`);
   } else if (customEffectId === 'arcane_pause_button') {
-    const duration = level >= 2 ? 2 : 1;
-    const pauseAp = level >= 2 ? 4 : 2;
+    const duration = Math.max(
+      1,
+      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', level, Number(card.durationTurnsByLevel?.[1] ?? card.durationTurns ?? 1)))
+    );
+    const pauseAp = Math.max(
+      0,
+      Math.round(getCardScaledEffectValue(card, 'pauseApByLevel', level, Number(card.pauseApByLevel?.[1] ?? card.pauseAp ?? 2)))
+    );
     parts.push(
       `After this turn, time pauses for ${duration} extra turn${duration === 1 ? '' : 's'}. You may act with ${pauseAp} AP each paused turn. Zone timing, construct timing, incoming delayed effects, and round-based triggers are suspended during the pause. Then forfeit your next normal turn. Once per long rest.`
     );
@@ -4784,6 +4825,13 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     } else {
       parts.push(`Apply ${statusApply.name} ${statusApply.stacks}${durationText}.`);
     }
+  }
+  const iceCageRootedStacks = Math.max(
+    0,
+    Math.round(getCardScaledEffectValue(card, 'iceCageRootedStacksByLevel', level, 0))
+  );
+  if (iceCageRootedStacks > 0) {
+    parts.push(`Also apply Rooted ${iceCageRootedStacks} (GM-enforced while Restrained persists).`);
   }
   if (targetMode === 'multi_select' && areaRadius > 0) {
     const groupLabel =

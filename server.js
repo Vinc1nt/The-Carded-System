@@ -60,7 +60,7 @@ import {
   getCurrentParticipantForEncounter,
   findZoneInOwner
 } from './lib/turn-order.js';
-import { CARD_PRESETS } from './public/card-presets.js';
+import { CARD_PRESETS, applyDefaultMasteryChoiceBehavior } from './public/card-presets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,6 +84,11 @@ function normalizePresetCardToken(value = '') {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+}
+
+function getContestedChoiceEffectKey(optionId = '', suffix = '') {
+  const token = normalizePresetCardToken(optionId) || 'option';
+  return `contested_${token}_${suffix}`;
 }
 
 function buildCardPresetLookup(list = []) {
@@ -1868,12 +1873,16 @@ function executeCardAction(body) {
   const currentTurnParticipant = getCurrentParticipant();
   const isOffTurnForParticipant =
     Boolean(currentTurnParticipant?.id) && currentTurnParticipant.id !== participant.id;
-  if (customCardEffect === 'arcane_no' && isOffTurnForParticipant && masteryLevel < 2) {
+  const offTurnReactionEnabled = Math.max(
+    0,
+    Math.round(getCardScaledEffectValue(card, 'offTurnReactionEnabledByLevel', masteryLevel, 0))
+  );
+  if (customCardEffect === 'arcane_no' && isOffTurnForParticipant && offTurnReactionEnabled < 1) {
     return { error: 'No requires Mastery 2 to be used off-turn as a reaction.' };
   }
   const isArcaneNoReaction =
     customCardEffect === 'arcane_no' &&
-    masteryLevel >= 2 &&
+    offTurnReactionEnabled > 0 &&
     isOffTurnForParticipant;
   if (customCardEffect === 'arcane_pause_button' && card?.effectState?.pauseButtonUsedLongRest === true) {
     return { error: 'Pause Button is available once per long rest.' };
@@ -2238,9 +2247,13 @@ function executeCardAction(body) {
   const requestedHpSacrifice =
     body.useHpSacrifice === true ||
     String(body.useHpSacrifice || '').trim().toLowerCase() === 'true';
+  const rayEnfeeblementSacrificeStacks = Math.max(
+    1,
+    Math.round(getCardScaledEffectValue(card, 'hpSacrificeWeakenedStacksByLevel', masteryLevel, 1))
+  );
   const rayEnfeeblementEmpowered =
     customCardEffect === 'demonic_ray_of_enfeeblement' &&
-    masteryLevel >= 3 &&
+    rayEnfeeblementSacrificeStacks > 1 &&
     requestedHpSacrifice;
   const selfHpLossTotal =
     selfHpLossBase +
@@ -2671,7 +2684,14 @@ function executeCardAction(body) {
     }
     const durationTurns = Math.max(
       0,
-      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, masteryLevel >= 2 ? 3 : 2))
+      Math.round(
+        getCardScaledEffectValue(
+          card,
+          'durationTurnsByLevel',
+          masteryLevel,
+          Number(card.durationTurnsByLevel?.[1] ?? card.durationTurns ?? 2)
+        )
+      )
     );
     upsertTimedStatus(participant, {
       presetId: 'two_step',
@@ -2748,7 +2768,14 @@ function executeCardAction(body) {
     }
     const durationTurns = Math.max(
       0,
-      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, masteryLevel >= 2 ? 3 : 2))
+      Math.round(
+        getCardScaledEffectValue(
+          card,
+          'durationTurnsByLevel',
+          masteryLevel,
+          Number(card.durationTurnsByLevel?.[1] ?? card.durationTurns ?? 2)
+        )
+      )
     );
     upsertTimedStatus(primaryTarget, {
       presetId: 'haste_matrix',
@@ -2831,11 +2858,25 @@ function executeCardAction(body) {
     }
     const durationTurns = Math.max(
       1,
-      Math.round(getCardScaledEffectValue(card, 'durationTurnsByLevel', masteryLevel, masteryLevel >= 2 ? 2 : 1))
+      Math.round(
+        getCardScaledEffectValue(
+          card,
+          'durationTurnsByLevel',
+          masteryLevel,
+          Number(card.durationTurnsByLevel?.[1] ?? card.durationTurns ?? 1)
+        )
+      )
     );
     const pauseAp = Math.max(
       0,
-      Math.round(getCardScaledEffectValue(card, 'pauseApByLevel', masteryLevel, masteryLevel >= 2 ? 4 : 2))
+      Math.round(
+        getCardScaledEffectValue(
+          card,
+          'pauseApByLevel',
+          masteryLevel,
+          Number(card.pauseApByLevel?.[1] ?? card.pauseAp ?? 2)
+        )
+      )
     );
     card.effectState = {
       ...effectState,
@@ -3243,11 +3284,11 @@ function executeCardAction(body) {
       return { error: `${card.name} can only share with allies.` };
     }
     const selectedAllies = selectedTargets.filter((entry) => entry.id !== participant.id);
-    if (masteryLevel < 2 && selectedAllies.length) {
+    if (allyShareRadiusFt < 1 && selectedAllies.length) {
       return { error: `${card.name} can only affect the caster until Mastery 2.` };
     }
     const recipients = Array.from(
-      new Map([participant, ...(masteryLevel >= 2 ? selectedAllies : [])].map((entry) => [String(entry.id || ''), entry])).values()
+      new Map([participant, ...(allyShareRadiusFt > 0 ? selectedAllies : [])].map((entry) => [String(entry.id || ''), entry])).values()
     );
     recipients.forEach((entry) => {
       upsertTimedStatus(entry, {
@@ -3327,8 +3368,10 @@ function executeCardAction(body) {
       notes.push(`${participant.name} loses ${hpLoss} HP.`);
     }
     if (rayEnfeeblementEmpowered && statusApply) {
-      statusApply = { ...statusApply, stacks: Math.max(2, Number(statusApply.stacks || 1)) };
-      notes.push('Ray of Enfeeblement is empowered to apply Weakened 2.');
+      statusApply = { ...statusApply, stacks: Math.max(rayEnfeeblementSacrificeStacks, Number(statusApply.stacks || 1)) };
+      notes.push(
+        `Ray of Enfeeblement is empowered to apply Weakened ${Math.max(rayEnfeeblementSacrificeStacks, Number(statusApply.stacks || 1))}.`
+      );
     }
   }
 
@@ -4129,6 +4172,13 @@ function executeCardAction(body) {
             statusDurationTurns > 0 ? ` for ${statusDurationTurns} turn${statusDurationTurns === 1 ? '' : 's'}` : ''
           } to ${appliedTargets.join(', ')}.`
         );
+      }
+      const iceCageRootedStacks = Math.max(
+        0,
+        Math.round(getCardScaledEffectValue(card, 'iceCageRootedStacksByLevel', masteryLevel, 0))
+      );
+      if (iceCageRootedStacks > 0 && appliedTargets.length) {
+        notes.push(`Ice Cage also counts as Rooted ${iceCageRootedStacks} while Restrained persists (GM-enforced note).`);
       }
       if (hasElemental10 && !elemental.burstUsedTurn) {
         const burstTargets = Array.from(
@@ -7625,7 +7675,7 @@ function normalizeCards(list = []) {
   const normalized = list
     .map((card, index) => {
       if (!card || typeof card !== 'object') return null;
-      const migratedCard = migrateKnownPresetCard(card);
+      const migratedCard = applyDefaultMasteryChoiceBehavior(migrateKnownPresetCard(structuredClone(card)));
       const tierName = String(migratedCard.tier || 'Common').trim() || 'Common';
       const thresholds = normalizeCardThresholds(migratedCard.masteryThresholds, tierName);
       const masteryUsesRaw = Number(migratedCard.masteryUses ?? migratedCard.uses ?? 0);
@@ -7919,7 +7969,11 @@ function normalizeCardStatusApply(card = {}, level = 1) {
   const base = normalizeStatusApplyConfig(card.statusApply, level);
   if (!base) return null;
   const stacks = Math.max(1, Math.round(getCardScaledEffectValue(card, 'statusApplyStacksByLevel', level, base.stacks)));
-  return { ...base, stacks };
+  const durationTurns = Math.max(
+    0,
+    Math.round(getCardScaledEffectValue(card, 'statusApplyDurationTurnsByLevel', level, base.durationTurns))
+  );
+  return { ...base, stacks, durationTurns };
 }
 
 function isSelfTargetCard(card = {}, level = 1) {
@@ -8884,10 +8938,15 @@ function getCardContestedEffectConfig(card = {}, masteryLevel = 1) {
       const durationTurns = Math.max(
         0,
         Math.round(
-          getCardScaledValue(
-            entry.durationTurnsByLevel,
+          getCardScaledEffectValue(
+            card,
+            getContestedChoiceEffectKey(id, 'durationTurnsByLevel'),
             masteryLevel,
-            Number(entry.durationTurns ?? source.durationTurns ?? 0)
+            getCardScaledValue(
+              entry.durationTurnsByLevel,
+              masteryLevel,
+              Number(entry.durationTurns ?? source.durationTurns ?? 0)
+            )
           )
         )
       );
@@ -8901,10 +8960,15 @@ function getCardContestedEffectConfig(card = {}, masteryLevel = 1) {
             statusStacks: Math.max(
               1,
               Math.round(
-                getCardScaledValue(
-                  entry.statusStacksByLevel,
+                getCardScaledEffectValue(
+                  card,
+                  getContestedChoiceEffectKey(id, 'statusStacksByLevel'),
                   masteryLevel,
-                  Number(entry.statusStacks || 1)
+                  getCardScaledValue(
+                    entry.statusStacksByLevel,
+                    masteryLevel,
+                    Number(entry.statusStacks || 1)
+                  )
                 )
               )
             ),
