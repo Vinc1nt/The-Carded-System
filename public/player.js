@@ -4714,6 +4714,14 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
     parts.push(
       `After this turn, time pauses for ${duration} extra turn${duration === 1 ? '' : 's'}. You may act with ${pauseAp} AP each paused turn. Zone timing, construct timing, incoming delayed effects, and round-based triggers are suspended during the pause. Then forfeit your next normal turn. Once per long rest.`
     );
+  } else if (customEffectId === 'nature_lightning_strike') {
+    const splashDamage = getCardSecondaryDamage(card);
+    parts.push(
+      `Deal ${getCardDisplayDamage(card)}${card.damageType ? ` ${card.damageType}` : ''} damage to one marked primary target and ${splashDamage}${card.damageType ? ` ${card.damageType}` : ''} damage to each other selected enemy within ${areaRadius} ft. Mark exactly one selected enemy as the primary strike target.`
+    );
+  }
+  if (customEffectId === 'nature_lightning_strike') {
+    return parts.join(' ');
   }
   const damage = getCardDisplayDamage(card);
   const secondaryDamage = getCardSecondaryDamage(card);
@@ -4994,6 +5002,7 @@ function renderCardDamageLine(card = {}, participant = {}) {
   const secondaryType = card.secondaryDamageType || card.damageType || '';
   const secondaryTargetMode = getCardSecondaryTargetMode(card);
   const targetMode = getCardTargetMode(card);
+  const customEffectId = String(card?.customCardEffect || '').trim().toLowerCase();
   const multiTargetCap = targetMode === 'multi_select' ? getCardMultiTargetCap(card) : 0;
   const multiTargetMin =
     targetMode === 'multi_select'
@@ -5001,6 +5010,9 @@ function renderCardDamageLine(card = {}, participant = {}) {
       : 0;
   const typeText = card.damageType || '';
   if (!isConstructCard(card)) {
+    if (customEffectId === 'nature_lightning_strike') {
+      return `<p>Damage: ${baseDamage} ${typeText} (primary) + ${secondaryDamage} ${secondaryType || typeText} (splash)</p>`;
+    }
     if (baseDamage > 0 && secondaryDamage > 0 && secondaryTargetMode === 'adjacent') {
       return `<p>Damage: ${baseDamage} ${typeText} (target) + ${secondaryDamage} ${secondaryType} (adjacent)</p>`;
     }

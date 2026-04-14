@@ -1383,6 +1383,59 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'nature_lightning_strike',
+    card: {
+      id: 'nature_lightning_strike',
+      name: 'Lightning Strike',
+      set: 'Nature',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 4,
+      range: 30,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Lightning'],
+      damage: 10,
+      damageType: 'Lightning',
+      secondaryDamage: 5,
+      secondaryDamageByLevel: {
+        1: 5,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      effect: 'Deal 10 Lightning damage to target and 5 damage to enemies within 10 ft.',
+      utilityNote: 'Manually select the main target and any enemies within 10 ft. Mark exactly one selected enemy as the primary strike target.',
+      customCardEffect: 'nature_lightning_strike',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadius: 10,
+      areaRadiusByLevel: {
+        1: 10
+      },
+      perTargetInputs: [
+        {
+          id: 'primary',
+          label: 'Primary target',
+          type: 'checkbox',
+          defaultChecked: false
+        }
+      ],
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Splash damage increases to 7.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'elemental_healing_spring',
     card: {
       id: 'elemental_healing_spring',
@@ -4043,41 +4096,20 @@ export const CARD_PRESETS = [
       statusApply: {
         id: 'burning',
         stacksByLevel: {
-          1: 2
+          1: 2,
+          2: 3,
+          3: 3,
+          4: 3
         }
       },
-      masteryChoiceOptions: [
-        {
-          id: 'burning_to_3',
-          label: 'Burning increases to 3',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            statusApplyStacksByLevel: {
-              2: 3,
-              3: 3,
-              4: 3
-            }
-          }
-        },
-        {
-          id: 'intelligence_plus_1',
-          label: 'INT +1',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { intelligence: 1 },
-              3: { intelligence: 1 },
-              4: { intelligence: 1 }
-            }
-          }
-        }
-      ],
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Burning increases to 3 or INT +1.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Burning increases to 3.',
+        'Level 3: INT +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -4232,38 +4264,171 @@ export const CARD_PRESETS = [
       targetEnemiesOnly: true,
       zoneRadius: 10,
       zoneDurationTurns: 2,
-      masteryChoiceOptions: [
-        {
-          id: 'damage_to_5',
-          label: 'Zone damage increases to 5',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            damageByLevel: {
-              2: 5,
-              3: 5,
-              4: 5
-            }
-          }
-        },
-        {
-          id: 'intelligence_plus_1',
-          label: 'INT +1',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { intelligence: 1 },
-              3: { intelligence: 1 },
-              4: { intelligence: 1 }
-            }
-          }
-        }
-      ],
+      masteryDamageByLevel: {
+        1: 4,
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Zone damage increases to 5 or INT +1.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Damage increases to 5.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_ice_armour',
+    card: {
+      id: 'elemental_ice_armour',
+      name: 'Ice Armour',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 2,
+      tags: ['Cold'],
+      effect: 'Restore 4 Shield.',
+      shieldRestoreByLevel: {
+        1: 4,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Shield restored increases to 6.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_stone_wall',
+    card: {
+      id: 'elemental_stone_wall',
+      name: 'Stone Wall',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Earth'],
+      effect: 'Create a 10 ft long earthen wall with 30 HP. 2 characters may hide behind the stone wall and benefit from full cover.',
+      isConstruct: true,
+      constructMode: 'utility',
+      constructAllowUntargetedDeploy: true,
+      constructAp: 0,
+      constructMaxHp: 30,
+      constructMaxHpByLevel: {
+        1: 30,
+        2: 40,
+        3: 40,
+        4: 40
+      },
+      constructDurationTurns: 0,
+      constructUtilityNote: '10 ft earthen wall. Up to 2 characters may hide behind it and benefit from full cover. Persists until removed or destroyed.',
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Wall HP increases to 40.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_thunderclap',
+    card: {
+      id: 'elemental_thunderclap',
+      name: 'Thunderclap',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 10,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Lightning'],
+      damage: 7,
+      damageType: 'Lightning',
+      effect: 'Deal 7 Lightning damage to enemies within 10 ft radius.',
+      utilityNote: 'Manually select enemies within the 10 ft radius.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadius: 10,
+      areaRadiusByLevel: {
+        1: 10
+      },
+      masteryDamageByLevel: {
+        1: 7,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 8.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_wind_gust',
+    card: {
+      id: 'elemental_wind_gust',
+      name: 'Wind Gust',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Wind'],
+      effect: 'Push target 15 ft.',
+      pushDistanceByLevel: {
+        1: 15,
+        2: 20,
+        3: 20,
+        4: 20
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Push increases to 20 ft.',
+        'Level 3: DEX +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
@@ -4354,38 +4519,20 @@ export const CARD_PRESETS = [
           1: 2
         }
       },
-      masteryChoiceOptions: [
-        {
-          id: 'damage_to_8',
-          label: 'Damage increases to 8',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            damageByLevel: {
-              2: 8,
-              3: 8,
-              4: 8
-            }
-          }
-        },
-        {
-          id: 'dexterity_plus_1',
-          label: 'DEX +1',
-          unlockLevel: 2,
-          deferredUnlockLevel: 3,
-          effects: {
-            abilityBonusesByLevel: {
-              2: { dexterity: 1 },
-              3: { dexterity: 1 },
-              4: { dexterity: 1 }
-            }
-          }
-        }
-      ],
+      masteryDamageByLevel: {
+        1: 7,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
       mastery: [
         'Level 1: Base.',
-        'Level 2: Choose Damage increases to 8 or DEX +1.',
-        'Level 3: Gain the option not chosen at Level 2.',
+        'Level 2: Damage increases to 8.',
+        'Level 3: DEX +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'

@@ -2473,6 +2473,28 @@ function executeCardAction(body) {
       return { error: `Resolve whether ${unresolvedTarget.target.name} resists ${card.name}.` };
     }
   }
+  let lightningStrikePrimaryTarget = null;
+  let lightningStrikeSplashTargets = [];
+  if (customCardEffect === 'nature_lightning_strike') {
+    if (!effectivePrimaryTargets.length) {
+      return { error: `${card.name} requires at least 1 target.` };
+    }
+    const markedPrimaryTargets = effectivePrimaryTargets.filter((entry) => {
+      const detail = targetDetailsById[entry.id] || {};
+      return detail.primary === true || String(detail.primary || '').trim().toLowerCase() === 'true';
+    });
+    if (markedPrimaryTargets.length > 1) {
+      return { error: `Mark exactly one primary target for ${card.name}.` };
+    }
+    if (markedPrimaryTargets.length === 1) {
+      [lightningStrikePrimaryTarget] = markedPrimaryTargets;
+    } else if (effectivePrimaryTargets.length === 1) {
+      [lightningStrikePrimaryTarget] = effectivePrimaryTargets;
+    } else {
+      return { error: `Mark one selected target as the primary strike target for ${card.name}.` };
+    }
+    lightningStrikeSplashTargets = effectivePrimaryTargets.filter((entry) => entry.id !== lightningStrikePrimaryTarget.id);
+  }
   if (customCardEffect === 'arcane_rift') {
     if (effectivePrimaryTargets.length !== 2) {
       return { error: 'Arcane Rift requires exactly 2 targets.' };
@@ -3549,7 +3571,22 @@ function executeCardAction(body) {
       `Creates zone ${zone.name} (${zone.radiusFt} ft radius, ${zone.damage} ${zone.damageType || 'damage'}, ${durationText}${triggerText}).${targetText}`
     );
   } else {
-    if (rawDamage > 0) {
+    if (customCardEffect === 'nature_lightning_strike') {
+      if (lightningStrikePrimaryTarget && rawDamage > 0) {
+        addDamageResult(lightningStrikePrimaryTarget, rawDamage, damageType, 'primary', {
+          bonusIfTargetHasShield: conditionalShieldDamageBonus,
+          bonusIfTargetNotActed: conditionalNotActedDamageBonus,
+          bonusIfTargetBelowHalfHp: conditionalBelowHalfHpDamageBonus,
+          bonusIfTargetDamagedCasterLastTurn: conditionalDamagedCasterLastTurnBonus,
+          directHpOnFullyBlocked: fullyBlockedHpDamage
+        });
+      }
+      if (secondaryRawDamage > 0) {
+        for (const splashTarget of lightningStrikeSplashTargets) {
+          addDamageResult(splashTarget, secondaryRawDamage, secondaryDamageType || damageType, 'secondary');
+        }
+      }
+    } else if (rawDamage > 0) {
       for (const [index, damageTarget] of effectivePrimaryTargets.entries()) {
         const amount = splitDamage ? splitDamage[index] : rawDamage;
         addDamageResult(damageTarget, amount, damageType, 'primary', {
@@ -3562,7 +3599,7 @@ function executeCardAction(body) {
       }
     }
 
-    if (secondaryRawDamage > 0) {
+    if (customCardEffect !== 'nature_lightning_strike' && secondaryRawDamage > 0) {
       let secondaryTargets = [];
       if (secondaryTargetMode === 'same') {
         secondaryTargets = effectivePrimaryTargets;
@@ -7139,6 +7176,64 @@ function migrateKnownPresetCard(card = {}) {
       mastery: [
         'Level 1: Base.',
         'Level 2: Movement increases to 15 ft.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    };
+  }
+  if (set === 'Elemental' && name === 'flame wave') {
+    return {
+      ...card,
+      statusApply: {
+        ...(card.statusApply || {}),
+        id: 'burning',
+        stacksByLevel: { 1: 2, 2: 3, 3: 3, 4: 3 }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      masteryChoiceOptions: [],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Burning increases to 3.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    };
+  }
+  if (set === 'Elemental' && name === 'fire ring') {
+    return {
+      ...card,
+      masteryDamageByLevel: { 1: 4, 2: 5, 3: 5, 4: 5 },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      masteryChoiceOptions: [],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 5.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    };
+  }
+  if (set === 'Elemental' && name === 'ice lance') {
+    return {
+      ...card,
+      masteryDamageByLevel: { 1: 7, 2: 8, 3: 8, 4: 8 },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      masteryChoiceOptions: [],
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 8.',
         'Level 3: DEX +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
