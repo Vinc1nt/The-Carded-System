@@ -1591,6 +1591,437 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'machine_auto_hammer',
+    card: {
+      id: 'machine_auto_hammer',
+      name: 'Auto Hammer',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Bludgeoning'],
+      damage: 6,
+      damageType: 'Bludgeoning',
+      effect: 'Deal 6 Bludgeoning damage.',
+      masteryDamageByLevel: {
+        1: 6,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_burning_oil',
+    card: {
+      id: 'machine_burning_oil',
+      name: 'Burning Oil',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 15,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 5,
+      damageType: 'Fire',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 5 Fire damage. Apply Burning 1.',
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 1,
+          2: 2,
+          3: 2,
+          4: 2
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Burning 2.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_flash_spark',
+    card: {
+      id: 'machine_flash_spark',
+      name: 'Flash Spark',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 10,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Apply Blinded 1.',
+      statusApply: {
+        id: 'blinded',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      rangeByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 15 ft.',
+        'Level 3: WIS +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_hammer_blow',
+    card: {
+      id: 'machine_hammer_blow',
+      name: 'Hammer Blow',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 1,
+      shieldBonus: 2,
+      tags: ['Bludgeoning'],
+      damage: 6,
+      damageType: 'Bludgeoning',
+      effect: 'Deal 6 Bludgeoning damage and push target 5 ft.',
+      pushDistanceByLevel: {
+        1: 5,
+        2: 10,
+        3: 10,
+        4: 10
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Push distance increases to 10 ft.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_hydraulic_step',
+    card: {
+      id: 'machine_hydraulic_step',
+      name: 'Hydraulic Step',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Move 10 ft.',
+      movementByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Movement increases to 15 ft.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_impact_bolt',
+    card: {
+      id: 'machine_impact_bolt',
+      name: 'Impact Bolt',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Bludgeoning'],
+      damage: 6,
+      damageType: 'Bludgeoning',
+      effect: 'Deal 6 Bludgeoning damage.',
+      masteryDamageByLevel: {
+        1: 6,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_magnetic_pull',
+    card: {
+      id: 'machine_magnetic_pull',
+      name: 'Magnetic Pull',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 15,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      allowSelfTarget: false,
+      effect: 'Pull target 10 ft toward you.',
+      pullDistanceByLevel: {
+        1: 10
+      },
+      rangeByLevel: {
+        1: 15,
+        2: 20,
+        3: 20,
+        4: 20
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 20 ft.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_reinforce_plating',
+    card: {
+      id: 'machine_reinforce_plating',
+      name: 'Reinforce Plating',
+      set: 'Machine',
+      type: 'Defense',
+      tier: 'Common',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Shield'],
+      effect: 'Restore 4 Shield.',
+      shieldRestoreByLevel: {
+        1: 4,
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Restore 5 Shield.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_rivet_shot',
+    card: {
+      id: 'machine_rivet_shot',
+      name: 'Rivet Shot',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 6,
+      damageType: 'Piercing',
+      effect: 'Deal 6 Piercing damage.',
+      rangeByLevel: {
+        1: 30,
+        2: 35,
+        3: 35,
+        4: 35
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 35 ft.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_sharp_spike',
+    card: {
+      id: 'machine_sharp_spike',
+      name: 'Sharp Spike',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 3,
+      damageType: 'Piercing',
+      effect: 'Deal 3 Piercing damage.',
+      masteryDamageByLevel: {
+        1: 3,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Piercing damage increases to 4.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_spring_recoil',
+    card: {
+      id: 'machine_spring_recoil',
+      name: 'Spring Recoil',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Bludgeoning'],
+      damage: 7,
+      damageType: 'Bludgeoning',
+      effect: 'Deal 7 Bludgeoning damage. Push the target 10 ft.',
+      pushDistanceByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Push increases to 15 ft.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_spinning_blade',
+    card: {
+      id: 'machine_spinning_blade',
+      name: 'Spinning Blade',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Slashing'],
+      damage: 7,
+      damageType: 'Slashing',
+      effect: 'Deal 7 Slashing damage.',
+      masteryDamageByLevel: {
+        1: 7,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 8.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'elemental_flame_touch',
     card: {
       id: 'elemental_flame_touch',
@@ -4783,6 +5214,343 @@ export const CARD_PRESETS = [
         'Level 1: Base.',
         'Level 2: Damage increases to 10.',
         'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_cold_snap',
+    card: {
+      id: 'elemental_cold_snap',
+      name: 'Cold Snap',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Very Rare',
+      apCost: 4,
+      range: 30,
+      healthBonus: 3,
+      shieldBonus: 3,
+      tags: ['Cold'],
+      damage: 10,
+      damageType: 'Cold',
+      effect: 'Deal 10 Cold damage. Apply Fatigued 1.',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      statusApply: {
+        id: 'fatigued',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      masteryDamageByLevel: {
+        1: 10,
+        2: 12,
+        3: 12,
+        4: 12
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 12.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_lightning_strike',
+    card: {
+      id: 'elemental_lightning_strike',
+      name: 'Lightning Strike',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Very Rare',
+      apCost: 4,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 3,
+      shieldBonus: 3,
+      tags: ['Lightning'],
+      damage: 12,
+      damageType: 'Lightning',
+      effect: 'Deal 12 Lightning damage to enemies within Radius 15 ft.',
+      utilityNote: 'Manually select enemies within the 15 ft radius.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadius: 15,
+      areaRadiusByLevel: {
+        1: 15
+      },
+      masteryDamageByLevel: {
+        1: 12,
+        2: 14,
+        3: 14,
+        4: 14
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 14.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_stone_bulwark',
+    card: {
+      id: 'elemental_stone_bulwark',
+      name: 'Stone Bulwark',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Very Rare',
+      apCost: 4,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 3,
+      shieldBonus: 4,
+      tags: ['Earth'],
+      effect: 'Restore 12 Shield.',
+      shieldRestoreByLevel: {
+        1: 12,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Shield restored increases to 15.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_tempest',
+    card: {
+      id: 'elemental_tempest',
+      name: 'Tempest',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Very Rare',
+      apCost: 3,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 3,
+      shieldBonus: 3,
+      tags: ['Wind'],
+      effect: 'Push enemies within Radius 15 ft away 15 ft.',
+      utilityNote: 'Manually select enemies within the radius. Push distance and final positioning are GM-enforced.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadius: 15,
+      areaRadiusByLevel: {
+        1: 15
+      },
+      pushDistanceByLevel: {
+        1: 15,
+        2: 20,
+        3: 20,
+        4: 20
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Push increases to 20 ft.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_toxic_mist',
+    card: {
+      id: 'elemental_toxic_mist',
+      name: 'Toxic Mist',
+      set: 'Elemental',
+      type: 'Utility',
+      tier: 'Very Rare',
+      apCost: 3,
+      range: 25,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Acid'],
+      effect: 'Create Poison Zone (Radius 10 ft). Apply Poisoned 2 to enemies inside, each turn, for 2 turns.',
+      utilityNote: 'Manually select enemies inside the zone to be affected each turn.',
+      isZone: true,
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      zoneRadius: 10,
+      zoneDurationTurns: 2,
+      statusApply: {
+        id: 'poisoned',
+        stacksByLevel: {
+          1: 2,
+          2: 3,
+          3: 3,
+          4: 3
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Poison increases to 3.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_volcanic_eruption',
+    card: {
+      id: 'elemental_volcanic_eruption',
+      name: 'Volcanic Eruption',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Very Rare',
+      apCost: 5,
+      range: 30,
+      healthBonus: 3,
+      shieldBonus: 3,
+      tags: ['Fire'],
+      damage: 16,
+      damageType: 'Fire',
+      effect: 'Deal 16 Fire damage. Apply Burning 4.',
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 4,
+          2: 5,
+          3: 5,
+          4: 5
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Burning increases to 5.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_flame_lance',
+    card: {
+      id: 'elemental_flame_lance',
+      name: 'Flame Lance',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Epic',
+      apCost: 5,
+      range: 30,
+      healthBonus: 4,
+      shieldBonus: 4,
+      tags: ['Fire'],
+      damage: 20,
+      damageType: 'Fire',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 20 Fire damage. Apply Burning 5.',
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 5,
+          2: 6,
+          3: 6,
+          4: 6
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Burning increases to 6.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'elemental_solar_flare',
+    card: {
+      id: 'elemental_solar_flare',
+      name: 'Solar Flare',
+      set: 'Elemental',
+      type: 'Attack',
+      tier: 'Legendary',
+      apCost: 6,
+      range: 35,
+      healthBonus: 5,
+      shieldBonus: 5,
+      tags: ['Fire'],
+      damage: 24,
+      damageType: 'Fire',
+      secondaryDamage: 12,
+      secondaryDamageByLevel: {
+        1: 12,
+        2: 14,
+        3: 14,
+        4: 14
+      },
+      effect: 'Deal 24 Fire damage to target. Enemies within Radius 10 ft take 12 Fire damage.',
+      utilityNote: 'Manually select the main target and any enemies within 10 ft. Mark exactly one selected enemy as the primary strike target.',
+      customCardEffect: 'nature_lightning_strike',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadius: 10,
+      areaRadiusByLevel: {
+        1: 10
+      },
+      perTargetInputs: [
+        {
+          id: 'primary',
+          label: 'Primary target',
+          type: 'checkbox',
+          defaultChecked: false
+        }
+      ],
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Radius damage increases to 14.',
+        'Level 3: INT +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'
