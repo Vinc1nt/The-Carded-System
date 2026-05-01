@@ -1582,17 +1582,6 @@ function getPlayerTurnEntries() {
   const entries = [];
   for (const participant of state.encounter.participants || []) {
     entries.push({ kind: 'participant', participantId: participant.id, participant, zone: null });
-    for (const construct of participant.constructs || []) {
-      if (!construct?.id || !playerConstructHasManualTurn(construct)) continue;
-      entries.push({
-        kind: 'construct',
-        participantId: participant.id,
-        constructId: construct.id,
-        participant,
-        construct,
-        zone: null
-      });
-    }
     for (const zone of participant.zones || []) {
       entries.push({
         kind: 'zone',
@@ -4798,6 +4787,10 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (shield > 0) {
     parts.push(`Restore ${shield} Shield.`);
   }
+  const selfShield = Math.max(0, Math.round(getCardScaledEffectValue(card, 'selfShieldRestoreByLevel', level, 0)));
+  if (selfShield > 0) {
+    parts.push(`Restore ${selfShield} Shield to self.`);
+  }
   const heal = Math.max(0, Math.round(getCardScaledEffectValue(card, 'healByLevel', level, Number(card.heal || 0))));
   if (heal > 0) {
     parts.push(`Restore ${heal} HP.`);
@@ -5566,9 +5559,8 @@ function renderPlayerConstructs(participant) {
       ${constructs
         .map((construct) => {
           const isConstructTurn =
-            currentTurnEntry?.kind === 'construct' &&
-            currentTurnEntry.participantId === participant.id &&
-            currentTurnEntry.constructId === construct.id;
+            currentTurnEntry?.kind === 'participant' &&
+            currentTurnEntry.participantId === participant.id;
           const assignedTargets = Array.isArray(construct.targetIds)
             ? construct.targetIds
                 .map((targetId) => formatPlayerTargetableLabel(getPlayerEncounterTargetableById(targetId)))
@@ -5603,10 +5595,10 @@ function renderPlayerConstructs(participant) {
               <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
               ${targetMarkup}
               <div class="card-actions">
-                <button type="button" data-player-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 || (playerConstructHasManualTurn(construct) && !isConstructTurn) ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
+                <button type="button" data-player-construct-move="${construct.id || ''}" ${Number(construct.moveFt || 0) <= 0 || Number(construct.apCurrent || 0) < 1 || (playerConstructHasManualTurn(construct) && !isConstructTurn) ? 'disabled' : ''}>Move ${Number(construct.moveFt || 0)} ft (1 AP)</button>
                 <button type="button" data-player-remove-construct="${construct.id || ''}">Remove</button>
               </div>
-              ${isConstructTurn ? renderPlayerConstructTurnPanel(participant, construct) : ''}
+              ${playerConstructHasManualTurn(construct) && isConstructTurn ? renderPlayerConstructTurnPanel(participant, construct) : ''}
             </article>`;
         })
         .join('')}
@@ -5691,25 +5683,6 @@ function renderPlayerConstructs(participant) {
           targetId
         });
         fetchState();
-      } catch (err) {
-        notify(err.message);
-      }
-    };
-  });
-  listEl.querySelectorAll('[data-player-construct-pass-turn]').forEach((button) => {
-    button.onclick = async () => {
-      const constructId = button.dataset.playerConstructPassTurn;
-      const activeEntry = getCurrentTurnEntry();
-      if (
-        !constructId ||
-        activeEntry?.kind !== 'construct' ||
-        activeEntry.constructId !== constructId ||
-        activeEntry.participantId !== participant.id
-      ) {
-        return;
-      }
-      try {
-        await api('/api/turn/next', 'POST');
       } catch (err) {
         notify(err.message);
       }
@@ -6769,7 +6742,12 @@ function getCurrentTurnEntry() {
   const key = String(state.encounter.currentTurnKey || '');
   if (key) {
     const match = entries.find((entry) => getPlayerTurnEntryKey(entry) === key);
-    return match || null;
+    if (match) return match;
+    const parts = key.split(':');
+    if (parts[0] === 'construct' && parts[1]) {
+      return entries.find((entry) => entry.kind === 'participant' && String(entry.participantId || '') === String(parts[1] || '')) || null;
+    }
+    return null;
   }
   const index = state.encounter.currentIndex;
   if (index != null && index >= 0 && index < entries.length) {
@@ -6992,6 +6970,10 @@ function normalizeCardPayload(raw = {}) {
     shieldRestoreByLevel:
       raw.shieldRestoreByLevel && typeof raw.shieldRestoreByLevel === 'object'
         ? { ...raw.shieldRestoreByLevel }
+        : undefined,
+    selfShieldRestoreByLevel:
+      raw.selfShieldRestoreByLevel && typeof raw.selfShieldRestoreByLevel === 'object'
+        ? { ...raw.selfShieldRestoreByLevel }
         : undefined,
     healByLevel:
       raw.healByLevel && typeof raw.healByLevel === 'object'

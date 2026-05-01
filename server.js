@@ -1447,6 +1447,7 @@ function startEncounter(startingRound = 1) {
     ensureCurrentIndex,
     getCurrentParticipant,
     resetTurn,
+    beginOwnedManualConstructsForTurn,
     pushLog,
     touchState,
     broadcastState
@@ -1470,7 +1471,7 @@ function executeStandardAction(body) {
   const action = STANDARD_ACTIONS?.[body?.actionId];
   const pauseController = constructRecord?.owner || actor;
   if (constructRecord && !isCurrentConstructTurn(constructRecord.owner.id, constructRecord.construct.id)) {
-    return { error: `${constructRecord.construct.name} can only use standard actions on its own turn.` };
+    return { error: `${constructRecord.construct.name} can only use standard actions during its owner's turn.` };
   }
   if (constructRecord && constructCannotActOnSummonTurn(constructRecord.construct)) {
     return { error: `${constructRecord.construct.name} cannot act on the turn it was summoned.` };
@@ -2033,6 +2034,8 @@ function executeCardAction(body) {
       : 0;
   const shieldRestoreBase = getCardScaledEffectValue(card, 'shieldRestoreByLevel', masteryLevel, 0);
   const shieldRestoreTotal = getCardShieldRestoreAmount(participant, shieldRestoreBase);
+  const selfShieldRestoreBase = getCardScaledEffectValue(card, 'selfShieldRestoreByLevel', masteryLevel, 0);
+  const selfShieldRestoreTotal = getCardShieldRestoreAmount(participant, selfShieldRestoreBase);
   let healTotal = Math.max(
     0,
     Math.round(getCardScaledEffectValue(card, 'healByLevel', masteryLevel, Number(card.heal || 0)))
@@ -3388,6 +3391,7 @@ function executeCardAction(body) {
     zoneCard ||
     hasAttackDamage ||
     shieldRestoreTotal > 0 ||
+    selfShieldRestoreTotal > 0 ||
     healTotal > 0 ||
     Boolean(customCardEffect) ||
     moveDistance > 0 ||
@@ -3769,6 +3773,13 @@ function executeCardAction(body) {
       const restored = shieldTarget.shield - beforeShield;
       notes.push(`Restores ${restored} Shield${shieldTarget.id === participant.id ? '' : ` to ${shieldTarget.name}`}.`);
     }
+  }
+
+  if (!isConstruct && selfShieldRestoreTotal > 0) {
+    const beforeShield = participant.shield;
+    participant.shield = Math.min(participant.maxShield, participant.shield + selfShieldRestoreTotal);
+    const restored = participant.shield - beforeShield;
+    notes.push(`Restores ${restored} Shield.`);
   }
 
   if (!isConstruct && healTotal > 0) {
@@ -4400,7 +4411,7 @@ function executeMoveConstructAction(body) {
   if (constructId) {
     const found = findConstructWithOwner(constructId);
     if (found?.construct && constructHasManualTurn(found.construct) && !isCurrentConstructTurn(found.owner.id, found.construct.id)) {
-      return { error: `${found.construct.name} can only move on its own turn.` };
+      return { error: `${found.construct.name} can only move during its owner's turn.` };
     }
     if (found?.construct && constructCannotActOnSummonTurn(found.construct)) {
       return { error: `${found.construct.name} cannot act on the turn it was summoned.` };
@@ -5136,6 +5147,13 @@ function advanceTurn(direction = 1) {
         passiveZoneEvents.forEach((event) => pushLog(event, previousActor.id));
         const endEvents = applyEndOfTurnSetEffects(previousActor);
         endEvents.forEach((event) => pushLog(`${previousActor.name} ${event}`, previousActor.id));
+        const constructEndEvents = finishOwnedManualConstructsForTurn(previousActor);
+        constructEndEvents.forEach((event) =>
+          pushLog(`${previousActor.name}'s ${event.text}`, previousActor.id, {
+            constructId: event.constructId || '',
+            constructTurn: true
+          })
+        );
       }
       const pauseState = pauseStateAtAdvance;
       if (pauseState && pauseState.casterId === previousActor.id) {
@@ -5158,19 +5176,6 @@ function advanceTurn(direction = 1) {
         }
         clearEncounterPauseState();
       }
-    }
-  }
-  if (direction > 0 && previousEntry?.kind === 'construct') {
-    const previousOwner = findParticipant(previousEntry.participantId);
-    const previousConstruct = previousOwner ? findConstructWithOwner(previousEntry.constructId)?.construct : null;
-    if (previousOwner && previousConstruct) {
-      const endEvents = finishConstructTurn(previousOwner, previousConstruct);
-      endEvents.forEach((event) =>
-        pushLog(`${previousOwner.name}'s ${event}`, previousOwner.id, {
-          constructId: previousConstruct.id,
-          constructTurn: true
-        })
-      );
     }
   }
 
@@ -5200,31 +5205,18 @@ function advanceTurn(direction = 1) {
         zoneTurn: true
       });
     }
-  } else if (entry?.kind === 'construct') {
-    const owner = findParticipant(entry.participantId);
-    const construct = owner ? findConstructWithOwner(entry.constructId)?.construct : null;
-    if (owner && construct) {
-      const startEvents = beginConstructTurn(owner, construct);
-      owner.constructs = normalizeConstructs(
-        (owner.constructs || []).map((item) => (String(item.id || '') === String(construct.id || '') ? construct : item)),
-        owner.id
-      );
-      startEvents.forEach((event) =>
-        pushLog(`${owner.name}'s ${construct.name} ${event}`, owner.id, {
-          constructId: construct.id,
-          constructTurn: true
-        })
-      );
-      pushLog(`It is now ${owner.name}'s construct turn: ${construct.name} (AP ${construct.apCurrent}).`, owner.id, {
-        constructId: construct.id,
-        constructTurn: true
-      });
-    }
   } else {
     const actor = entry ? findParticipant(entry.participantId) : null;
     if (actor) {
       const startEvents = resetTurn(actor, { applyStatusTick: direction > 0 });
       startEvents.forEach((event) => pushLog(`${actor.name} ${event}`, actor.id));
+      const constructStartEvents = beginOwnedManualConstructsForTurn(actor);
+      constructStartEvents.forEach((event) =>
+        pushLog(`${actor.name}'s ${event.text}`, actor.id, {
+          constructId: event.constructId || '',
+          constructTurn: true
+        })
+      );
       pushLog(`It is now ${actor.name}'s turn (AP ${actor.apCurrent}).`, actor.id);
     }
   }
@@ -5321,6 +5313,9 @@ function getCurrentParticipant() {
 
 function isCurrentConstructTurn(ownerId, constructId) {
   const entry = getCurrentTurnEntry();
+  if (entry?.kind === 'participant' && String(entry.participantId || '') === String(ownerId || '')) {
+    return true;
+  }
   return (
     entry?.kind === 'construct' &&
     String(entry.participantId || '') === String(ownerId || '') &&
@@ -6279,7 +6274,7 @@ function performConstructCardAction(owner, construct, body = {}, options = {}) {
     return { error: `${construct.name || 'This construct'} has no manual card actions.` };
   }
   if (options.bypassTurnCheck !== true && !isCurrentConstructTurn(owner.id, construct.id)) {
-    return { error: `${construct.name || 'This construct'} can only use cards on its own turn.` };
+    return { error: `${construct.name || 'This construct'} can only use cards during its owner's turn.` };
   }
   if (constructCannotActOnSummonTurn(construct)) {
     return { error: `${construct.name || 'This construct'} cannot act on the turn it was summoned.` };
@@ -6438,6 +6433,31 @@ function beginConstructTurn(owner, construct) {
   return applyStartOfTurnStatusEffects(construct);
 }
 
+function formatOwnedConstructTurnEvent(construct, event = '') {
+  const name = String(construct?.name || 'Construct').trim();
+  const text = String(event || '').trim();
+  if (!text) return name;
+  return text.startsWith(name) ? text : `${name} ${text}`;
+}
+
+function beginOwnedManualConstructsForTurn(owner) {
+  if (!owner?.id) return [];
+  owner.constructs = normalizeConstructs(owner.constructs, owner.id);
+  const events = [];
+  for (const construct of owner.constructs || []) {
+    if (!constructHasManualTurn(construct)) continue;
+    const constructEvents = beginConstructTurn(owner, construct);
+    constructEvents.forEach((event) =>
+      events.push({
+        constructId: construct.id,
+        text: formatOwnedConstructTurnEvent(construct, event)
+      })
+    );
+  }
+  owner.constructs = normalizeConstructs(owner.constructs, owner.id);
+  return events;
+}
+
 function finishConstructTurn(owner, construct) {
   if (!owner?.id || !construct?.id) return [];
   const events = decrementTimedStatusesAtEndOfTurn(construct);
@@ -6467,6 +6487,29 @@ function finishConstructTurn(owner, construct) {
     (owner.constructs || []).map((entry) => (String(entry.id || '') === String(construct.id || '') ? construct : entry)),
     owner.id
   );
+  return events;
+}
+
+function finishOwnedManualConstructsForTurn(owner) {
+  if (!owner?.id) return [];
+  owner.constructs = normalizeConstructs(owner.constructs, owner.id);
+  const constructIds = (owner.constructs || [])
+    .filter((construct) => constructHasManualTurn(construct))
+    .map((construct) => String(construct.id || '').trim())
+    .filter(Boolean);
+  const events = [];
+  for (const constructId of constructIds) {
+    const found = findConstructWithOwner(constructId);
+    if (!found || String(found.owner?.id || '') !== String(owner.id || '')) continue;
+    const construct = found.construct;
+    const constructEvents = finishConstructTurn(owner, construct);
+    constructEvents.forEach((event) =>
+      events.push({
+        constructId,
+        text: formatOwnedConstructTurnEvent(construct, event)
+      })
+    );
+  }
   return events;
 }
 
@@ -7513,7 +7556,7 @@ function normalizeConstructs(list = [], ownerId = '') {
         ? Math.max(0, Math.min(apMax, Math.round(apCurrentRaw)))
         : apMax;
       const moveFtRaw = Number(entry.moveFt ?? entry.constructMoveFt ?? entry.constructMove ?? 10);
-      const moveFt = Number.isFinite(moveFtRaw) ? Math.max(5, Math.round(moveFtRaw)) : 10;
+      const moveFt = Number.isFinite(moveFtRaw) ? Math.max(0, Math.round(moveFtRaw)) : 10;
       const cards = Array.isArray(entry.cards)
         ? entry.cards
             .map((value) => String(value || '').trim())
@@ -7789,7 +7832,7 @@ function normalizeCards(list = []) {
           : 1,
         constructAp: Number.isFinite(constructApRaw) ? Math.max(0, Math.round(constructApRaw)) : 0,
         constructMaxHp: Number.isFinite(constructMaxHpRaw) ? Math.max(1, Math.round(constructMaxHpRaw)) : 1,
-        constructMoveFt: Number.isFinite(constructMoveFtRaw) ? Math.max(5, Math.round(constructMoveFtRaw)) : 10,
+        constructMoveFt: Number.isFinite(constructMoveFtRaw) ? Math.max(0, Math.round(constructMoveFtRaw)) : 10,
         constructCards,
         constructLinkedCard: constructCards[0] || '',
         effectState:
@@ -9135,7 +9178,7 @@ function deployConstructFromCard(participant, card, options = {}) {
     ? Math.max(1, Math.round(maxHpRaw) + maxHpCasterConBonus)
     : Math.max(1, 1 + maxHpCasterConBonus);
   const moveFtRaw = Number(card?.constructMoveFt ?? card?.constructMove ?? 10);
-  const moveFt = Number.isFinite(moveFtRaw) ? Math.max(5, Math.round(moveFtRaw)) : 10;
+  const moveFt = Number.isFinite(moveFtRaw) ? Math.max(0, Math.round(moveFtRaw)) : 10;
   const shieldRestore = Math.max(0, Number(options.shieldRestore || 0));
   const shieldRestoreAlliesOnly = Boolean(options.shieldRestoreAlliesOnly);
   const heal = Math.max(0, Number(options.heal || 0));

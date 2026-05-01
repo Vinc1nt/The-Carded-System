@@ -2175,6 +2175,362 @@ export const CARD_PRESETS = [
     }
   },
   {
+    id: 'machine_boosted_dash',
+    card: {
+      id: 'machine_boosted_dash',
+      name: 'Boosted Dash',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Move 20 ft.',
+      movementByLevel: {
+        1: 20,
+        2: 25,
+        3: 25,
+        4: 25
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Movement increases to 25 ft.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_chain_hook',
+    card: {
+      id: 'machine_chain_hook',
+      name: 'Chain Hook',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 10,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 6,
+      damageType: 'Piercing',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 6 Piercing damage and apply Rooted 1.',
+      statusApply: {
+        id: 'rooted',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      rangeByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 15 ft.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_chain_launcher',
+    card: {
+      id: 'machine_chain_launcher',
+      name: 'Chain Launcher',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 20,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 6,
+      damageType: 'Piercing',
+      effect: 'Deal 6 Piercing damage and pull target 10 ft toward you.',
+      pullDistanceByLevel: {
+        1: 10
+      },
+      masteryDamageByLevel: {
+        1: 6,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_flame_injector',
+    card: {
+      id: 'machine_flame_injector',
+      name: 'Flame Injector',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 7,
+      damageType: 'Fire',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 7 Fire damage. Apply Burning 2.',
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 2,
+          2: 3,
+          3: 3,
+          4: 3
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Burning 3.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_reinforced_guard',
+    card: {
+      id: 'machine_reinforced_guard',
+      name: 'Reinforced Guard',
+      set: 'Machine',
+      type: 'Defense',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Shield'],
+      effect: 'Restore 5 Shield.',
+      shieldRestoreByLevel: {
+        1: 5,
+        2: 6,
+        3: 6,
+        4: 6
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Restore 6 Shield.',
+        'Level 3: CON +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_serrated_gear',
+    card: {
+      id: 'machine_serrated_gear',
+      name: 'Serrated Gear',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Slashing'],
+      damage: 7,
+      damageType: 'Slashing',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 7 Slashing damage. Apply Bleeding 2.',
+      masteryDamageByLevel: {
+        1: 7,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      statusApply: {
+        id: 'bleeding',
+        stacksByLevel: {
+          1: 2
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 8.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_shock_ram',
+    card: {
+      id: 'machine_shock_ram',
+      name: 'Shock Ram',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 5,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Bludgeoning'],
+      damage: 5,
+      damageType: 'Bludgeoning',
+      secondaryDamage: 4,
+      secondaryDamageByLevel: {
+        1: 4,
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      secondaryDamageType: 'Lightning',
+      secondaryTargetMode: 'same',
+      effect: 'Deal 5 Bludgeoning damage and 4 Lightning damage.',
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Lightning damage increases to 5.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_spark_burst',
+    card: {
+      id: 'machine_spark_burst',
+      name: 'Spark Burst',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 3,
+      range: 15,
+      rangeText: '15 ft cone',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Fire'],
+      damage: 7,
+      damageType: 'Fire',
+      effect: 'Deal 7 Fire damage to all targets. Apply Burning 2.',
+      utilityNote: 'Manually select enemies inside the 15 ft cone.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 2,
+          2: 3,
+          3: 3,
+          4: 3
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Burning 3.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_suppression_shot',
+    card: {
+      id: 'machine_suppression_shot',
+      name: 'Suppression Shot',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Uncommon',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 6,
+      damageType: 'Piercing',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 6 Piercing damage and apply Weakened 1.',
+      masteryDamageByLevel: {
+        1: 6,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      statusApply: {
+        id: 'weakened',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 7.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
     id: 'elemental_earth_spike',
     card: {
       id: 'elemental_earth_spike',
@@ -5592,6 +5948,872 @@ export const CARD_PRESETS = [
         'Level 1: Base.',
         'Level 2: HP increases to 30.',
         'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_anchoring_harpoon',
+    card: {
+      id: 'machine_anchoring_harpoon',
+      name: 'Anchoring Harpoon',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 2,
+      range: 25,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Piercing'],
+      damage: 7,
+      damageType: 'Piercing',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 7 Piercing damage. Apply Rooted 1.',
+      statusApply: {
+        id: 'rooted',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      rangeByLevel: {
+        1: 25,
+        2: 30,
+        3: 30,
+        4: 30
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 30 ft.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_hydraulic_slam',
+    card: {
+      id: 'machine_hydraulic_slam',
+      name: 'Hydraulic Slam',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 2,
+      range: 5,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Bludgeoning'],
+      damage: 9,
+      damageType: 'Bludgeoning',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 9 Bludgeoning damage and push target 10 ft.',
+      masteryDamageByLevel: {
+        1: 9,
+        2: 10,
+        3: 10,
+        4: 10
+      },
+      pushDistanceByLevel: {
+        1: 10
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 2 },
+        4: { strength: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 10.',
+        'Level 3: STR +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_industrial_crusher',
+    card: {
+      id: 'machine_industrial_crusher',
+      name: 'Industrial Crusher',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 3,
+      range: 5,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Bludgeoning'],
+      damage: 12,
+      damageType: 'Bludgeoning',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 12 Bludgeoning damage. Apply Weakened 1.',
+      masteryDamageByLevel: {
+        1: 12,
+        2: 13,
+        3: 13,
+        4: 13
+      },
+      statusApply: {
+        id: 'weakened',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 2 },
+        4: { strength: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 13.',
+        'Level 3: STR +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_oil_bomb',
+    card: {
+      id: 'machine_oil_bomb',
+      name: 'Oil Bomb',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 3,
+      range: 20,
+      healthBonus: 2,
+      shieldBonus: 2,
+      tags: ['Fire'],
+      damage: 7,
+      damageType: 'Fire',
+      effect: 'Deal 7 Fire damage to enemies within Radius 5 ft. Apply Burning 2.',
+      utilityNote: 'Manually select enemies within the 5 ft radius.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      areaRadius: 5,
+      areaRadiusByLevel: {
+        1: 5
+      },
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 2,
+          2: 3,
+          3: 3,
+          4: 3
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Apply Burning 3.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_overclock_strike',
+    card: {
+      id: 'machine_overclock_strike',
+      name: 'Overclock Strike',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 2,
+      range: 5,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Slashing'],
+      damage: 8,
+      damageType: 'Slashing',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 8 Slashing damage. Restore 2 Shield.',
+      selfShieldRestoreByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Restore 3 Shield.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_whirling_gear',
+    card: {
+      id: 'machine_whirling_gear',
+      name: 'Whirling Gear',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Rare',
+      apCost: 3,
+      range: 5,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Slashing'],
+      damage: 9,
+      damageType: 'Slashing',
+      secondaryDamage: 6,
+      secondaryDamageByLevel: {
+        1: 6,
+        2: 7,
+        3: 7,
+        4: 7
+      },
+      secondaryDamageType: 'Slashing',
+      secondaryTargetMode: 'adjacent',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 9 Slashing damage to target and 6 Slashing damage to an adjacent enemy.',
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Secondary damage increases to 7.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_iron_maelstrom',
+    card: {
+      id: 'machine_iron_maelstrom',
+      name: 'Iron Maelstrom',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Very Rare',
+      apCost: 3,
+      range: 5,
+      rangeText: 'Adjacent',
+      healthBonus: 4,
+      shieldBonus: 2,
+      tags: ['Slashing'],
+      damage: 10,
+      damageType: 'Slashing',
+      effect: 'Deal 10 Slashing damage to all adjacent enemies.',
+      utilityNote: 'Manually select adjacent enemies.',
+      targetMode: 'multi_select',
+      multiTargetMax: 12,
+      targetEnemiesOnly: true,
+      masteryDamageByLevel: {
+        1: 10,
+        2: 11,
+        3: 11,
+        4: 11
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 11.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_magnetic_prison',
+    card: {
+      id: 'machine_magnetic_prison',
+      name: 'Magnetic Prison',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Very Rare',
+      apCost: 3,
+      range: 10,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Utility'],
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Apply Restrained.',
+      statusApply: {
+        id: 'restrained',
+        stacksByLevel: {
+          1: 1
+        }
+      },
+      rangeByLevel: {
+        1: 10,
+        2: 15,
+        3: 15,
+        4: 15
+      },
+      abilityBonusesByLevel: {
+        3: { wisdom: 2 },
+        4: { wisdom: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 15 ft.',
+        'Level 3: WIS +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_pressure_drill',
+    card: {
+      id: 'machine_pressure_drill',
+      name: 'Pressure Drill',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Very Rare',
+      apCost: 2,
+      range: 5,
+      healthBonus: 4,
+      shieldBonus: 2,
+      tags: ['Piercing'],
+      damage: 9,
+      damageType: 'Piercing',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 9 Piercing damage. Apply Bleeding 3.',
+      masteryDamageByLevel: {
+        1: 9,
+        2: 10,
+        3: 10,
+        4: 10
+      },
+      statusApply: {
+        id: 'bleeding',
+        stacksByLevel: {
+          1: 3
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 2 },
+        4: { dexterity: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 10.',
+        'Level 3: DEX +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_reinforced_bulwark',
+    card: {
+      id: 'machine_reinforced_bulwark',
+      name: 'Reinforced Bulwark',
+      set: 'Machine',
+      type: 'Defense',
+      tier: 'Very Rare',
+      apCost: 2,
+      range: 0,
+      rangeText: 'Self',
+      healthBonus: 3,
+      shieldBonus: 3,
+      tags: ['Shield'],
+      effect: 'Restore 7 Shield.',
+      shieldRestoreByLevel: {
+        1: 7,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 2 },
+        4: { constitution: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Restore 8 Shield.',
+        'Level 3: CON +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_thermal_barrage',
+    card: {
+      id: 'machine_thermal_barrage',
+      name: 'Thermal Barrage',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Very Rare',
+      apCost: 3,
+      range: 30,
+      healthBonus: 3,
+      shieldBonus: 2,
+      tags: ['Fire'],
+      damage: 8,
+      damageType: 'Fire',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 8 Fire damage. Apply Burning 3.',
+      masteryDamageByLevel: {
+        1: 8,
+        2: 9,
+        3: 9,
+        4: 9
+      },
+      statusApply: {
+        id: 'burning',
+        stacksByLevel: {
+          1: 3
+        }
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 2 },
+        4: { intelligence: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Fire damage increases to 9.',
+        'Level 3: INT +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_titan_breaker',
+    card: {
+      id: 'machine_titan_breaker',
+      name: 'Titan Breaker',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Legendary',
+      apCost: 3,
+      range: 5,
+      healthBonus: 6,
+      shieldBonus: 5,
+      tags: ['Bludgeoning'],
+      damage: 16,
+      damageType: 'Bludgeoning',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 16 Bludgeoning damage. If the target has Shield, deal +4 damage. If the attack is Fully Blocked, deal 6 damage directly to HP.',
+      masteryDamageByLevel: {
+        1: 16,
+        2: 17,
+        3: 17,
+        4: 17
+      },
+      bonusDamageIfTargetHasShieldByLevel: {
+        1: 4
+      },
+      directHpDamageOnFullyBlockedByLevel: {
+        1: 6
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 2 },
+        4: { strength: 2 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 17.',
+        'Level 3: STR +2.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_chainsaw',
+    card: {
+      id: 'machine_chainsaw',
+      name: 'Chainsaw',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 10,
+      healthBonus: 2,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      damage: 4,
+      damageType: 'Slashing',
+      targetEnemiesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Deal 4 Slashing damage.',
+      masteryDamageByLevel: {
+        1: 4,
+        2: 5,
+        3: 5,
+        4: 5
+      },
+      abilityBonusesByLevel: {
+        3: { strength: 1 },
+        4: { strength: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 5.',
+        'Level 3: STR +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_diagnostic_scanner',
+    card: {
+      id: 'machine_diagnostic_scanner',
+      name: 'Diagnostic Scanner',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 20,
+      targetMode: 'none',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Scan a device, mechanism, or structure. Reveal 1 hidden mechanisms, traps, weak points, or magical signatures within range every 10 minutes.',
+      rangeByLevel: {
+        1: 20,
+        2: 30,
+        3: 30,
+        4: 30
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 30 ft.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_lesser_drone',
+    card: {
+      id: 'machine_lesser_drone',
+      name: 'Lesser Drone',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Rare',
+      apCost: 3,
+      range: 10,
+      targetMode: 'none',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Construct'],
+      effect: 'Deploy a combat construct with 4 AP and 2 HP that lasts for 2 turns. It has the Sharp Spike card. You may command it on your turn.',
+      utilityNote: 'Implemented with the current separate construct-turn model rather than acting on the owner turn.',
+      isConstruct: true,
+      constructMode: 'utility',
+      constructManualTurns: true,
+      constructDurationTurns: 2,
+      constructAp: 4,
+      constructMaxHp: 2,
+      constructMaxHpByLevel: {
+        1: 2,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      constructMoveFt: 10,
+      constructCards: ['machine_sharp_spike'],
+      constructCardMasteryLevel: 1,
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Increase HP to 4.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_mechanical_assistance',
+    card: {
+      id: 'machine_mechanical_assistance',
+      name: 'Mechanical Assistance',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 10,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      targetAlliesOnly: true,
+      allowSelfTarget: false,
+      effect: 'An ally gains +2 damage on their next attack.',
+      nextAttackDamageBonusByLevel: {
+        1: 2,
+        2: 3,
+        3: 3,
+        4: 3
+      },
+      abilityBonusesByLevel: {
+        3: { wisdom: 1 },
+        4: { wisdom: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Bonus increases to +3 damage.',
+        'Level 3: WIS +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_multi_tool',
+    card: {
+      id: 'machine_multi_tool',
+      name: 'Multi-Tool',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 1,
+      range: 5,
+      rangeText: 'Touch',
+      targetMode: 'none',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Gain advantage or +2 bonus on checks to repair, unlock, dismantle, or assemble mechanical objects.',
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Bonus increases to +4.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_portable_winch',
+    card: {
+      id: 'machine_portable_winch',
+      name: 'Portable Winch',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 20,
+      targetMode: 'none',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Utility'],
+      effect: 'Deploy a grappling winch capable of pulling objects or characters up to 200 kg. Useful for climbing, lifting debris, or traversing gaps.',
+      rangeByLevel: {
+        1: 20,
+        2: 30,
+        3: 30,
+        4: 30
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Range increases to 30 ft.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_rapid_fire',
+    card: {
+      id: 'machine_rapid_fire',
+      name: 'Rapid Fire',
+      set: 'Machine',
+      type: 'Attack',
+      tier: 'Common',
+      apCost: 2,
+      range: 30,
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Piercing'],
+      damage: 3,
+      damageType: 'Piercing',
+      targetMode: 'multi_select',
+      multiTargetMax: 3,
+      targetEnemiesOnly: true,
+      effect: 'Deal 3 Piercing damage to up to 3 targets.',
+      masteryDamageByLevel: {
+        1: 3,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      abilityBonusesByLevel: {
+        3: { dexterity: 1 },
+        4: { dexterity: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 4 each.',
+        'Level 3: DEX +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_scrap_mine',
+    card: {
+      id: 'machine_scrap_mine',
+      name: 'Scrap Mine',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 10,
+      targetMode: 'none',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Trap'],
+      effect: 'Place a mine that deals 6 damage when triggered. Detect DC 10 to perceive trap.',
+      utilityNote: 'Represents a single-space trap. Add a zone target manually when a creature triggers it.',
+      isZone: true,
+      zoneTickOnTurn: false,
+      zoneRadius: 5,
+      zoneDurationTurns: 0,
+      zoneEnterDamageByLevel: {
+        1: 6,
+        2: 8,
+        3: 8,
+        4: 8
+      },
+      zoneDetectDcByLevel: {
+        1: 10
+      },
+      zoneTriggerOnTargetAdd: true,
+      zoneConsumeOnTrigger: true,
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 8.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_scrap_turret',
+    card: {
+      id: 'machine_scrap_turret',
+      name: 'Scrap Turret',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 3,
+      range: 10,
+      targetMode: 'none',
+      healthBonus: 1,
+      shieldBonus: 1,
+      tags: ['Construct'],
+      damage: 3,
+      effect: 'Deploy a turret that deals 3 damage to the nearest enemy within 15 ft at the start of your turn for 2 turns. It has 6 HP.',
+      utilityNote: 'Assign a target manually in the construct panel. Nearest-enemy and 15 ft range checks are GM-enforced until battlefield positions are tracked.',
+      isConstruct: true,
+      constructMode: 'damage',
+      constructAllowUntargetedDeploy: true,
+      constructDurationTurns: 2,
+      constructAp: 0,
+      constructMaxHp: 6,
+      constructMoveFt: 0,
+      masteryDamageByLevel: {
+        1: 3,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      abilityBonusesByLevel: {
+        3: { intelligence: 1 },
+        4: { intelligence: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Damage increases to 4.',
+        'Level 3: INT +1.',
+        'Level 4: Unlocks fusion eligibility.'
+      ],
+      fusion: 'Eligible for fusion at Mastery 4.'
+    }
+  },
+  {
+    id: 'machine_shield_distributor',
+    card: {
+      id: 'machine_shield_distributor',
+      name: 'Shield Distributor',
+      set: 'Machine',
+      type: 'Utility',
+      tier: 'Common',
+      apCost: 2,
+      range: 10,
+      healthBonus: 1,
+      shieldBonus: 2,
+      tags: ['Shield'],
+      targetAlliesOnly: true,
+      allowSelfTarget: false,
+      effect: 'Grant an ally 3 Shield.',
+      shieldRestoreByLevel: {
+        1: 3,
+        2: 4,
+        3: 4,
+        4: 4
+      },
+      abilityBonusesByLevel: {
+        3: { constitution: 1 },
+        4: { constitution: 1 }
+      },
+      mastery: [
+        'Level 1: Base.',
+        'Level 2: Shield increases to 4.',
+        'Level 3: CON +1.',
         'Level 4: Unlocks fusion eligibility.'
       ],
       fusion: 'Eligible for fusion at Mastery 4.'

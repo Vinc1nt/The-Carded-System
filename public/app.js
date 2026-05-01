@@ -887,17 +887,6 @@ function getEncounterTurnEntries() {
   const entries = [];
   for (const participant of state.encounter.participants || []) {
     entries.push({ kind: 'participant', participantId: participant.id, participant, zone: null });
-    for (const construct of participant.constructs || []) {
-      if (!construct?.id || !constructHasManualTurnForUi(construct)) continue;
-      entries.push({
-        kind: 'construct',
-        participantId: participant.id,
-        constructId: construct.id,
-        participant,
-        construct,
-        zone: null
-      });
-    }
     for (const zone of participant.zones || []) {
       entries.push({
         kind: 'zone',
@@ -916,7 +905,13 @@ function getCurrentEncounterTurnEntry() {
   if (!entries.length) return null;
   const key = String(state.encounter.currentTurnKey || '');
   if (key) {
-    return entries.find((entry) => getTurnEntryKey(entry) === key) || null;
+    const matched = entries.find((entry) => getTurnEntryKey(entry) === key);
+    if (matched) return matched;
+    const parts = key.split(':');
+    if (parts[0] === 'construct' && parts[1]) {
+      return entries.find((entry) => entry.kind === 'participant' && String(entry.participantId || '') === String(parts[1] || '')) || null;
+    }
+    return null;
   }
   const index = Number(state.encounter.currentIndex);
   return Number.isInteger(index) && index >= 0 && index < entries.length ? entries[index] : entries[0];
@@ -1845,7 +1840,7 @@ function renderConstructTurnStandardButtons(construct = {}) {
     .filter(Boolean)
     .map(
       (action) =>
-        `<button type="button" data-construct-standard="${action.id}" data-construct-id="${construct.id || ''}">${escapeHtml(action.label)} (${Number(action.apCost || 0)} AP)</button>`
+        `<button type="button" data-construct-standard="${action.id}" data-construct-id="${construct.id || ''}" ${Number(construct.apCurrent || 0) < Number(action.apCost || 0) ? 'disabled' : ''}>${escapeHtml(action.label)} (${Number(action.apCost || 0)} AP)</button>`
     )
     .join('');
 }
@@ -1902,9 +1897,6 @@ function renderConstructTurnPanel(participant, construct = {}) {
     return `
       <div class="construct-turn-panel">
         <p class="muted small-note">This construct was summoned this turn and cannot act yet.</p>
-        <div class="card-actions">
-          <button type="button" data-construct-pass-turn="${construct.id || ''}">Pass Turn</button>
-        </div>
       </div>
     `;
   }
@@ -1912,12 +1904,9 @@ function renderConstructTurnPanel(participant, construct = {}) {
   const cardMarkup = renderConstructTurnCards(participant, construct);
   return `
     <div class="construct-turn-panel">
-      <p class="muted small-note">Construct turn active. Use a card, move, take a standard action, or pass.</p>
+      <p class="muted small-note">Use this construct during your turn. It spends its own AP.</p>
       ${cardMarkup}
       ${standardButtons ? `<div class="button-grid">${standardButtons}</div>` : ''}
-      <div class="card-actions">
-        <button type="button" data-construct-pass-turn="${construct.id || ''}">Pass Turn</button>
-      </div>
     </div>
   `;
 }
@@ -1925,15 +1914,14 @@ function renderConstructTurnPanel(participant, construct = {}) {
 function renderConstructCards(participant) {
   const constructs = participant.constructs || [];
   const currentTurnEntry = getCurrentEncounterTurnEntry();
+  const isOwnerTurn =
+    currentTurnEntry?.kind === 'participant' &&
+    currentTurnEntry.participantId === participant.id;
   if (!constructs.length) {
     return '<p class="muted">No active constructs.</p>';
   }
   return constructs
     .map((construct) => {
-      const isConstructTurn =
-        currentTurnEntry?.kind === 'construct' &&
-        currentTurnEntry.participantId === participant.id &&
-        currentTurnEntry.constructId === construct.id;
       const assignedTargets = Array.isArray(construct.targetIds)
         ? construct.targetIds
             .map((targetId) => formatTargetableEntityLabel(getEncounterTargetableById(targetId)))
@@ -1968,10 +1956,10 @@ function renderConstructCards(participant) {
           <p>Cards: ${escapeHtml((Array.isArray(construct.cards) && construct.cards.length ? construct.cards.join(', ') : '—'))}</p>
           ${targetMarkup}
           <div class="card-actions">
-            <button type="button" data-construct-move="${construct.id || ''}" ${Number(construct.apCurrent || 0) < 1 || (constructHasManualTurnForUi(construct) && !isConstructTurn) ? 'disabled' : ''}>Move ${Number(construct.moveFt || 10)} ft (1 AP)</button>
+            <button type="button" data-construct-move="${construct.id || ''}" ${Number(construct.moveFt || 0) <= 0 || Number(construct.apCurrent || 0) < 1 || (constructHasManualTurnForUi(construct) && !isOwnerTurn) ? 'disabled' : ''}>Move ${Number(construct.moveFt || 0)} ft (1 AP)</button>
             <button type="button" data-remove-construct="${construct.id || ''}">Remove</button>
           </div>
-          ${isConstructTurn ? renderConstructTurnPanel(participant, construct) : ''}
+          ${constructHasManualTurnForUi(construct) && isOwnerTurn ? renderConstructTurnPanel(participant, construct) : ''}
         </article>`;
     })
     .join('');
@@ -5802,6 +5790,10 @@ function formatCardEffectAtMastery(card = {}, participant = {}) {
   if (shield > 0) {
     parts.push(`Restore ${shield} Shield.`);
   }
+  const selfShield = Math.max(0, Math.round(getCardScaledEffectValue(card, 'selfShieldRestoreByLevel', level, 0)));
+  if (selfShield > 0) {
+    parts.push(`Restore ${selfShield} Shield to self.`);
+  }
   const heal = Math.max(0, Math.round(getCardScaledEffectValue(card, 'healByLevel', level, Number(card.heal || 0))));
   if (heal > 0) {
     parts.push(`Restore ${heal} HP.`);
@@ -6795,6 +6787,10 @@ function normalizeCardPayload(raw = {}) {
     shieldRestoreByLevel:
       raw.shieldRestoreByLevel && typeof raw.shieldRestoreByLevel === 'object'
         ? { ...raw.shieldRestoreByLevel }
+        : undefined,
+    selfShieldRestoreByLevel:
+      raw.selfShieldRestoreByLevel && typeof raw.selfShieldRestoreByLevel === 'object'
+        ? { ...raw.selfShieldRestoreByLevel }
         : undefined,
     healByLevel:
       raw.healByLevel && typeof raw.healByLevel === 'object'
